@@ -1,6 +1,14 @@
 # bjarkiCC known issues and validation status
 
-## Current report: 0.4.0
+## Current report: 0.4.1
+
+The user reports that the first offensive application still has no DR timer and a later screenshot shows stage one on the second CC. The live status report records `ownCast.captured: 0`, `ownCast.unresolved: 7`, and zero mapped target/focus aura or per-unit LoC witnesses. Readable UnitName fields were `Björn`, `Janson`; the actual SENT destination was `Björn Janson`. The resolver accepted only the bare name or `Björn-Janson`. This exact mismatch is reproduced and corrected in 0.4.2 by adding an exact space-qualified alias built from readable fields. Same-GUID aliases now share readable names, while distinct ambiguity remains rejected.
+
+Two separate source undercounts were reproduced: confirming only the second of two own-cast estimates discarded the inferred first stage; and a late readable second application lost its predecessor when the old display timer had expired. Version 0.4.2 preserves inferred stages separately from observed counts and retains bounded category history for application-time ordering. The screenshot alone does not establish which stage-loss path occurred in that duel. These are tested source corrections, not an in-game validation result. The chosen 20-second application-only timer remains unchanged, including its stage-one restart at or beyond that boundary.
+
+The report also includes 165 API-call errors without their messages. That counter is not enough to identify an additional failure or attribute it to the earlier Backdrop error. The fixed backdrop path remains covered by its regression. Live retesting of offensive detection and consecutive stages is still pending.
+
+## Previous report: 0.4.0
 
 The user reports an outgoing timer appearing about nine seconds late with a white border, a DR countdown one second above the portrait countdown, and many errors after receiving CC. On a later attempt the error warning did not recur, but borders remained white and consecutive DR did not refresh.
 
@@ -42,6 +50,9 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 
 | Diagnosed cause | Source fix | Verification |
 | --- | --- | --- |
+| Forever SENT used a readable space-qualified name that the resolver did not accept | Build exact space-qualified aliases from readable name/realm fields; share names across same-GUID views | Exact live name case fails before the change and passes afterward; full Main-to-UI first/second cast regression passes |
+| Later readable application discarded earlier inferred stage continuity | Store inferred stage separately from observed stage and expose uncertainty in UI/status | Hidden first/second cast followed by second-application confirmation retains yellow stage two with observed stage one; estimates-off shows the observed count |
+| Expired display timer deleted category history before a delayed second application arrived; an untimed arrival could overwrite its predecessor | Retain bounded current-category evidence plus one flat predecessor and reconcile original application times | Delayed second application and split identity/timing arrivals advance within the first window; a genuine application at or beyond the boundary resets |
 | Player returned from LoC fallback to readable empty auras, discarding the DR timer | Keep successful LoC fallback selected until initialization | Real-model observer regression passes; now asserts unchanged application deadline |
 | A long scan gap retained supposedly complete earlier history | Invalidate continuity after a gap over one second before fresh observations | Gap/uncertainty/recovery regression passes |
 | CC could apply and be removed between throttled scans | Sample relevant aura/LoC events immediately; throttle rendering separately | Integration regression passes |
@@ -63,4 +74,4 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Gray uncertainty border hid counted DR stage | Always show stage color; keep a separate visible `?` and tooltip | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
 | Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
 
-All eight suites pass for 0.4.1: Model 50 cases, Observer 69, OwnCasts 9, plus bootstrap, anchors, UI, end-to-end integration and the backdrop regression. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
+All eight suites pass for 0.4.2: Model 61 cases, Observer 69, OwnCasts 14, plus bootstrap, anchors, UI, end-to-end integration and the backdrop regression. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.

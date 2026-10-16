@@ -208,6 +208,55 @@ for index,event in ipairs({'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED'}
  ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
  assert(#ns.model:GetDR('Player-1-F',now)==0 and not ns.UI.bars.focus.shown,'cancelled focus cast cannot become a visible estimate')
 end
+-- Forever's actual SENT destination can use a space between UnitName fields.
+-- Keep the first hidden application as inference when only the second is seen.
+SlashCmdList.BJARKICC('clear')
+local originalUnitName=UnitName
+UnitName=function(unit)
+ if unit=='target' or unit=='focus' then return 'Björn','Janson' end
+ return originalUnitName(unit)
+end
+units.target='Player-1-SPACE'; units.focus='Player-1-SPACE'
+now=200
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-space-1',6770)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-space-1',6770)
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+targetIcon=ns.UI.bars.target.icons[1]
+assert(ns.UI.bars.target.shown and ns.UI.bars.focus.shown and targetIcon.time.text=='20'
+ and targetIcon.row.stage==1 and targetIcon.row.estimated,'space-qualified destination starts both same-GUID views immediately on success')
+now=210
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-space-2',6770)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-space-2',6770)
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+assert(targetIcon.row.stage==2 and targetIcon.time.text=='20','second hidden cast advances and refreshes the inferred timer')
+now=211
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if (unit=='target' or unit=='focus') and index==1 then
+  return {spellId=6770,auraInstanceID=202,expirationTime=220,duration=10}
+ end
+end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+assert(not targetIcon.row.estimated and targetIcon.row.stage==2 and targetIcon.row.observedStage==1
+ and targetIcon.row.stageEstimated and targetIcon.row.uncertain and targetIcon.time.text=='19',
+ 'confirming the second application preserves the inferred first stage without making it observed')
+for _,edge in ipairs(targetIcon.borderTextures) do
+ assert(edge.color[1]==1 and edge.color[2]==.8,'confirmed second application retains its inferred yellow border')
+end
+targetIcon.scripts.OnEnter(targetIcon)
+assert(table.concat(ns.UI.tip.lines,'\n'):find('Earlier applications remain inferred',1,true),
+ 'tooltip must distinguish inferred prior stages from a confirmed current application')
+local resolutionReport=ns.BuildStatus()
+assert(resolutionReport:find('ownCast.resolve.resolved: 2',1,true)
+ and resolutionReport:find('Björn Janson',1,true),'status exposes bounded safe destination-resolution evidence')
+assert(resolutionReport:find('Observed stage 1; displayed stage 2 includes earlier inferred applications.',1,true),
+ 'status separates the observed stage from the inferred display')
+ns.db.ownCastEstimates=false; ns.UI.Update(now)
+assert(targetIcon.row.stage==1 and not targetIcon.row.stageEstimated,'disabling estimates removes inferred stage continuity')
+ns.db.ownCastEstimates=true; ns.UI.Update(now)
+assert(targetIcon.row.stage==2 and targetIcon.row.stageEstimated,'enabling estimates restores separate inferred continuity')
+UnitName=originalUnitName
 issecretvalue=function() return false end
 C_UnitAuras.GetAuraDataByIndex=function() return nil end
 units.target=nil; units.focus=nil

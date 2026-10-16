@@ -107,7 +107,7 @@ local function tooltip(owner, row, key)
     else
         tip:AddLine('Next duration: '..(row.uncertain and 'unknown' or ({'50%','25%','immune'})[row.stage]),1,1,1)
         if row.uncertain then
-            tip:AddLine(row.estimated
+            tip:AddLine((row.estimated or row.stageEstimated)
                 and ('Border shows estimated stage '..row.stage..'; actual DR is unknown.')
                 or ('Border shows observed stage '..row.stage..'; earlier CC may be missing.'),1,.55,.25,true)
         end
@@ -115,9 +115,16 @@ local function tooltip(owner, row, key)
         tip:AddLine('Starts on application. Breaking or removing CC does not restart it.',.7,.7,.7,true)
         if row.estimated then
             tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
-        elseif row.timeEstimated then
-            tip:AddLine('Application observed; timing is estimated from your earlier cast.',1,.55,.25,true)
-        elseif row.uncertain then tip:AddLine('Observation started late or data was unavailable.',1,.55,.25,true) end
+        else
+            if row.stageEstimated then
+                tip:AddLine('Current application observed. Earlier applications remain inferred; observed stage '..row.observedStage..'.',1,.55,.25,true)
+            end
+            if row.timeEstimated then
+                tip:AddLine('Application observed; timing is estimated from your earlier cast.',1,.55,.25,true)
+            elseif row.uncertain and not row.stageEstimated then
+                tip:AddLine('Observation started late or data was unavailable.',1,.55,.25,true)
+            end
+        end
         tip:AddLine('Classic groups; '..ns.db.resetSeconds..'s application timer.',.7,.7,.7,true)
     end
     tip:Show()

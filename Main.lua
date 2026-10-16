@@ -52,6 +52,9 @@ function ns.BuildStatus()
                     row.category, row.stage, row.started, row.remaining,
                     row.estimated and 'own-cast estimate' or 'observed application',
                     row.uncertain and '; uncertain' or '')
+                if row.stageEstimated then
+                    lines[#lines+1]=string.format('    Observed stage %d; displayed stage %d includes earlier inferred applications.',row.observedStage,row.stage)
+                end
                 if row.timeEstimated then lines[#lines+1]='    Application observed; timing retained from own-cast estimate.' end
             end
         end
@@ -66,6 +69,10 @@ function ns.BuildStatus()
     local ownStats=ns.OwnCasts.stats or {}
     local ownKeys={}; for key in pairs(ownStats) do ownKeys[#ownKeys+1]=key end; table.sort(ownKeys)
     for _,key in ipairs(ownKeys) do lines[#lines+1]='ownCast.'..key..': '..tostring(ownStats[key]) end
+    for _,key in ipairs({'resolved','guidUnavailable','nameUnavailable','nameMismatch','notPlayer','ambiguous'}) do
+        lines[#lines+1]='ownCast.resolve.'..key..': '..tostring((ns.OwnCasts.resolutionCounts or {})[key] or 0)
+    end
+    if ns.OwnCasts.lastResolution then lines[#lines+1]='ownCast.lastResolution: '..ns.OwnCasts.lastResolution end
     if #ns.eventErrors>0 then lines[#lines+1]='Unavailable events: '..table.concat(ns.eventErrors,', ') end
     lines[#lines+1]='Enemy timers require readable spell, identity and hostility. No observations is not proof of readiness.'
     lines[#lines+1]='Static and simulated tests passed; this report does not establish live DR correctness.'

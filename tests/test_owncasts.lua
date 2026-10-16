@@ -94,6 +94,65 @@ test('pending casts stay bounded and an API error fails closed',function()
     UnitGUID=function() error('not readable') end
     eq(ns.OwnCasts.Sent('player','Enemy','Cast-101',853,12),false)
 end)
+test('readable names from one alias resolve another alias of the same GUID',function()
+    reset(); fixture.focus.guid=fixture.target.guid; fixture.focus.name=secret
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-alias',853,10),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-alias',853,10.1),true)
+    eq(rows(nil,10.1)[1].stage,1)
+    eq(ns.OwnCasts.resolutionCounts.resolved,1)
+    assert(ns.OwnCasts.lastResolution:find('resolved',1,true))
+end)
+test('realm whitespace is normalized without changing character spelling or realm identity',function()
+    reset(); fixture.target.name='Björn'; fixture.target.realm='Test Realm'; fixture.focus=nil
+    eq(ns.OwnCasts.Sent('player','Björn-TestRealm','Cast-realm-1',118,10),true)
+    eq(ns.OwnCasts.Sent('player','Björn-Test Realm','Cast-realm-2',118,10),true)
+    eq(ns.OwnCasts.Sent('player','Bjorn-TestRealm','Cast-realm-3',118,10),false)
+    eq(ns.OwnCasts.Sent('player','Björn-OtherRealm','Cast-realm-4',118,10),false)
+    eq(ns.OwnCasts.resolutionCounts.nameMismatch,2)
+end)
+test('Forever space-qualified SENT name resolves the readable character and realm',function()
+    reset(); fixture.target.name='Björn'; fixture.target.realm='Janson'
+    fixture.focus={guid=fixture.target.guid,name='Björn',realm='Janson'}
+    eq(ns.OwnCasts.Sent('player','Björn Janson','Cast-forever-name',118,10),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-forever-name',118,11.5),true)
+    local r=rows(nil,11.5)[1]
+    eq(r.estimated,true); eq(r.stage,1); eq(r.started,11.5); eq(r.remaining,20)
+    eq(ns.OwnCasts.stats.captured,1); eq(ns.OwnCasts.stats.unresolved,0)
+    eq(ns.OwnCasts.Sent('player','Björn Janson','Cast-forever-next',118,15),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-forever-next',118,16.5),true)
+    r=rows(nil,16.5)[1]; eq(r.stage,2); eq(r.started,16.5); eq(r.remaining,20)
+    eq(ns.OwnCasts.Sent('player','Bjorn Janson','Cast-wrong-spelling',118,17),false)
+    eq(ns.OwnCasts.Sent('player','Björn OtherRealm','Cast-wrong-realm',118,17),false)
+    fixture.focus={guid='Player-1-B',name='Björn',realm='Janson'}
+    eq(ns.OwnCasts.Sent('player','Björn Janson','Cast-ambiguous-qualified',118,17),false)
+    eq(ns.OwnCasts.resolutionCounts.ambiguous,1)
+end)
+test('unknown distinct identities and ambiguous names remain unresolved',function()
+    reset(); fixture.focus.name=secret
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-hidden-name',853,10),false)
+    eq(ns.OwnCasts.resolutionCounts.nameUnavailable,1)
+    fixture.focus.guid=secret
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-hidden-guid',853,10),false)
+    eq(ns.OwnCasts.resolutionCounts.guidUnavailable,1)
+    fixture.focus={guid='Player-1-B',name='Enemy',realm='RealmTwo'}
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-ambiguous',853,10),false)
+    eq(ns.OwnCasts.resolutionCounts.ambiguous,1)
+    fixture.target.isPlayer=false
+    eq(ns.OwnCasts.Sent('player','Enemy-RealmOne','Cast-nonplayer',853,10),false)
+    eq(ns.OwnCasts.resolutionCounts.notPlayer,1)
+end)
+test('destination diagnostics are bounded and contain only readable display values',function()
+    reset(); fixture.focus.name=secret; fixture.focus.realm=secret
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-diagnostic',853,10),false)
+    assert(type(ns.OwnCasts.lastResolution)=='string' and #ns.OwnCasts.lastResolution<=1024)
+    assert(ns.OwnCasts.lastResolution:find('nameUnavailable',1,true))
+    assert(ns.OwnCasts.lastResolution:find('Enemy',1,true))
+    fixture.target.name=string.rep('A',2000)
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-diagnostic-long',853,10),false)
+    assert(#ns.OwnCasts.lastResolution<=1024)
+    ns.OwnCasts.Init(); eq(ns.OwnCasts.lastResolution,nil)
+    for _,count in pairs(ns.OwnCasts.resolutionCounts) do eq(count,0) end
+end)
 local failed=0
 for _,case in ipairs(tests) do
     local ok,err=pcall(case[2]); if ok then print('PASS '..case[1]) else failed=failed+1; print('FAIL '..case[1]..': '..tostring(err)) end

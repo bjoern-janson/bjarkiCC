@@ -40,14 +40,23 @@ function Model.New(resetSeconds)
     }, Model)
 end
 
-local function pruneDR(unit, now, resetSeconds)
-    for category, state in pairs(unit.categories) do
-        if now >= state.appliedAt + resetSeconds then
-            unit.categories[category] = nil
-        end
-    end
-    -- Keep effect identities until a complete snapshot proves their removal.
-    -- An aura may outlive its DR timer; polling it must not create a new one.
+local function inWindow(state, now, resetSeconds)
+    return state and now < state.appliedAt + resetSeconds
+end
+
+local function predecessor(state)
+    if not state then return nil end
+    -- One flat predecessor lets a later readable timestamp repair the latest
+    -- provisional application. Never copy previousApplication recursively.
+    return {
+        stage = state.stage, inferredStage = state.inferredStage,
+        appliedAt = state.appliedAt, spellID = state.spellID,
+        applicationKey = state.applicationKey, timeEstimated = state.timeEstimated,
+        uncertain = state.uncertain, activeCount = 0,
+        confirmationStage = state.confirmationStage,
+        confirmationSentAt = state.confirmationSentAt,
+        confirmationAppliedAt = state.confirmationAppliedAt,
+    }
 end
 
 local function applicationTime(effect, now)
@@ -81,7 +90,10 @@ function Model:Observe(guid, effects, now, complete)
         self.units[guid] = unit
     end
     unit.seen = now
-    pruneDR(unit, now, self.resetSeconds)
+    -- Keep the last application per category even after its visible timer ends.
+    -- A delayed readable witness chains by application time, not arrival time.
+    -- Each category also has at most one flat predecessor for timing correction.
+    -- Category count is fixed by Data; retained GUIDs have the MAX_UNITS cap.
 
     if complete then
         if not unit.completeSince then unit.completeSince = now end
@@ -118,30 +130,39 @@ function Model:Observe(guid, effects, now, complete)
             local prediction = self.estimates[guid]
             local candidate = prediction and prediction.categories[category]
             local matchedPrediction = candidate and candidate.spellID == effect.spellID
-                and (not preciseStart or preciseStart >= (candidate.sentAt or candidate.appliedAt))
+                and (not preciseStart or (preciseStart >= (candidate.sentAt or candidate.appliedAt)
+                    and inWindow(candidate, preciseStart, self.resetSeconds)))
             local estimatedTime = not preciseStart and matchedPrediction and candidate.appliedAt or nil
             local appliedAt = preciseStart or estimatedTime or now
-            if appliedAt + self.resetSeconds > now then
-                if state and appliedAt < state.appliedAt then
-                    -- A late older witness cannot rewind the current deadline
-                    -- or confidently reconstruct intervening application order.
-                    state.uncertain = true
-                else
-                    if not state then
-                        state = {
-                            stage = 0,
-                            activeCount = 0,
-                            uncertain = not unit.completeSince or appliedAt < unit.completeSince + self.resetSeconds,
-                        }
-                        unit.categories[category] = state
-                    end
-                    state.stage = math.min(3, state.stage + 1)
-                    state.spellID = effect.spellID
-                    state.appliedAt = appliedAt
-                    state.applicationKey = key
-                    state.timeEstimated = estimatedTime ~= nil
-                    if estimatedTime or (refreshed and effect.applicationSource == "aura") then state.uncertain = true end
+            if state and appliedAt < state.appliedAt then
+                -- A late older witness cannot rewind the current deadline
+                -- or confidently reconstruct intervening application order.
+                state.uncertain = true
+            else
+                local prior = predecessor(state)
+                if not inWindow(state, appliedAt, self.resetSeconds) then
+                    state = {
+                        stage = 0,
+                        activeCount = 0,
+                        uncertain = not unit.completeSince or appliedAt < unit.completeSince + self.resetSeconds,
+                    }
+                    unit.categories[category] = state
                 end
+                local inferredStage = state.inferredStage and math.min(3, state.inferredStage + 1)
+                state.stage = math.min(3, state.stage + 1)
+                if matchedPrediction then inferredStage = math.max(inferredStage or 0, candidate.stage) end
+                -- The current application is observed; earlier unconfirmed casts
+                -- remain only an optional display overlay, never observed history.
+                state.inferredStage = inferredStage and inferredStage > state.stage and inferredStage or nil
+                state.spellID = effect.spellID
+                state.appliedAt = appliedAt
+                state.applicationKey = key
+                state.timeEstimated = estimatedTime ~= nil
+                state.previousApplication = prior
+                state.confirmationStage = matchedPrediction and candidate.stage or nil
+                state.confirmationSentAt = matchedPrediction and (candidate.sentAt or candidate.appliedAt) or nil
+                state.confirmationAppliedAt = matchedPrediction and candidate.appliedAt or nil
+                if estimatedTime or (refreshed and effect.applicationSource == "aura") then state.uncertain = true end
             end
             if prediction and candidate and (matchedPrediction or candidate.appliedAt <= appliedAt) then
                 prediction.categories[category] = nil
@@ -151,9 +172,29 @@ function Model:Observe(guid, effects, now, complete)
             and state and state.applicationKey == key then
             -- The identity was observed before timing became readable. Correct
             -- that application in place; its arrival is not another CC.
-            state.appliedAt, state.timeEstimated = preciseStart, false
-            if not unit.completeSince or preciseStart < unit.completeSince + self.resetSeconds then state.uncertain = true end
-            if preciseStart + self.resetSeconds <= now then unit.categories[category] = nil end
+            local prior = state.previousApplication
+            if prior and preciseStart < prior.appliedAt then
+                -- This provisional witness turns out to predate the retained
+                -- application. Restore that newer state instead of rewinding it.
+                prior.uncertain = true
+                unit.categories[category] = prior
+            else
+                local continuing = inWindow(prior, preciseStart, self.resetSeconds)
+                if prior then
+                    state.stage = math.min(3, (continuing and prior.stage or 0) + 1)
+                    local inferredStage = continuing and prior.inferredStage and math.min(3, prior.inferredStage + 1)
+                    if state.confirmationStage and preciseStart >= state.confirmationSentAt
+                        and preciseStart < state.confirmationAppliedAt + self.resetSeconds then
+                        inferredStage = math.max(inferredStage or 0, state.confirmationStage)
+                    end
+                    state.inferredStage = inferredStage and inferredStage > state.stage and inferredStage or nil
+                end
+                -- A restored flat predecessor has no older history attached;
+                -- correcting its clock cannot discard its already known count.
+                state.appliedAt, state.timeEstimated = preciseStart, false
+                if (continuing and prior.uncertain) or not unit.completeSince
+                    or preciseStart < unit.completeSince + self.resetSeconds then state.uncertain = true end
+            end
         elseif state and previous.expires and effect.expires and effect.expires > previous.expires then
             -- A stable key with an extended expiry may be a refreshed CC. It
             -- provides no reliable new application, so never restart its timer
@@ -207,8 +248,8 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     trimOldest(prediction.castIDs, MAX_CAST_IDS)
     trimOldest(self.estimates, MAX_UNITS)
     local unit = self.units[guid]
-    if unit then pruneDR(unit, now, self.resetSeconds) end
     local actual = unit and unit.categories[category]
+    if not inWindow(actual, now, self.resetSeconds) then actual = nil end
     -- Prefer an application already observed during this cast. This does not
     -- claim to identify its caster; it merely avoids stacking a guess on it.
     if actual and actual.appliedAt >= (sentAt or now) then return false end
@@ -216,7 +257,7 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     local base = actual
     if previous and (not base or previous.appliedAt > base.appliedAt) then base = previous end
     prediction.categories[category] = {
-        spellID = spellID, appliedAt = now, stage = math.min(3, (base and base.stage or 0) + 1),
+        spellID = spellID, appliedAt = now, stage = math.min(3, (base and (base.inferredStage or base.stage) or 0) + 1),
         sentAt = sentAt or now,
     }
     return true
@@ -225,10 +266,11 @@ end
 function Model:GetDR(guid, now, includeEstimates)
     local rows = {}
     local unit = guid and self.units[guid]
-    if unit then pruneDR(unit, now, self.resetSeconds) end
     self:PruneEstimates(now)
     local states = {}
-    for category, state in pairs(unit and unit.categories or {}) do states[category] = state end
+    for category, state in pairs(unit and unit.categories or {}) do
+        if inWindow(state, now, self.resetSeconds) then states[category] = state end
+    end
     local prediction = includeEstimates ~= false and guid and self.estimates[guid]
     for category, state in pairs(prediction and prediction.categories or {}) do
         if not states[category] or state.appliedAt > states[category].appliedAt then
@@ -238,15 +280,20 @@ function Model:GetDR(guid, now, includeEstimates)
     for category, state in pairs(states) do
         local estimated = prediction and prediction.categories[category] == state or false
         local active = not estimated and state.activeCount > 0
+        local inferredStage = includeEstimates ~= false and not estimated and state.inferredStage
+        local stageEstimated = inferredStage ~= nil and inferredStage ~= false and inferredStage > state.stage
+        local observed = unit and unit.categories[category]
         rows[#rows + 1] = {
             category = category,
             spellID = state.spellID,
-            stage = state.stage,
+            stage = stageEstimated and inferredStage or state.stage,
+            observedStage = estimated and (inWindow(observed, now, self.resetSeconds) and observed.stage or 0) or state.stage,
+            stageEstimated = stageEstimated,
             remaining = math.max(0, self.resetSeconds - (now - state.appliedAt)),
             duration = self.resetSeconds,
             started = state.appliedAt,
             active = active,
-            uncertain = estimated or state.uncertain,
+            uncertain = estimated or stageEstimated or state.uncertain,
             estimated = estimated,
             timeEstimated = state.timeEstimated == true,
         }

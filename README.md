@@ -2,7 +2,14 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.1-beta** targets **1.60.1.70425**, interface **16001**. All eight offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.2-beta** targets **1.60.1.70425**, interface **16001**. All eight offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Corrections in 0.4.2
+
+- Accept Forever's observed `Name Realm` cast destination alongside `Name` and `Name-Realm`, using readable unit-name fields. This fixes the reproduced matching failure that prevented offensive estimates from starting. Target/focus aliases of the same GUID share readable names; distinct ambiguous destinations remain rejected.
+- Keep inferred stage progression when a later application becomes readable. A confirmed second CC no longer discards the earlier cast estimate and displays stage one. Earlier inferred applications remain marked `?`; tooltips and diagnostics distinguish them from observed stages.
+- Retain bounded category history after the icon expires so a delayed readable application can advance from its actual timestamp. Applications at or beyond the preceding 20-second boundary still begin a new stage-one window.
+- `/bcc status` now gives destination-resolution counts and the last safe name-matching summary. The application-based timer, frame offsets and solid texture borders are unchanged.
 
 ## Corrections in 0.4.1
 
