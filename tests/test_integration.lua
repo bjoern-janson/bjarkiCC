@@ -11,10 +11,11 @@ for _,key in ipairs(generic) do frameMethods[key]=function() end end
 function frameMethods:SetSize(w,h) self.width=w; self.height=h end
 function frameMethods:SetPoint(...) self.point={...} end
 function frameMethods:SetBackdropBorderColor(...) self.border={...} end
+function frameMethods:SetColorTexture(...) self.color={...} end
 function frameMethods:AddLine(text) self.lines=self.lines or {}; self.lines[#self.lines+1]=text end
 function frameMethods:SetScript(event, fn) self.scripts[event]=fn end
 function frameMethods:RegisterEvent(event) self.events[event]=true end
-function frameMethods:SetText(text) self.text=text end
+function frameMethods:SetText(text) self.text=text; if self.kind=='GameTooltip' then self.lines={} end end
 function frameMethods:SetChecked(value) self.checked=value end
 function frameMethods:GetChecked() return self.checked end
 function frameMethods:SetValue(value) self.value=value; if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self,value) end end
@@ -32,8 +33,8 @@ function frameMethods:Hide() self.shown=false end
 function frameMethods:Show() local changed=not self.shown; self.shown=true; if changed and self.scripts.OnShow then self.scripts.OnShow(self) end end
 function frameMethods:SetShown(v) if v then self:Show() else self:Hide() end end
 function frameMethods:SetCooldown(start,duration) assert(type(start)=='number' and type(duration)=='number'); self.cooldown={start,duration} end
-local function object(kind,name,parent)
- local f=setmetatable({kind=kind,name=name,parent=parent,scripts={},events={},shown=true},{__index=frameMethods})
+local function object(kind,name,parent,template)
+ local f=setmetatable({kind=kind,name=name,parent=parent,template=template,scripts={},events={},shown=true},{__index=frameMethods})
  frames[#frames+1]=f; if name then _G[name]=f end; return f
 end
 function frameMethods:CreateFontString() return object('FontString',nil,self) end
@@ -78,6 +79,8 @@ assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
 assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
 assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+assert(not ns.UI.bars.player.template and not ns.UI.bars.target.template and not ns.UI.bars.focus.template,
+ 'unit-anchored bars must not inherit BackdropTemplate secret-size arithmetic')
 assert(ns.UI.bars.player.point[2]==playerHealth and ns.UI.bars.target.point[2]==targetHealth and ns.UI.bars.focus.point[2]==focusHealth,'default DR bars attach to the matching modern health regions')
 assert(ns.UI.bars.player.point[1]=='BOTTOMLEFT' and ns.UI.bars.player.point[3]=='TOPLEFT'
  and ns.UI.bars.player.point[4]==24 and ns.UI.bars.player.point[5]==24,'player starts above the inward health edge')
@@ -146,7 +149,13 @@ local targetIcon=ns.UI.bars.target.icons[1]
 assert(#outgoing==1 and outgoing[1].estimated and outgoing[1].uncertain and outgoing[1].stage==1,'correlated player success creates a separate uncertain estimate')
 assert(ns.UI.bars.target.shown and targetIcon.row.estimated and targetIcon.time.text=='20'
  and targetIcon.state.shown and targetIcon.state.text=='?','Main success dispatch reaches the visible target estimate with its uncertainty marker')
-assert(targetIcon.border[1]==.65 and targetIcon.border[2]==.65 and targetIcon.border[3]==.65,'estimated outgoing DR uses a gray border')
+assert(not targetIcon.template,'anchored icon cannot inherit BackdropTemplate size callbacks')
+for _,edge in ipairs(targetIcon.borderTextures) do
+ assert(edge.color[1]==.25 and edge.color[2]==1 and edge.color[3]==.3,'estimated first DR retains its green stage border alongside the question mark')
+end
+targetIcon.scripts.OnEnter(targetIcon)
+assert(ns.UI.tip.lines[1]=='Next duration: unknown','estimated stage color must not promise the next CC duration')
+assert(table.concat(ns.UI.tip.lines,'\n'):find('estimated stage 1',1,true),'estimate tooltip identifies what the border represents')
 assert(next(ns.model.units['Player-1-T'].categories)==nil,'outgoing cast events do not populate observed DR history')
 -- A later readable application replaces the estimate; it cannot become stage two.
 now=101.1
@@ -158,11 +167,40 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
 outgoing=ns.model:GetDR('Player-1-T',now)
 assert(#outgoing==1 and not outgoing[1].estimated and outgoing[1].stage==1
- and outgoing[1].started==101.1,'readable application replaces the cast estimate without double counting')
+ and outgoing[1].started==101.05 and outgoing[1].timeEstimated,'untimed confirmation retains the earlier cast clock without double counting')
 assert(ns.UI.bars.target.shown and not targetIcon.row.estimated and targetIcon.row.stage==1,'the rendered target row switches to observed evidence')
+targetIcon.scripts.OnEnter(targetIcon)
+assert(table.concat(ns.UI.tip.lines,'\n'):find('timing is estimated from your earlier cast',1,true),'confirmed application does not silently make its cast clock exact')
+-- Readable timing corrects the existing identity; then a shorter repeated CC
+-- can end sooner than the original and still be a new application.
+local targetAura={spellId=853,auraInstanceID=100,expirationTime=111.05,duration=10}
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if unit=='target' and index==1 then return targetAura end
+ if unit=='focus' and index==1 then return {spellId=outgoingSecret,auraInstanceID=99} end
+end
+now=101.2
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
+outgoing=ns.model:GetDR('Player-1-T',now)
+assert(outgoing[1].stage==1 and not outgoing[1].timeEstimated and math.abs(outgoing[1].started-101.05)<.0001,'timing becoming readable corrects rather than duplicates the application')
+now=102; targetAura.expirationTime=107; targetAura.duration=5
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+assert(targetIcon.row.stage==2 and targetIcon.row.started==102 and targetIcon.time.text=='20','shorter consecutive CC refreshes application timer and advances stage')
+for _,edge in ipairs(targetIcon.borderTextures) do
+ assert(edge.color[1]==1 and edge.color[2]==.8 and edge.color[3]==.15,'second observed application renders the yellow stage border')
+end
+assert(targetIcon.state.shown and targetIcon.state.text=='?','derived refresh preserves its uncertainty independently of color')
+assert(ns.BuildStatus():find('DR stun: stage 2; started 102.000',1,true),'status exposes the current application clock for runtime diagnosis')
+now=103; targetAura.expirationTime=105.5; targetAura.duration=2.5
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+assert(targetIcon.row.stage==3 and targetIcon.row.started==103 and targetIcon.time.text=='20','third readable application refreshes the timer and reaches the final DR stage')
+for _,edge in ipairs(targetIcon.borderTextures) do
+ assert(edge.color[1]==1 and edge.color[2]==.2 and edge.color[3]==.15,'third observed application renders red while keeping uncertainty visible')
+end
 -- Failed/interrupted casts cannot seed focus predictions, even after a stale success.
 for index,event in ipairs({'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED'}) do
- now=102+index/10
+ now=104+index/10
  local castID='Cast-cancelled-'..index
  ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','FocusEnemy',castID,118)
  ns.eventFrame.scripts.OnEvent(ns.eventFrame,event,'player',castID,118)
@@ -235,6 +273,12 @@ assert(not ns.UI.bars.player.title.shown,'no headers in normal play')
 assert(ns.UI.bars.player.icons[1].time.text=='20','DR countdown is visible from application while CC remains active')
 assert(ns.UI.bars.player.icons[1].swipe.shown and ns.UI.bars.player.icons[1].swipe.cooldown[1]==now,'DR sweep starts on the observed application')
 assert(ns.UI.bars.player.icons[1].state.shown and ns.UI.bars.player.icons[1].state.text=='?','uncertain DR marker never hidden')
+for _,edge in ipairs(ns.UI.bars.player.icons[1].borderTextures) do
+ assert(edge.color[1]==1 and edge.color[2]==.2 and edge.color[3]==.15,'uncertain observed stage three keeps its red stage border')
+end
+ns.UI.bars.player.icons[1].scripts.OnEnter(ns.UI.bars.player.icons[1])
+assert(ns.UI.tip.lines[1]=='Next duration: unknown'
+ and table.concat(ns.UI.tip.lines,'\n'):find('observed stage 3',1,true),'incomplete observed history remains explicit in the stage-colored tooltip')
 assert(ns.UI.bars.cooldown.icons[1].state.shown and ns.UI.bars.cooldown.icons[1].state.text=='?','earliest-ready uncertainty visible')
 assert(ns.UI.bars.cooldown.overflow.shown and ns.UI.bars.cooldown.overflow.text=='+1','overflow stays visible without heading')
 local hovered=ns.UI.bars.cooldown.icons[1]

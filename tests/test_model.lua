@@ -24,8 +24,8 @@ local function new()
     assert(ns.Model and type(ns.Model.New) == "function", "Model.New is not implemented")
     return ns.Model.New(20)
 end
-local function effect(category, spellID, expires)
-    return {category=category or "stun", spellID=spellID or 100, expires=expires}
+local function effect(category, spellID, expires, appliedAt)
+    return {category=category or "stun", spellID=spellID or 100, expires=expires, appliedAt=appliedAt}
 end
 local function baseline(model, guid)
     model:Observe(guid, {}, 0, true)
@@ -353,7 +353,7 @@ test("cast estimate stage overlays old observations without mutating them", func
     eq(only(m:GetDR("a",26)).estimated,true,"polling an old aura is not a new application")
     m:EstimateDR("a",100,"stun",27,"Cast-2")
     eq(only(m:GetDR("a",27)).stage,3)
-    m:Observe("a",{b=effect()},28,true)
+    m:Observe("a",{b=effect("stun",100,48,28)},28,true)
     local r=only(m:GetDR("a",28))
     eq(r.stage,2,"observed stage ignores every prediction")
     eq(r.estimated,false); eq(r.started,28)
@@ -381,6 +381,166 @@ test("cast estimates deduplicate, bound memory, and forget alongside DR", functi
     local count=0; for _ in pairs(m.estimates) do count=count+1 end
     assert(count<=128,"prediction GUID memory must be bounded")
     m:PruneEstimates(1000); eq(next(m.estimates),nil)
+end)
+
+test("late readable application uses its original clock", function()
+    local m = new(); baseline(m,"a")
+    m:Observe("a",{a=effect("stun",100,41,21)},30,true)
+    local r=only(m:GetDR("a",30)); eq(r.started,21); eq(r.remaining,11); eq(r.stage,1)
+    m:Observe("a",{},31,true)
+    eq(only(m:GetDR("a",31)).remaining,10,"removal cannot restart the original clock")
+end)
+
+test("an already expired late witness is remembered without a new timer", function()
+    local m = new()
+    m:Observe("a",{a=effect("stun",100,80,10)},31,true)
+    eq(#m:GetDR("a",31),0)
+    m:Observe("a",{a=effect("stun",100,80)},32,true)
+    eq(#m:GetDR("a",32),0,"losing readable timing cannot resurrect the known identity")
+end)
+
+test("an older late witness never rewinds a newer application", function()
+    local m = new(); baseline(m,"a")
+    m:Observe("a",{b=effect("stun",100,50,25)},25,true)
+    m:Observe("a",{a=effect("stun",100,45,21),b=effect("stun",100,50,25)},30,true)
+    local r=only(m:GetDR("a",30)); eq(r.started,25); eq(r.remaining,15); eq(r.uncertain,true)
+end)
+
+test("timed confirmation replaces a prediction without restarting at arrival", function()
+    local m = new(); baseline(m,"a")
+    m:EstimateDR("a",100,"stun",21,"Cast-1",20.9)
+    m:Observe("a",{a=effect("stun",100,41,21)},30,true)
+    local r=only(m:GetDR("a",30)); eq(r.started,21); eq(r.remaining,11); eq(r.stage,1); eq(r.estimated,false)
+end)
+
+test("untimed confirmation retains an earlier same-spell prediction clock", function()
+    local m = new(); baseline(m,"a")
+    m:EstimateDR("a",100,"stun",21,"Cast-1",20.9)
+    m:Observe("a",{a=effect()},30,true)
+    local r=only(m:GetDR("a",30)); eq(r.started,21); eq(r.remaining,11)
+    eq(r.stage,1); eq(r.estimated,false); eq(r.uncertain,true); eq(r.timeEstimated,true)
+end)
+
+test("fresh history at arrival cannot make a late application confident", function()
+    local m = new(); m:Observe("a",{},10,true)
+    m:Observe("a",{a=effect("stun",100,40,21)},31,true)
+    eq(only(m:GetDR("a",31)).uncertain,true,"history proof is measured before application")
+end)
+
+test("stable aura identity with a new LoC application timestamp advances once", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,41,21); a.applicationSource="loc"
+    m:Observe("a",{a=a},21,true)
+    local b=effect("stun",100,45,25); b.applicationSource="loc"
+    m:Observe("a",{a=b},25,true)
+    local r=only(m:GetDR("a",25)); eq(r.stage,2); eq(r.started,25)
+    m:Observe("a",{a=b},26,true)
+    eq(only(m:GetDR("a",26)).stage,2); eq(only(m:GetDR("a",26)).started,25)
+    b=effect("stun",100,45.0001,25.0001); b.applicationSource="loc"
+    m:Observe("a",{a=b},27,true); eq(only(m:GetDR("a",27)).stage,2,"rounding drift is not a reapplication")
+end)
+
+test("aura-derived refresh requires a newer start and a changed expiration", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,41,21); a.applicationSource="aura"
+    m:Observe("a",{a=a},21,true)
+    local b=effect("stun",100,41,23); b.applicationSource="aura"
+    m:Observe("a",{a=b},24,true)
+    eq(only(m:GetDR("a",24)).stage,1,"duration adjustment alone is not a new application")
+    b=effect("stun",100,45,25); b.applicationSource="aura"
+    m:Observe("a",{a=b},25,true)
+    local r=only(m:GetDR("a",25)); eq(r.stage,2); eq(r.started,25)
+    m:Observe("a",{a=b},26,true); eq(only(m:GetDR("a",26)).stage,2)
+end)
+
+test("temporarily missing timing cannot turn a stable poll into reapplication", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,41,21); a.applicationSource="loc"
+    m:Observe("a",{a=a},21,true)
+    m:Observe("a",{a=effect("stun",100,41)},22,false)
+    m:Observe("a",{a=a},23,true)
+    eq(only(m:GetDR("a",23)).stage,1); eq(only(m:GetDR("a",23)).started,21)
+end)
+
+test("newly readable timing corrects the current identity without another stage", function()
+    local m = new(); baseline(m,"a")
+    m:Observe("a",{a=effect()},30,true)
+    local a=effect("stun",100,41,21); a.applicationSource="loc"
+    m:Observe("a",{a=a},31,true)
+    local r=only(m:GetDR("a",31)); eq(r.started,21); eq(r.remaining,10); eq(r.stage,1)
+end)
+
+test("newly readable expired timing clears but cannot resurrect an identity", function()
+    local m = new()
+    m:Observe("a",{a=effect()},30,true)
+    local a=effect("stun",100,60,10); a.applicationSource="loc"
+    m:Observe("a",{a=a},31,true)
+    eq(#m:GetDR("a",31),0)
+    m:Observe("a",{a=a},32,true); eq(#m:GetDR("a",32),0)
+    m = new(); m:Observe("a",{a=effect()},0,true); eq(#m:GetDR("a",20),0)
+    a=effect("stun",100,60,0); a.applicationSource="loc"
+    m:Observe("a",{a=a},21,true); eq(#m:GetDR("a",21),0)
+end)
+
+test("derived refresh advances observed stage while preserving ambiguity", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,41,21); a.applicationSource="aura"
+    m:Observe("a",{a=a},21,true)
+    local b=effect("stun",100,45,25); b.applicationSource="aura"
+    m:Observe("a",{a=b},25,true)
+    local r=only(m:GetDR("a",25)); eq(r.stage,2); eq(r.uncertain,true)
+end)
+
+test("a new readable start after an untimed observation identifies reapplication", function()
+    for _,source in ipairs({"loc","aura"}) do
+        local m = new(); baseline(m,"a")
+        m:Observe("a",{a=effect("stun",100,41)},21,true)
+        local a=effect("stun",100,45,25); a.applicationSource=source
+        m:Observe("a",{a=a},26,true)
+        local r=only(m:GetDR("a",26)); eq(r.stage,2); eq(r.started,25); eq(r.remaining,19)
+        m:Observe("a",{a=a},27,true); eq(only(m:GetDR("a",27)).stage,2)
+    end
+end)
+
+test("explicit LoC timing corrects the same application derived from aura duration", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,41.3,21.3); a.applicationSource="aura"
+    m:Observe("a",{a=a},22,true)
+    local b=effect("stun",100,41,21); b.applicationSource="loc"
+    m:Observe("a",{a=b},23,true)
+    local r=only(m:GetDR("a",23)); eq(r.stage,1); eq(r.started,21); eq(r.remaining,18)
+end)
+
+test("a shorter diminished refresh advances the same aura identity once", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,120,100); a.applicationSource="aura"
+    m:Observe("a",{a=a},100,true)
+    local b=effect("stun",100,115,105); b.applicationSource="aura"
+    m:Observe("a",{a=b},105,true)
+    local r=only(m:GetDR("a",105)); eq(r.stage,2); eq(r.started,105); eq(r.remaining,20); eq(r.uncertain,true)
+    m:Observe("a",{a=b},106,true)
+    r=only(m:GetDR("a",106)); eq(r.stage,2); eq(r.started,105); eq(r.remaining,19)
+end)
+
+test("a new explicit LoC start after aura observation is a reapplication", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,41,21); a.applicationSource="aura"
+    m:Observe("a",{a=a},21,true)
+    local b=effect("stun",100,35,25); b.applicationSource="loc"
+    m:Observe("a",{a=b},25,true)
+    local r=only(m:GetDR("a",25)); eq(r.stage,2); eq(r.started,25)
+    m:Observe("a",{a=b},26,true); eq(only(m:GetDR("a",26)).stage,2)
+end)
+
+test("explicit timing can correct a later refresh without counting it again", function()
+    local m = new(); baseline(m,"a")
+    local a=effect("stun",100,41,21); a.applicationSource="aura"
+    m:Observe("a",{a=a},21,true)
+    local b=effect("stun",100,35.3,25.3); b.applicationSource="aura"
+    m:Observe("a",{a=b},26,true)
+    local c=effect("stun",100,35,25); c.applicationSource="loc"
+    m:Observe("a",{a=c},27,true)
+    local r=only(m:GetDR("a",27)); eq(r.stage,2); eq(r.started,25); eq(r.remaining,18)
 end)
 
 local function runModelTests()

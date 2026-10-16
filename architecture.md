@@ -68,7 +68,7 @@ Record build, spell rank/ID, victim, application time, early-break/removal time,
 
 No implementation code from these projects was copied into bjarkiCC by this research task.
 
-## Implemented architecture in 0.4.0-beta
+## Implemented architecture in 0.4.1-beta
 
 Target client: **WoW Forever beta 1.60.1.70425**, interface **16001**. The user explicitly chose to keep the **application-based display timer** after the Classic distinction above was explained. A new application starts or refreshes the configured timer, default 20 seconds; breaking/removing CC does not restart it. This is the selected addon estimate policy, not a verified Classic or Forever server-reset rule.
 
@@ -100,15 +100,17 @@ Client inputs pass accessibility/secret checks before truthiness, comparison, in
 
 One snapshot is taken per GUID, preferring player, then target, then focus. All identities are resolved before releasing history, so self-targets, shared target/focus, swaps and clearing one alias cannot double-count or erase another alias's observation history. Losing every tracked reference releases observed DR. Gaps above one second invalidate confidence before fresh snapshots are consumed.
 
-The player keeps a successful LoC fallback until observer reset. Target/focus merge readable ByUnit LoC witnesses when the harmful aura scan is incomplete. Full aura coverage is still the completeness authority: an empty LoC list cannot prove that omitted roots, slows or other categories ended. Exact aura instance IDs normalize across sources. A handoff with only a start-time identity remains uncertain rather than counting a second confident application. Retained identities are bounded during prolonged incomplete scans; capacity is reported in diagnostics.
+The player keeps a successful LoC fallback until observer reset. Switching sensors for the same GUID invalidates confidence without deleting already observed category stages or deadlines; retained identities reconcile the incoming evidence. Target/focus merge readable ByUnit LoC witnesses when the harmful aura scan is incomplete. Full aura coverage is still the completeness authority: an empty LoC list cannot prove that omitted roots, slows or other categories ended. Exact aura instance IDs normalize across sources. A sole cross-source candidate keeps its canonical identity while retaining readable explicit LoC timing, so a later start can identify a reapplication without duplicating an unchanged effect. Such identity matching stays uncertain; multiple indistinguishable candidates do not establish a new application. Retained identities are bounded during prolonged incomplete scans; capacity is reported in diagnostics.
 
-`Model:Observe` owns observed applications. New identities advance the category and set its application deadline. Repeated snapshots never refresh it. Removal changes active metadata only. Expired timers are removed even if the aura remains, while its identity stays remembered so polling cannot resurrect it. Partial snapshots retain potentially hidden effects and invalidate confidence. A same-key expiry extension is ambiguous refresh evidence, not a guaranteed new application.
+`Model:Observe` owns observed applications. New identities advance the category and set its application deadline. The observer preserves a readable LoC `startTime`, or derives a start from separately validated aura expiration and duration. No start is derived from `now + timeRemaining`. The model uses the original start: first discovery nine seconds late leaves eleven seconds of a 20-second timer. An already-expired application retains its identity without creating a fresh timer. Newly readable original timing can correct an existing untimed identity without advancing its stage.
+
+A stable identity with a later explicit LoC start can be a reapplication. For aura-derived timing, the start must advance and the expiration must change; the latter may become earlier when DR shortens the new CC. The result remains uncertain because a snapshot cannot fully distinguish a refresh from a duration correction. Sub-millisecond timing jitter is ignored. Ordinary unchanged polling, duration-only correction with unchanged expiration, and bare expiry extension without a readable start do not multiply stages. Removal changes active metadata only and never restarts the application timer. Partial snapshots retain potentially hidden effects and invalidate confidence.
 
 ### Own-cast estimates
 
 The option is enabled by default and can be disabled in DR settings. Only an explicit allowlist of targeted CC is eligible; area spells, traps and procs are excluded. `UNIT_SPELLCAST_SENT` matches the intended name against readable player target/focus candidates, rejecting ambiguity between those candidates. It supplies a name, not a victim GUID: a same-name destination outside target/focus (for example a mouseover) cannot be ruled out. `UNIT_SPELLCAST_SUCCEEDED` must match the cast identity and spell. Failed/interrupted casts and expired pending records are discarded. Target changes after send cannot redirect the stored candidate. The estimate starts at success, which approximates rather than proves application time.
 
-Estimates live outside the observed effect/category tables. They always carry `estimated=true` and `uncertain=true`, with a gray `?` and an explanatory tooltip. Newer readable applications take precedence without advancing observed stages twice. Disabling the option restores the observed view. A successful cast can still be resisted or immune; a generic miss event cannot reliably identify a particular cast to undo. Pending records, predictions and duplicate identities are bounded.
+Estimates live outside the observed effect/category tables. They always carry `estimated=true` and `uncertain=true`, with a stage-colored border, persistent `?` and an explanatory tooltip. Readable applications take precedence without advancing observed stages twice. If a same-spell application becomes readable without timing, its earlier cast clock is retained as `timeEstimated`; confirmed application evidence does not silently make that clock exact. Disabling the option restores the observed view. A successful cast can still be resisted or immune; a generic miss event cannot reliably identify a particular cast to undo. Pending records, predictions and duplicate identities are bounded.
 
 ### Cooldowns and spell data
 
@@ -126,6 +128,14 @@ Schema 5 migrates previous default placement to the health anchors. Customized f
 
 Normal play has no headings or category captions. Empty bars hide. Caster names and DR percentages are optional; uncertainty stays visible. Test mode is synthetic and cannot alter tracking history.
 
+Borders show the counted/estimated stage even when history is incomplete: green, yellow, red. `?` carries uncertainty separately and the tooltip explains that the actual next duration is unknown. Whole-second numbers use `string.format('%.0f', seconds)`, matching the installed portrait formatter; no second is subtracted from the underlying clock.
+
+### Logged backdrop error and rendering boundary
+
+The user's 0.4.0 error report was corroborated by 1,632 entries in the local client log: `Backdrop.lua:226` attempted arithmetic on secret `width`, tainted by bjarkiCC, from the size-change callback. The installed UI.lua hash matched that release. The user's full subsequent trace identifies the exact icon at `UI.lua:93` with secret width and height. Native-relative geometry can become restricted even though bjarkiCC supplies ordinary numeric icon sizes. The standard backdrop template implicitly reads width/height/scale to calculate texture coordinates. Repeated resizing at the render cadence repeats that failure. [Blizzard backdrop implementation](https://github.com/Gethe/wow-ui-source/blob/forever/Interface/AddOns/Blizzard_SharedXML/Backdrop.lua)
+
+Version 0.4.1 uses plain frames with a solid background and four constant-width edge textures on anchored bars/icons. Native texture stretching supplies the geometry; addon Lua does not read or divide their restricted dimensions. Unanchored settings/diagnostics retain regular backdrop templates. `test_backdrops.lua` models the implicit callback with a poisoned dimension, reproduces the old failure at CC removal, and exercises removal, repeated drawing, the next CC, layout controls and expiry against the replacement. This is a regression for the logged path, not proof of every protected-client behavior.
+
 ### Module responsibilities
 
 TOC order: Bootstrap, Data, Model, Observer, OwnCasts, Anchors, UI, Main.
@@ -141,7 +151,7 @@ TOC order: Bootstrap, Data, Model, Observer, OwnCasts, Anchors, UI, Main.
 | UI.lua | Icons, uncertainty, preview, tooltips and settings |
 | Main.lua | Events, throttled scans/rendering, commands and status |
 
-Aura/LoC and target/focus changes sample immediately. Periodic observation runs every 0.2 seconds and rendering every 0.1 seconds. `/bcc status` reports per-unit coverage, mapped witness counts, bounded readable unmapped IDs, ByUnit availability, observation reasons, own-cast counters and frame bindings. Capture it while a failing CC is active; an empty HUD alone cannot diagnose missing data.
+Aura/LoC and target/focus changes sample immediately. Periodic observation runs every 0.2 seconds and rendering every 0.1 seconds. `/bcc status` reports per-unit coverage, mapped witness counts, bounded readable unmapped IDs, ByUnit availability, observation reasons, own-cast counters, current DR stages/start times and frame bindings. Capture it while a failing CC is active; an empty HUD alone cannot diagnose missing data. The first nine seconds of the user's missing outgoing display were not captured as an event trace, so correcting timestamp use is not a claim that formerly hidden data is now always available immediately.
 
 ### Verification limits
 

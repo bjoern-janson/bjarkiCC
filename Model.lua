@@ -11,6 +11,7 @@ local MAX_CASTERS = 128
 local MAX_CAST_IDS = 128
 local CAST_ID_TTL = 120
 local FALLBACK_DEDUP_SECONDS = 0.15
+local APPLICATION_EPSILON = 0.001 -- Ignore sub-millisecond API rounding changes.
 
 local function trimOldest(records, maximum)
     local count = 0
@@ -49,6 +50,29 @@ local function pruneDR(unit, now, resetSeconds)
     -- An aura may outlive its DR timer; polling it must not create a new one.
 end
 
+local function applicationTime(effect, now)
+    local start = effect.appliedAt
+    if type(start) == "number" and start == start and start >= 0 and start <= now then return start end
+end
+
+local function refreshedApplication(previous, effect, start)
+    if not previous or not start then return false end
+    local priorStart = previous.appliedAt or previous.firstSeenAt
+    if not priorStart or start <= priorStart + APPLICATION_EPSILON then return false end
+    if effect.applicationSource == "loc" then
+        if previous.applicationSource == "loc" or not previous.appliedAt then return true end
+        -- A start after the previous application was already observed cannot
+        -- merely correct that application's duration-derived timestamp.
+        return previous.firstSeenAt and start > previous.firstSeenAt + APPLICATION_EPSILON
+    end
+    -- A duration correction can move expiration-duration without another CC.
+    -- A derived refresh needs both boundaries to change, from the same sensor.
+    -- Diminished CC can end earlier even though its application is newer.
+    return (previous.applicationSource == "aura" or not previous.appliedAt) and effect.applicationSource == "aura"
+        and previous.expires and effect.expires
+        and math.abs(effect.expires - previous.expires) > APPLICATION_EPSILON
+end
+
 function Model:Observe(guid, effects, now, complete)
     if not guid then return end
     local unit = self.units[guid]
@@ -77,34 +101,70 @@ function Model:Observe(guid, effects, now, complete)
     end
     local keys = {}
     for key in pairs(effects or {}) do keys[#keys + 1] = key end
-    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    table.sort(keys, function(a, b)
+        local aTime, bTime = applicationTime(effects[a], now) or now, applicationTime(effects[b], now) or now
+        if aTime ~= bTime then return aTime < bTime end
+        return tostring(a) < tostring(b)
+    end)
     for _, key in ipairs(keys) do
         local effect = effects[key]
         local category = effect.category
         local previous = unit.effects[key]
         local same = previous and previous.category == category and previous.spellID == effect.spellID
         local state = unit.categories[category]
-        if not same then
-            if not state then
-                state = {
-                    stage = 0,
-                    activeCount = 0,
-                    uncertain = not unit.completeSince or now < unit.completeSince + self.resetSeconds,
-                }
-                unit.categories[category] = state
-            end
-            state.stage = math.min(3, state.stage + 1)
-            state.spellID = effect.spellID
-            state.appliedAt = now
+        local preciseStart = applicationTime(effect, now)
+        local refreshed = same and refreshedApplication(previous, effect, preciseStart)
+        if not same or refreshed then
             local prediction = self.estimates[guid]
-            if prediction then prediction.categories[category] = nil end
+            local candidate = prediction and prediction.categories[category]
+            local matchedPrediction = candidate and candidate.spellID == effect.spellID
+                and (not preciseStart or preciseStart >= (candidate.sentAt or candidate.appliedAt))
+            local estimatedTime = not preciseStart and matchedPrediction and candidate.appliedAt or nil
+            local appliedAt = preciseStart or estimatedTime or now
+            if appliedAt + self.resetSeconds > now then
+                if state and appliedAt < state.appliedAt then
+                    -- A late older witness cannot rewind the current deadline
+                    -- or confidently reconstruct intervening application order.
+                    state.uncertain = true
+                else
+                    if not state then
+                        state = {
+                            stage = 0,
+                            activeCount = 0,
+                            uncertain = not unit.completeSince or appliedAt < unit.completeSince + self.resetSeconds,
+                        }
+                        unit.categories[category] = state
+                    end
+                    state.stage = math.min(3, state.stage + 1)
+                    state.spellID = effect.spellID
+                    state.appliedAt = appliedAt
+                    state.applicationKey = key
+                    state.timeEstimated = estimatedTime ~= nil
+                    if estimatedTime or (refreshed and effect.applicationSource == "aura") then state.uncertain = true end
+                end
+            end
+            if prediction and candidate and (matchedPrediction or candidate.appliedAt <= appliedAt) then
+                prediction.categories[category] = nil
+            end
+        elseif same and preciseStart and preciseStart <= previous.firstSeenAt
+            and (not previous.appliedAt or (previous.applicationSource == "aura" and effect.applicationSource == "loc"))
+            and state and state.applicationKey == key then
+            -- The identity was observed before timing became readable. Correct
+            -- that application in place; its arrival is not another CC.
+            state.appliedAt, state.timeEstimated = preciseStart, false
+            if not unit.completeSince or preciseStart < unit.completeSince + self.resetSeconds then state.uncertain = true end
+            if preciseStart + self.resetSeconds <= now then unit.categories[category] = nil end
         elseif state and previous.expires and effect.expires and effect.expires > previous.expires then
             -- A stable key with an extended expiry may be a refreshed CC. It
             -- provides no reliable new application, so never restart its timer
             -- or invent a stage. An expired timer stays expired.
             state.uncertain = true
         end
-        nextEffects[key] = {category = category, spellID = effect.spellID, expires = effect.expires}
+        nextEffects[key] = {category = category, spellID = effect.spellID,
+            expires = effect.expires or (same and previous.expires or nil),
+            appliedAt = preciseStart or (same and previous.appliedAt or nil),
+            applicationSource = preciseStart and effect.applicationSource or (same and previous.applicationSource or nil),
+            firstSeenAt = same and not refreshed and previous.firstSeenAt or now}
     end
 
     for _, state in pairs(unit.categories) do state.activeCount = 0 end
@@ -157,6 +217,7 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     if previous and (not base or previous.appliedAt > base.appliedAt) then base = previous end
     prediction.categories[category] = {
         spellID = spellID, appliedAt = now, stage = math.min(3, (base and base.stage or 0) + 1),
+        sentAt = sentAt or now,
     }
     return true
 end
@@ -187,6 +248,7 @@ function Model:GetDR(guid, now, includeEstimates)
             active = active,
             uncertain = estimated or state.uncertain,
             estimated = estimated,
+            timeEstimated = state.timeEstimated == true,
         }
     end
     table.sort(rows, function(a, b)

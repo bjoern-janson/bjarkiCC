@@ -23,7 +23,10 @@ ns.db.interrupts=true
 assert(ns.UI.GetRows('cooldown',0)[1].spellID==1766,'enabled interrupts retained')
 ns.Observer.GetUnitState=function() return {} end
 assert(#ns.UI.GetRows('cooldown',0)==0,'target-only with no identity must show no other enemies')
-assert(ns.UI.FormatTime(9.45)=='10' and ns.UI.FormatTime(25)=='25','timers use whole seconds')
+assert(ns.UI.FormatTime(9.45)=='9' and ns.UI.FormatTime(25)=='25','timers round to nearest whole second like native portrait countdowns')
+assert(ns.UI.FormatTime(12.2)=='12' and ns.UI.FormatTime(12.8)=='13','identical clocks cannot look one second apart because of ceiling')
+assert(ns.UI.FormatTime(12.499)=='12' and ns.UI.FormatTime(12.501)=='13','whole-second text changes at the half-second boundary')
+assert(ns.UI.FormatTime(-.2)=='0' and ns.UI.FormatTime(.2)=='0','rounding never displays a negative countdown')
 assert(ns.UI.FormatTime(125)=='3m','long cooldowns use compact minutes')
 ns.demo=true
 local demo=ns.UI.GetRows('player',3)

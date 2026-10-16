@@ -2,12 +2,21 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.0-beta** targets **1.60.1.70425**, interface **16001**. Offline Lua tests pass; revised outgoing detection and placement still need an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.1-beta** targets **1.60.1.70425**, interface **16001**. All eight offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Corrections in 0.4.1
+
+- Late observations use a readable application timestamp instead of starting another full 20 seconds at discovery. A timestamp becoming readable later corrects the existing clock. This cannot make hidden events visible earlier.
+- Consecutive applications can refresh a reused aura identity when its readable timing establishes a new application. Unchanged polling does not advance DR.
+- Switching observation sources preserves already recorded DR instead of resetting its stage; incomplete evidence remains marked `?`.
+- Borders keep their green/yellow/red stage colors. `?` separately marks uncertain history or an inferred cast; color alone is not confirmation of the victim's actual DR.
+- Whole-second text uses the portrait's rounding convention, without subtracting a second from the timer.
+- Anchored bars/icons use solid textures instead of Blizzard's backdrop size handler. The client log identified that handler performing arithmetic on a protected width during CC.
 
 ## Changes in 0.4
 
 - Target/focus can supplement incomplete aura scans with readable per-unit Loss of Control records. Diagnostics explain which sources are available and list readable unmapped IDs.
-- Your eligible targeted CC casts can start an estimated DR display when enemy auras are hidden. These always show a gray `?`: a successful cast does not prove the CC landed. Readable applications take precedence without counting the same cast twice. Disable this fallback in DR settings.
+- Your eligible targeted CC casts can start an estimated DR display when enemy auras are hidden. These always show `?`: a successful cast does not prove the CC landed. Readable applications take precedence without counting the same cast twice. Disable this fallback in DR settings.
 - Icons now sit above the name/health area, inset from portrait badges. Player grows right; target/focus grow left. Old defaults migrate; custom positions are kept. `/bcc reset` adopts the new placement.
 - The requested application-based timer remains: application starts or refreshes it, and breaking/removing CC never restarts it. Research distinguishes this chosen display policy from Classic's removal-based reset convention; Forever's exact reset rule remains unconfirmed. See [architecture.md](architecture.md).
 
@@ -60,7 +69,7 @@ The Display panel has enable, size and vertical-layout controls for each of the 
 
 ## Read the bars
 
-DR borders show the estimated duration of the **next** application: **green = 50%**, **yellow = 25%**, **red = immune**. Optional percentage text shows the same stages. The countdown starts on application, including while CC remains active. New applications refresh it; CC duration, expiry or an early break do not change its start. Gray **?** means earlier applications or removals may have been missed.
+DR borders show the estimated duration of the **next** application: **green = 50%**, **yellow = 25%**, **red = immune**. Optional percentage text shows the same stages. The countdown starts on application, including while CC remains active. New applications refresh it; an early break or removal does not change its start. **?** means the colored stage is based on incomplete history or an inferred cast. It stays visible even when percentage text is disabled.
 
 The default profile uses nine Classic categories and the requested 20-second timer from the last observed application. Its category and timing assumptions remain provisional for Forever. Own-cast estimates instead start at cast success, approximating an application that may be hidden or may never land; they always remain uncertain. Initial login, a newly observed player, unavailable data, and a scan gap longer than one second invalidate observed history. A full observation window is needed before new applications can be assigned confident stages. History remains continuous while the same player stays observable through player, target or focus, including target/focus swaps. Losing the last tracked reference discards that player's observed DR history. Recorded enemy cooldowns remain independent of target/focus changes.
 
@@ -89,11 +98,12 @@ There are **120 aura/effect IDs**, **85 cast IDs** and **27 cooldown families** 
 5. Within the reset window, test another mapped stun. Check duration/stage against what actually happens in the duel. Test Kidney Shot separately.
 6. Focus the opponent, then switch targets: the opponent's DR window should remain on the focus frame. Target the opponent again and confirm target/focus agree. Clear both references, then select the opponent again: observation should restart uncertain. Old enemy cooldown estimates may remain on the all-enemies bar.
 7. Copy `/bcc status` after the duel. Record expected behavior, actual behavior, spell rank, talents and any Lua error. Never treat test-mode icons as proof that the beta exposes the required combat events.
-8. Cast your own mapped CC on the target, then on a different focus via a focus macro. Where auras are hidden, a gray `?` estimate should appear. Interrupt a cast before it succeeds and check that no new estimate appears. If an aura becomes readable, it must replace the estimate without a double stage advance. Capture `/bcc status` while a missing effect is still active.
+8. Cast your own mapped CC on the target, then on a different focus via a focus macro. Where auras are hidden, a stage-colored `?` estimate should appear. Interrupt a cast before it succeeds and check that no new estimate appears. If an aura becomes readable, it must replace the estimate without a double stage advance. Capture `/bcc status` while a missing effect is still active.
+9. Repeat the same category before the application timer expires. Confirm green → yellow → red and a fresh application countdown for each readable reapplication. An unchanged active CC must not advance on its own. Let the CC end and repeat it while checking for Lua errors.
 
 ## Development and tests
 
-The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. Seven suites cover the tracking model, guarded API inputs, own-cast correlation, migration, scale-aware dragging, combat deferral, focus continuity, compact display states, filtering and addon initialization/event/command integration. UI boundary fixtures cannot reproduce WoW's protected execution engine or visually validate the in-game frames.
+The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. Eight suites cover the tracking model, guarded API inputs, own-cast correlation, migration, scale-aware dragging, combat deferral, focus continuity, compact display states, protected backdrop geometry and addon initialization/event/command integration. UI boundary fixtures cannot reproduce WoW's complete protected execution engine or visually validate the in-game frames.
 
 Visual references: [original InterruptBar](https://www.wowace.com/projects/interruptbar), [Diminish](https://github.com/wardz/Diminish). This is an original UI implementation; no code from those interfaces was copied.
 

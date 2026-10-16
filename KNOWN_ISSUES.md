@@ -1,6 +1,16 @@
 # bjarkiCC known issues and validation status
 
-The latest user report is that receiving CC starts DR but applying CC does not, and the portrait-adjacent icons still need better placement. Version 0.3.1's observer had a player LoC fallback but depended on harmful aura reads for target/focus. Native portrait CC artwork does not prove those aura IDs are readable by Lua. That asymmetry is a diagnosed source limitation; the exact failing runtime event has not been captured.
+## Current report: 0.4.0
+
+The user reports an outgoing timer appearing about nine seconds late with a white border, a DR countdown one second above the portrait countdown, and many errors after receiving CC. On a later attempt the error warning did not recur, but borders remained white and consecutive DR did not refresh.
+
+The client General.log contains 1,632 entries of the same Lua error: `Backdrop.lua:226: attempt to perform arithmetic on local 'width' (a secret number value, while execution tainted by 'bjarkiCC')`, followed by `SetupTextureCoordinates` and the size callback at line 191. The repeated entries occur at the addon's 0.1-second render cadence. The installed UI.lua matched the released source byte-for-byte. The user's subsequent error at 00:54:10 (Count 398) includes locals identifying `self=Frame <UI.lua:93>`, the icon created with `BackdropTemplate`, and secret width/height. This confirms the exact offending icon/template path; it does not establish that every reported symptom shares that cause.
+
+Source inspection also confirms that application timestamps were discarded, uncertainty deliberately made borders gray, countdown text rounded up rather than using the portrait's nearest-second convention, and same-identity timing extensions did not advance a stage. Version 0.4.1 addresses those paths with timestamp preservation, supported refresh detection, colored borders plus a separate `?`, matching text rounding, and solid textures on anchored frames. Live retesting remains required. The exact reason the outgoing source was unavailable for the first nine seconds is not yet captured.
+
+## Earlier reports
+
+The earlier report was that receiving CC starts DR but applying CC does not, with portrait-adjacent icons poorly placed. Version 0.3.1's observer had a player LoC fallback but depended on harmful aura reads for target/focus. Native portrait CC artwork does not prove those aura IDs are readable by Lua. That asymmetry is a diagnosed source limitation.
 
 Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimates, always marked `?`, plus health-region anchors above the name area. It retains the explicitly requested application-based display timer even though the researched Classic reset convention differs. Offline regressions pass. Outgoing detection, revised visual alignment, and Forever server mechanics still require live validation; this is not a claim that every enemy CC is now observable.
 
@@ -9,7 +19,8 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Condition | Consequence | Status |
 | --- | --- | --- |
 | Beta hides enemy spell/identity/aura fields | Automatic target/focus DR or enemy cooldown tracking may be unavailable | Supported failure mode; live coverage unverified |
-| Successful own cast is resisted, immune, delayed or sent to another same-name unit | Gray `?` estimate can appear without an actual application | Optional fallback; confirmed aura evidence takes precedence; cast success is not a hit guarantee |
+| Successful own cast is resisted, immune, delayed or sent to another same-name unit | Stage-colored `?` estimate can appear without an actual application | Optional fallback; confirmed aura evidence takes precedence; cast success is not a hit guarantee |
+| Application event and its timestamp are both hidden | The display can start late; a correct earlier deadline cannot be recovered without evidence | Readable timing corrects late observations; no claim of universally immediate detection |
 | Own cast lacks a readable cast ID/name or targets an area/trap/pet effect | No own-cast fallback appears | Deliberately excluded; target/focus name matching is not global victim identification |
 | Per-unit LoC API exists but returns secret, incomplete or no records | Target/focus fallback may add no usable witnesses | Only readable positives accepted; incomplete aura coverage stays uncertain |
 | Classic categories and requested application-based timer | Estimated stages/timing can differ from Forever server rules | Requires duel validation |
@@ -45,5 +56,11 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Only player had LoC fallback when aura scans were incomplete | Supplement target/focus partial auras with readable per-unit LoC; retain stable cross-source identities | Positive witness, protected field, incomplete coverage, handoff and capacity regressions pass; live API coverage pending |
 | Hidden enemy auras leave no observed outgoing application | Add isolated uncertain estimates for correlated eligible own casts; never count them as observed applications | Success, failure, target change, ambiguity and aura-before/after-cast regressions pass; hidden casts may remain unavailable |
 | Portrait-side defaults compete with badges and do not align across mirrored frames | Place default rows above health/name regions with inward offsets and mirrored growth | Modern/legacy region, migration, scale, orientation and first-icon stability regressions pass; live appearance pending |
+| Anchored icon BackdropTemplate performs implicit arithmetic on restricted width during size changes | Replace anchored backdrops with plain frames and constant-anchored solid textures | Old release reproduces failure in a poisoned-geometry fixture; replacement passes CC removal and next-CC sequence; live retest pending |
+| First observation discarded readable application timing | Preserve guarded LoC start or aura expiration-minus-duration; correct late clocks without inventing a new application | Nine-second-late, untimed-to-timed correction, expired identity and cast confirmation regressions |
+| Same aura identity prevented all reapplications from advancing | Recognize a later explicit start or a changed derived start/end pair, preserving ambiguity markers | Stable-key refresh, shortened repeated CC, unchanged polling and incomplete-timing regressions |
+| First aura-to-LoC sensor handoff discarded earlier observed DR | Preserve same-GUID stages/deadlines and reconcile identities while invalidating confidence | Same-effect handoff must not duplicate; a second readable CC must advance the retained stage |
+| Gray uncertainty border hid counted DR stage | Always show stage color; keep a separate visible `?` and tooltip | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
+| Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
 
-These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
+All eight suites pass for 0.4.1: Model 50 cases, Observer 69, OwnCasts 9, plus bootstrap, anchors, UI, end-to-end integration and the backdrop regression. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.

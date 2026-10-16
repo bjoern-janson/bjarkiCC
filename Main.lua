@@ -18,6 +18,7 @@ end
 
 function ns.BuildStatus()
     local version, build, interface = 'unknown','unknown','unknown'
+    local now = S.Number(S.Call(GetTime))
     if type(GetBuildInfo)=='function' then
         local ok,v,b,_,i=pcall(GetBuildInfo)
         if ok then version=S.String(v) or version; build=S.String(b) or build; interface=S.Number(i) or interface end
@@ -44,6 +45,15 @@ function ns.BuildStatus()
         if state.unmappedSpellIDs and #state.unmappedSpellIDs>0 then
             local ids={}; for _,id in ipairs(state.unmappedSpellIDs) do ids[#ids+1]=tostring(id) end
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')
+        end
+        if now and state.guid then
+            for _, row in ipairs(ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates)) do
+                lines[#lines+1]=string.format('  DR %s: stage %d; started %.3f; remaining %.3f; %s%s',
+                    row.category, row.stage, row.started, row.remaining,
+                    row.estimated and 'own-cast estimate' or 'observed application',
+                    row.uncertain and '; uncertain' or '')
+                if row.timeEstimated then lines[#lines+1]='    Application observed; timing retained from own-cast estimate.' end
+            end
         end
         local bar=ns.UI.bars[unit]
         lines[#lines+1]='  Frame: '..(bar and bar.anchorFrame and ({player='PlayerFrame',target='TargetFrame',focus='FocusFrame'})[unit] or 'unavailable')

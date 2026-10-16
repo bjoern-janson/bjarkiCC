@@ -163,9 +163,13 @@ test("secret LoC data is incomplete rather than empty", function()
     reset(); C_UnitAuras=nil; fixture.loc={secret}
     ns.Observer.Scan(10); equal(last("Player-1-Self").complete,false)
 end)
-test("first successful LoC switch invalidates earlier aura history", function()
-    reset(); ns.Observer.Scan(10); fixture.auras.player={{spellId=secret,auraInstanceID=8}}
-    ns.Observer.Scan(11); truth(contains(forgotten,"Player-1-Self"))
+test("first successful LoC switch invalidates confidence without forgetting witnesses", function()
+    reset(); fixture.guid.target=nil; ns.Observer.Scan(10); observed={}
+    fixture.auras.player={{spellId=secret,auraInstanceID=8}}
+    ns.Observer.Scan(11); equal(#forgotten,0)
+    equal(#observed,2); equal(observed[1].complete,false); equal(size(observed[1].effects),0)
+    equal(observed[2].complete,true)
+    observed={}; ns.Observer.Scan(12); equal(#observed,1,"stable sensor cannot repeat handoff invalidation")
 end)
 test("LoC observed removal preserves the original application timer", function()
     reset(); fixture.guid.target=nil
@@ -604,19 +608,23 @@ test("self focus shares player LoC and clearing it preserves player history", fu
     equal(contains(forgotten,"Player-1-Self"),nil)
 end)
 
-test("self focus handoff invalidates once for each actual sensor change", function()
-    reset(); fixture.guid.target=nil; fixture.guid.focus="Player-1-Self"
+test("self focus sensor handoffs preserve observed stage and application clock", function()
+    reset(); realModel(); fixture.guid.target=nil; fixture.guid.focus="Player-1-Self"
     fixture.auras.player={{spellId=secret,auraInstanceID=8}}
-    fixture.auras.focus={{spellId=853,auraInstanceID=44}}
     fixture.loc={{spellID=853,auraInstanceID=2,startTime=8,duration=6}}
-    ns.Observer.Scan(10); equal(#observed,1); equal(#forgotten,0)
+    ns.Observer.Scan(10)
+    fixture.loc={{spellID=853,auraInstanceID=3,startTime=11,duration=6}}
+    ns.Observer.Scan(11); equal(ns.model:GetDR("Player-1-Self",11)[1].stage,2)
     equal(ns.Observer.GetUnitState("focus").sensor,"loc")
-    fixture.guid.player=secret; observed={}; ns.Observer.Scan(11)
-    equal(#observed,1); equal(#forgotten,1); equal(forgotten[1],"Player-1-Self")
+    fixture.auras.focus={{spellId=853,auraInstanceID=3,expirationTime=17,duration=6}}
+    fixture.guid.player=secret; ns.Observer.Scan(12)
+    local row=ns.model:GetDR("Player-1-Self",12)[1]
+    equal(row.stage,2); equal(row.started,11); equal(row.remaining,19); truth(row.uncertain)
     equal(ns.Observer.GetUnitState("player").guid,nil)
     equal(ns.Observer.GetUnitState("focus").sensor,"aura")
-    fixture.guid.player="Player-1-Self"; observed={}; ns.Observer.Scan(12)
-    equal(#observed,1); equal(#forgotten,2); equal(forgotten[2],"Player-1-Self")
+    fixture.guid.player="Player-1-Self"; ns.Observer.Scan(13)
+    row=ns.model:GetDR("Player-1-Self",13)[1]
+    equal(row.stage,2); equal(row.started,11); equal(row.remaining,18); truth(row.uncertain)
     equal(ns.Observer.GetUnitState("focus").sensor,"loc")
 end)
 
@@ -670,6 +678,129 @@ test("scan gaps invalidate shared target focus and self aliases once", function(
         end
         equal(invalidations,1); equal(snapshots,1)
     end
+end)
+
+test("readable aura timing carries the original application time", function()
+    reset(); fixture.auras.target={{spellId=853,auraInstanceID=44,expirationTime=40,duration=20}}
+    ns.Observer.Scan(29)
+    equal(effect(last("Player-1-A")).appliedAt,20)
+end)
+
+test("readable LoC timing carries startTime instead of scan time", function()
+    reset(); fixture.auras.player={{spellId=secret,auraInstanceID=8}}
+    fixture.loc={{spellID=118,auraInstanceID=72,startTime=20,duration=20}}
+    ns.Observer.Scan(29)
+    equal(effect(last("Player-1-Self")).appliedAt,20)
+end)
+
+test("unreadable invalid or future aura timing never becomes application arithmetic", function()
+    for _,case in ipairs({{secret,20},{40,secret},{40,0},{10,20},{50,20},{math.huge,20},{40,math.huge}}) do
+        reset(); fixture.auras.target={{spellId=853,auraInstanceID=44,expirationTime=case[1],duration=case[2]}}
+        ns.Observer.Scan(29)
+        equal(effect(last("Player-1-A")).appliedAt,nil)
+    end
+    for _,start in ipairs({secret,-1,30,math.huge}) do
+        reset(); fixture.auras.player={{spellId=secret,auraInstanceID=8}}
+        fixture.loc={{spellID=118,auraInstanceID=72,startTime=start,duration=20}}
+        ns.Observer.Scan(29)
+        equal(effect(last("Player-1-Self")).appliedAt,nil)
+    end
+end)
+
+test("late LoC observations and repeated applications keep original boundaries end to end", function()
+    reset(); realModel(); byUnitLoC()
+    fixture.auras.target={{spellId=secret,auraInstanceID=19}}
+    fixture.locByUnit.target={{spellID=853,auraInstanceID=19,startTime=20,duration=20}}
+    ns.Observer.Scan(29)
+    local row=ns.model:GetDR("Player-1-A",29)[1]
+    equal(row.started,20); equal(row.remaining,11); equal(row.stage,1)
+    fixture.locByUnit.target={{spellID=853,auraInstanceID=19,startTime=30,duration=10}}
+    ns.Observer.Scan(30)
+    row=ns.model:GetDR("Player-1-A",30)[1]
+    equal(row.started,30); equal(row.stage,2)
+    ns.Observer.Scan(31); equal(ns.model:GetDR("Player-1-A",31)[1].stage,2)
+    fixture.locByUnit.target={}; ns.Observer.Scan(32)
+    equal(ns.model:GetDR("Player-1-A",32)[1].remaining,18)
+end)
+
+test("an exact merged LoC witness supplies the preferred application timestamp", function()
+    reset(); realModel(); byUnitLoC()
+    fixture.auras.target={{spellId=853,auraInstanceID=19,expirationTime=40.3,duration=20},
+        {spellId=secret,auraInstanceID=20}}
+    fixture.locByUnit.target={{spellID=853,auraInstanceID=19,startTime=20,duration=20}}
+    ns.Observer.Scan(29)
+    local row=ns.model:GetDR("Player-1-A",29)[1]
+    equal(row.started,20); equal(row.remaining,11); equal(row.stage,1)
+end)
+
+test("player aura to LoC handoff counts the second observed application", function()
+    reset(); realModel(); fixture.guid.target=nil
+    for now=0,20 do ns.Observer.Scan(now) end
+    fixture.auras.player={{spellId=853,auraInstanceID=19,expirationTime=41,duration=20}}
+    ns.Observer.Scan(21)
+    local row=ns.model:GetDR("Player-1-Self",21)[1]
+    equal(row.stage,1); equal(row.uncertain,false)
+    fixture.auras.player={}; ns.Observer.Scan(22)
+    fixture.auras.player={{spellId=secret,auraInstanceID=20}}
+    fixture.loc={{spellID=853,auraInstanceID=20,startTime=23,duration=10}}
+    ns.Observer.Scan(23)
+    row=ns.model:GetDR("Player-1-Self",23)[1]
+    equal(row.stage,2); equal(row.started,23); truth(row.uncertain)
+    fixture.loc={}; ns.Observer.Scan(24)
+    row=ns.model:GetDR("Player-1-Self",24)[1]
+    equal(row.stage,2); equal(row.started,23); equal(row.remaining,19); equal(row.active,false)
+end)
+
+test("player handoff of the same application cannot double count or restart", function()
+    for _,fallback in ipairs({false,true}) do
+        reset(); realModel(); fixture.guid.target=nil
+        fixture.auras.player={{spellId=853,auraInstanceID=19,expirationTime=41,duration=20}}
+        ns.Observer.Scan(21)
+        fixture.auras.player={{spellId=secret,auraInstanceID=19}}
+        fixture.loc={{spellID=853,auraInstanceID=not fallback and 19 or nil,startTime=21,duration=20}}
+        ns.Observer.Scan(22)
+        local row=ns.model:GetDR("Player-1-Self",22)[1]
+        equal(row.stage,1); equal(row.started,21); equal(row.remaining,19); truth(row.uncertain)
+        if fallback then equal(ns.Observer.GetUnitState("player").status,"restricted") end
+        ns.Observer.Scan(23)
+        row=ns.model:GetDR("Player-1-Self",23)[1]
+        equal(row.stage,1); equal(row.started,21); equal(row.remaining,18)
+        fixture.loc={}; ns.Observer.Scan(24)
+        equal(size(ns.model.units["Player-1-Self"].effects),0)
+        ns.Observer.Scan(41); equal(#ns.model:GetDR("Player-1-Self",41),0)
+    end
+end)
+
+test("no-instance LoC refresh retains canonical identity and newer application time", function()
+    reset(); realModel(); fixture.guid.target=nil
+    fixture.auras.player={{spellId=853,auraInstanceID=19,expirationTime=41,duration=20}}
+    ns.Observer.Scan(21)
+    fixture.auras.player={{spellId=secret,auraInstanceID=19}}
+    fixture.loc={{spellID=853,startTime=21,duration=20}}
+    ns.Observer.Scan(22)
+    equal(ns.model:GetDR("Player-1-Self",22)[1].stage,1)
+    fixture.loc={{spellID=853,startTime=25,duration=10}}
+    ns.Observer.Scan(25)
+    local row=ns.model:GetDR("Player-1-Self",25)[1]
+    equal(row.stage,2); equal(row.started,25); equal(row.remaining,20); truth(row.uncertain)
+    ns.Observer.Scan(26)
+    row=ns.model:GetDR("Player-1-Self",26)[1]
+    equal(row.stage,2); equal(row.started,25); equal(row.remaining,19)
+    equal(size(ns.model.units["Player-1-Self"].effects),1)
+    truth(ns.model.units["Player-1-Self"].effects["a:19"])
+    fixture.loc={}; ns.Observer.Scan(27)
+    equal(size(ns.Observer.GetUnitState("player").witnesses),0)
+    ns.Observer.Scan(45); equal(#ns.model:GetDR("Player-1-Self",45),0)
+end)
+
+test("a simultaneous aura cannot overwrite canonical explicit LoC timing", function()
+    reset(); realModel(); byUnitLoC()
+    fixture.auras.target={{spellId=853,auraInstanceID=19,expirationTime=41.3,duration=20},
+        {spellId=secret,auraInstanceID=20}}
+    fixture.locByUnit.target={{spellID=853,startTime=21,duration=20}}
+    ns.Observer.Scan(22)
+    local row=ns.model:GetDR("Player-1-A",22)[1]
+    equal(row.stage,1); equal(row.started,21); equal(row.remaining,19); truth(row.uncertain)
 end)
 
 local failures={}

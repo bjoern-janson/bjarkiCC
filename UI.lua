@@ -8,7 +8,8 @@ local stageColors = {{.25,1,.3},{1,.8,.15},{1,.2,.15}}
 
 function UI.FormatTime(seconds)
     if seconds >= 60 then return math.ceil(seconds/60)..'m' end
-    return tostring(math.ceil(math.max(0,seconds)))
+    -- Match the native portrait formatter without changing the underlying clock.
+    return string.format('%.0f', math.max(0,seconds))
 end
 
 local function demoRows(key, now)
@@ -63,6 +64,32 @@ local function backdrop(frame, alpha)
     frame:SetBackdropBorderColor(.48,.38,.18,1)
 end
 
+-- Anchoring to native unit frames can make dimensions secret during CC. Solid
+-- textures stretch natively; unlike BackdropTemplate they never divide a
+-- GetWidth/GetHeight result in an OnSizeChanged callback.
+local function setBorderColor(frame,r,g,b,a)
+    for _,edge in ipairs(frame.borderTextures) do edge:SetColorTexture(r,g,b,a or 1) end
+end
+
+local function solidPanel(frame,alpha)
+    frame.panelBackground=frame:CreateTexture(nil,'BACKGROUND')
+    frame.panelBackground:SetAllPoints(frame)
+    frame.panelBackground:SetColorTexture(.045,.04,.035,alpha or 1)
+    frame.borderTextures={}
+    for i=1,4 do frame.borderTextures[i]=frame:CreateTexture(nil,'OVERLAY') end
+    local top,bottom,left,right=unpack(frame.borderTextures)
+    top:SetPoint('TOPLEFT',frame,'TOPLEFT',0,0); top:SetPoint('TOPRIGHT',frame,'TOPRIGHT',0,0); top:SetHeight(1)
+    bottom:SetPoint('BOTTOMLEFT',frame,'BOTTOMLEFT',0,0); bottom:SetPoint('BOTTOMRIGHT',frame,'BOTTOMRIGHT',0,0); bottom:SetHeight(1)
+    left:SetPoint('TOPLEFT',frame,'TOPLEFT',0,0); left:SetPoint('BOTTOMLEFT',frame,'BOTTOMLEFT',0,0); left:SetWidth(1)
+    right:SetPoint('TOPRIGHT',frame,'TOPRIGHT',0,0); right:SetPoint('BOTTOMRIGHT',frame,'BOTTOMRIGHT',0,0); right:SetWidth(1)
+    setBorderColor(frame,.48,.38,.18,1)
+end
+
+local function showPanel(frame,shown)
+    frame.panelBackground:SetShown(shown)
+    for _,edge in ipairs(frame.borderTextures) do edge:SetShown(shown) end
+end
+
 local function tooltip(owner, row, key)
     if not UI.tip then UI.tip = CreateFrame('GameTooltip','bjarkiCCTooltip',UIParent,'GameTooltipTemplate') end
     local tip, cat = UI.tip, ns.Data.categoryByKey[row.category]
@@ -79,10 +106,17 @@ local function tooltip(owner, row, key)
         tip:AddLine('Talents and unseen resets can change this timer.',.7,.7,.7,true)
     else
         tip:AddLine('Next duration: '..(row.uncertain and 'unknown' or ({'50%','25%','immune'})[row.stage]),1,1,1)
+        if row.uncertain then
+            tip:AddLine(row.estimated
+                and ('Border shows estimated stage '..row.stage..'; actual DR is unknown.')
+                or ('Border shows observed stage '..row.stage..'; earlier CC may be missing.'),1,.55,.25,true)
+        end
         tip:AddLine('DR timer: '..UI.FormatTime(row.remaining)..'s',1,.85,.4,true)
         tip:AddLine('Starts on application. Breaking or removing CC does not restart it.',.7,.7,.7,true)
         if row.estimated then
             tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
+        elseif row.timeEstimated then
+            tip:AddLine('Application observed; timing is estimated from your earlier cast.',1,.55,.25,true)
         elseif row.uncertain then tip:AddLine('Observation started late or data was unavailable.',1,.55,.25,true) end
         tip:AddLine('Classic groups; '..ns.db.resetSeconds..'s application timer.',.7,.7,.7,true)
     end
@@ -90,8 +124,8 @@ local function tooltip(owner, row, key)
 end
 
 local function makeIcon(bar)
-    local icon = CreateFrame('Frame',nil,bar,'BackdropTemplate')
-    backdrop(icon,1)
+    local icon = CreateFrame('Frame',nil,bar)
+    solidPanel(icon,1)
     icon.texture = icon:CreateTexture(nil,'ARTWORK')
     icon.texture:SetPoint('TOPLEFT',2,-2); icon.texture:SetPoint('BOTTOMRIGHT',-2,2)
     icon.texture:SetTexCoord(.07,.93,.07,.93)
@@ -118,7 +152,8 @@ end
 
 function UI.Init()
     for _, key in ipairs(order) do
-        local bar = CreateFrame('Frame','bjarkiCC_'..key,UIParent,'BackdropTemplate')
+        local bar = CreateFrame('Frame','bjarkiCC_'..key,UIParent)
+        solidPanel(bar,.5)
         bar.key, bar.icons = key, {}
         bar:SetMovable(true); bar:SetClampedToScreen(true); bar:SetFrameStrata('MEDIUM')
         bar:RegisterForDrag('LeftButton'); bar:EnableMouse(true)
@@ -140,7 +175,7 @@ function UI.ApplyLayout()
             if ns.db.locked then ns.Anchors.StopDrag(bar) end
             ns.Anchors.Apply(bar, true)
             bar:EnableMouse(not ns.db.locked)
-            if not ns.db.locked then backdrop(bar,.5) else bar:SetBackdrop(nil) end
+            showPanel(bar,not ns.db.locked)
         end
     end
     UI.Update(GetTime())
@@ -214,7 +249,7 @@ function UI.Update(now)
                         icon.state:SetTextColor(1,.82,.36)
                         icon.caption:SetText((row.name or 'Enemy'):sub(1,12))
                         icon.caption:SetTextColor(.85,.85,.85)
-                        icon:SetBackdropBorderColor(.12,.12,.12,1)
+                        setBorderColor(icon,.12,.12,.12,1)
                         icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
                     else
                         icon.time:SetText(UI.FormatTime(row.remaining))
@@ -224,8 +259,8 @@ function UI.Update(now)
                             icon.state:ClearAllPoints(); icon.state:SetPoint('BOTTOM',0,1)
                             icon.time:ClearAllPoints(); icon.time:SetPoint('CENTER',0,4)
                         end
-                        local color=row.uncertain and {.65,.65,.65} or stageColors[row.stage]
-                        icon.state:SetTextColor(color[1],color[2],color[3]); icon:SetBackdropBorderColor(color[1],color[2],color[3],1)
+                        local color=stageColors[row.stage]
+                        icon.state:SetTextColor(color[1],color[2],color[3]); setBorderColor(icon,color[1],color[2],color[3],1)
                         icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
                     end
                 end
@@ -326,7 +361,7 @@ function UI.OpenOptions()
             ns.db.resetSeconds=v; ns.model=ns.Model.New(v); ns.Observer.Init(); ns.OwnCasts.Init()
         end
     end)
-    label(page,'50% / 25% / immune: green / yellow / red. Gray ?: uncertain.',6,-266,450)
+    label(page,'50% / 25% / immune: green / yellow / red. ?: uncertain stage.',6,-266,450)
 
     page=pages[3]
     check(page,'Only current target',0,0,function() return ns.db.targetOnly end,function(v) ns.db.targetOnly=v end)

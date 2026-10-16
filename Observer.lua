@@ -82,7 +82,12 @@ local function guidString(value)
     if guid and #guid <= 128 and guid:match("^[A-Za-z]+%-[%w%-]+$") then return guid end
 end
 
-local function auraSnapshot(unit)
+local function applicationTime(value, now)
+    local start = number(value)
+    if start and start >= 0 and start <= now then return start end
+end
+
+local function auraSnapshot(unit, now)
     local effects, unmapped = {}, {}
     local api = C_UnitAuras
     if type(api) ~= "table" or type(api.GetAuraDataByIndex) ~= "function" then
@@ -110,8 +115,15 @@ local function auraSnapshot(unit)
                     local rawExpiry = field(aura, "expirationTime")
                     local expires = number(rawExpiry)
                     if expires and expires <= 0 then expires = nil end
+                    local rawDuration = field(aura, "duration")
+                    local duration = number(rawDuration)
+                    local appliedAt
+                    if expires and duration and duration > 0 then
+                        appliedAt = applicationTime(expires - duration, now)
+                    end
                     effects["a:" .. tostring(instanceID)] = {
                         category = category, spellID = spellID, expires = expires,
+                        appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
                     }
                 end
             else
@@ -169,7 +181,7 @@ local function lossOfControlSnapshot(now, unit)
                     local rawInstance = field(data, "auraInstanceID")
                     local instanceID = identifier(rawInstance)
                     local rawStart = field(data, "startTime")
-                    local start = number(rawStart)
+                    local start = applicationTime(rawStart, now)
                     local key
                     if instanceID then
                         key = "a:" .. tostring(instanceID)
@@ -190,6 +202,7 @@ local function lossOfControlSnapshot(now, unit)
                             if remaining and remaining > 0 then expires = now + remaining end
                         end
                         effects[key] = {category = category, spellID = spellID, expires = expires,
+                            appliedAt = start, applicationSource = start and "loc" or nil,
                             fallbackIdentity = not instanceID}
                     end
                 else
@@ -204,21 +217,32 @@ end
 local function mergeEffects(effects, additional)
     for key, effect in pairs(additional) do
         -- An exact aura-instance witness is the same application in either API.
-        -- Preserve the first copy's timing instead of manufacturing a refresh.
-        if not effects[key] then effects[key] = effect end
+        -- Prefer the explicit LoC start to a duration-derived aura boundary.
+        local existing = effects[key]
+        if not existing then effects[key] = effect
+        elseif effect.applicationSource == "loc" and effect.appliedAt then
+            existing.appliedAt, existing.applicationSource = effect.appliedAt, effect.applicationSource
+            existing.expires = effect.expires or existing.expires
+        end
     end
 end
 
 local function reconcileWitnesses(effects, previous)
     local result, ambiguous = {}, false
     local prior = previous and previous.witnesses or {}
+    local function add(key, effect)
+        local existing = result[key]
+        if not existing or (effect.applicationSource == "loc" and effect.appliedAt
+            and (existing.applicationSource ~= "loc" or not existing.appliedAt or effect.appliedAt > existing.appliedAt)) then
+            result[key] = effect
+        end
+    end
     for key, effect in pairs(effects) do
         local canonical, candidates = nil, {}
         if not prior[key] then
             -- A startTime-only LoC identity cannot prove that another source's
             -- same-spell instance is a second application. Keep the earlier
-            -- witness (or the current instance) and flag the ambiguity. This
-            -- intentionally may miss a stage until full observations recover.
+            -- identity (or the current instance) and flag the ambiguity.
             for oldKey, old in pairs(prior) do
                 if old.spellID == effect.spellID and old.category == effect.category
                     and (old.fallbackIdentity == true) ~= (effect.fallbackIdentity == true) then
@@ -235,12 +259,25 @@ local function reconcileWitnesses(effects, previous)
             if count > 0 then
                 ambiguous = true
                 if count == 1 then canonical = next(candidates) end
-                if canonical then result[canonical] = candidates[canonical] end
+                if canonical then
+                    local witness = candidates[canonical]
+                    if effect.applicationSource == "loc" and effect.appliedAt then
+                        -- Identity ambiguity does not erase a readable start.
+                        -- Keep the canonical key/fallback policy so repeated
+                        -- polls cannot create another copy of this application.
+                        local timed = {}
+                        for field, value in pairs(witness) do timed[field] = value end
+                        timed.appliedAt, timed.applicationSource = effect.appliedAt, "loc"
+                        timed.expires = effect.expires or witness.expires
+                        witness = timed
+                    end
+                    add(canonical, witness)
+                end
             else
-                result[key] = effect
+                add(key, effect)
             end
         else
-            result[key] = effect
+            add(key, effect)
         end
     end
     return result, ambiguous
@@ -298,7 +335,7 @@ local function scanGuid(unit, guid, previous, now)
         diagnostics.unmappedSpellIDs = locUnmapped or {}
     else
         local auraInfo
-        effects, complete, auraInfo = auraSnapshot(unit)
+        effects, complete, auraInfo = auraSnapshot(unit, now)
         diagnostics.auraComplete = complete
         diagnostics.mappedAuras = auraInfo.mappedAuras
         diagnostics.unmappedSpellIDs = auraInfo.unmappedSpellIDs
@@ -328,8 +365,10 @@ local function scanGuid(unit, guid, previous, now)
         end
     end
     if previous and (previous.sensor == "loc") ~= (sensor == "loc") then
-        forget(guid)
-        previous = nil
+        -- Coverage changed, but positively observed applications still happened.
+        -- Invalidate confidence without erasing stages, clocks or identities;
+        -- reconciliation below withholds ambiguous cross-sensor duplicates.
+        ns.model:Observe(guid, {}, now, false)
     end
     local ambiguous
     effects, ambiguous = reconcileWitnesses(effects, previous)
@@ -351,7 +390,7 @@ local function scanGuid(unit, guid, previous, now)
     else
         diagnostics.reason = "Harmful aura and ByUnit Loss of Control data are unavailable or restricted."
     end
-    if ambiguous then diagnostics.reason = "Ambiguous aura/LoC application identity; duplicate stage withheld." end
+    if ambiguous then diagnostics.reason = "Ambiguous aura/LoC application identity; canonical witness retained." end
     if capped then diagnostics.reason = "Observation capacity reached while removal data remains restricted." end
     local state = {
         guid = guid, status = complete and "readable" or "restricted", sensor = sensor,
