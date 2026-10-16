@@ -1,6 +1,24 @@
 # bjarkiCC known issues and validation status
 
-## Current report: final-stage timer restarts on further casts
+## Current report: Hibernate stays out of sync on the next attempt
+
+The user reports a possibly resisted Hibernate followed by a full application showing yellow, then supplies a 0.4.4 recipient trace from the next attempt that remained out of sync. The trace has no own-cast estimates and identifies a concrete duplicate count of each same-instance application:
+
+| Observation time | Aura | Readable start | Observed stage in 0.4.4 |
+| --- | --- | --- | --- |
+| 2655121.649 | `a:315`, Hibernate 2637 | unknown | 1 |
+| 2655121.778 | `a:315`, Hibernate 2637 | 2655121.750 | 2, duplicate |
+| 2655176.779 | `a:317`, Hibernate 2637 | 2655176.750 | 1 |
+| 2655186.838 | `a:319`, Hibernate 2637 | unknown | 2 |
+| 2655187.034 | `a:319`, Hibernate 2637 | 2655187.000 | 3, duplicate |
+
+**Diagnosed cause:** the refresh detector compared a first readable application timestamp with the earlier local first-seen fallback. When the timestamp became available 0.101 or 0.162 seconds after that fallback, it was counted as a new CC. The correction branch also rejected such later timestamps. Shared player/target/focus views expose the same GUID's count; they are not three independent applications. This evidence establishes duplicate counting, not that the possible resisted attempt was counted.
+
+**Source correction in 0.4.5:** first readable timing for the same untimed identity calibrates the existing application. A same-identity refresh requires an already known earlier application timestamp. No arbitrary grace period is added. The recorded `a:315` stays stage one, `a:319` stays stage two, and genuine later applications can still advance. The application-only 20-second policy and removal behavior remain unchanged.
+
+**Validation:** exact normalized traces fail against 0.4.4 and pass against the correction, including retained witnesses after an empty snapshot. A real Observer-to-Model fixture also reproduces the trace across all three shared views by providing a briefly future LoC timestamp; the future-time guard stays intact. The raw reason for the live timestamp's initial unavailability was not captured. Live retesting of 0.4.5 is pending. The earlier outgoing green-on-reduced report remains separate and unresolved.
+
+## Previous report: final-stage timer restarts on further casts
 
 The user supplied an older-version screenshot and reports that attempts at full DR refresh the timer, obscuring when it drops. The same source defect remains in 0.4.3: `EstimateDR` caps the stage at three but unconditionally sets `appliedAt` to each new successful-cast event's time. That event confirms a cast, not a landed CC, so immune attempts can indefinitely postpone the displayed deadline.
 
@@ -94,4 +112,4 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Gray uncertainty border hid counted DR stage | Always show stage color; explain uncertainty in tooltip/status (on-icon `?` removed in 0.4.3) | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
 | Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
 
-All nine suites pass for 0.4.4: Model 70 cases, Observer 72, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
+All nine suites pass for 0.4.5: Model 73 cases, Observer 73, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.

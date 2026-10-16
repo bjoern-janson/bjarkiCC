@@ -12,7 +12,7 @@ local secret = setmetatable({}, {
     __add = function() error("secret arithmetic") end,
 })
 local ns = {Safe = {}, Data = {
-    auraCategory = {[118] = "incapacitate", [853] = "stun", [8056] = "frostshock"},
+    auraCategory = {[118] = "incapacitate", [2637] = "incapacitate", [853] = "stun", [8056] = "frostshock"},
     castToSpell = {[853] = 853, [2139] = 2139, [60970] = 60970},
     spells = {[853] = {id = 853}, [2139] = {id = 2139, interrupt = true}, [60970] = {id = 60970}},
     resets = {[11958] = "mage"},
@@ -852,6 +852,43 @@ test("distinct known aura identities are not collapsed by matching LoC timestamp
     ns.Observer.Scan(21)
     equal(ns.model:GetDR("Player-1-Self",21)[1].stage,2)
     ns.Observer.Scan(21.1); equal(ns.model:GetDR("Player-1-Self",21.1)[1].stage,2)
+end)
+
+test("live Hibernate timing becoming admissible corrects one application across shared views", function()
+    reset(); realModel(); C_UnitAuras=nil
+    fixture.guid.target="Player-1-Self"; fixture.guid.focus="Player-1-Self"
+    local function scan(at, instance, start, duration, stage, expectedStart)
+        fixture.loc=instance and {{spellID=2637,auraInstanceID=instance,startTime=start,
+            duration=duration,timeRemaining=duration}} or {}
+        ns.Observer.Scan(at)
+        for _,unit in ipairs({"player","target","focus"}) do
+            local guid=ns.Observer.GetUnitState(unit).guid
+            equal(guid,"Player-1-Self","shared player identity")
+            local rows=ns.model:GetDR(guid,at)
+            if stage then
+                equal(#rows,1); equal(rows[1].stage,stage,"one count per landed Hibernate")
+                equal(rows[1].observedStage,stage)
+                equal(rows[1].started,expectedStart,"clock calibrated from the same application")
+                truth(math.abs(rows[1].remaining-(expectedStart+20-at))<0.000001)
+            else
+                equal(#rows,0,"original application window expired")
+            end
+        end
+    end
+    -- Reproduce the normalized live trace with a briefly future raw timestamp.
+    -- The trace does not establish why the original first start was unavailable.
+    scan(2655121.649,315,2655121.750,20,1,2655121.649)
+    equal(ns.model.units["Player-1-Self"].effects["a:315"].appliedAt,nil,
+        "future start stays rejected at the API boundary")
+    scan(2655121.778,315,2655121.750,20,1,2655121.750)
+    scan(2655138.995,nil,nil,nil,1,2655121.750)
+    scan(2655141.879,nil,nil,nil,nil)
+    scan(2655176.779,317,2655176.750,20,1,2655176.750)
+    scan(2655186.431,nil,nil,nil,1,2655176.750)
+    scan(2655186.838,319,2655187.000,10,2,2655186.838)
+    scan(2655187.034,319,2655187.000,10,2,2655187.000)
+    scan(2655187.234,319,2655187.000,10,2,2655187.000)
+    scan(2655188.034,321,2655188.000,5,3,2655188.000)
 end)
 
 local failures={}

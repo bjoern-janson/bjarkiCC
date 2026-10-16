@@ -2,7 +2,11 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.4-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.5-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Correction in 0.4.5
+
+The live Hibernate trace exposed the same aura being counted twice: once before its application time was readable, then again when that timestamp arrived shortly afterward. The first readable time now corrects that application's clock without counting another CC, even if it is later than the initial observation. The recorded first Hibernate stays green and the recorded second stays yellow. Subsequent new applications still advance normally. The 20-second application-based timer is unchanged. This corrects the reproduced duplicate count; the trace does not establish that a resisted cast was counted.
 
 ## Correction in 0.4.4
 

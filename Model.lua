@@ -66,11 +66,14 @@ local function applicationTime(effect, now)
 end
 
 local function refreshedApplication(previous, effect, start)
-    if not previous or not start then return false end
-    local priorStart = previous.appliedAt or previous.firstSeenAt
-    if not priorStart or start <= priorStart + APPLICATION_EPSILON then return false end
+    -- An untimed identity already represents one observed application. Its
+    -- first readable timestamp calibrates that application, even when the
+    -- client reports it after our local first-seen fallback. Only two known
+    -- application timestamps can establish a same-identity refresh.
+    if not previous or not previous.appliedAt or not start then return false end
+    if start <= previous.appliedAt + APPLICATION_EPSILON then return false end
     if effect.applicationSource == "loc" then
-        if previous.applicationSource == "loc" or not previous.appliedAt then return true end
+        if previous.applicationSource == "loc" then return true end
         -- A start after the previous application was already observed cannot
         -- merely correct that application's duration-derived timestamp.
         return previous.firstSeenAt and start > previous.firstSeenAt + APPLICATION_EPSILON
@@ -78,7 +81,7 @@ local function refreshedApplication(previous, effect, start)
     -- A duration correction can move expiration-duration without another CC.
     -- A derived refresh needs both boundaries to change, from the same sensor.
     -- Diminished CC can end earlier even though its application is newer.
-    return (previous.applicationSource == "aura" or not previous.appliedAt) and effect.applicationSource == "aura"
+    return previous.applicationSource == "aura" and effect.applicationSource == "aura"
         and previous.expires and effect.expires
         and math.abs(effect.expires - previous.expires) > APPLICATION_EPSILON
 end
@@ -180,8 +183,9 @@ function Model:Observe(guid, effects, now, complete)
             if prediction and candidate and (matchedPrediction or candidate.appliedAt <= appliedAt) then
                 prediction.categories[category] = nil
             end
-        elseif same and preciseStart and preciseStart <= previous.firstSeenAt
-            and (not previous.appliedAt or (previous.applicationSource == "aura" and effect.applicationSource == "loc"))
+        elseif same and preciseStart
+            and (not previous.appliedAt or (preciseStart <= previous.firstSeenAt
+                and previous.applicationSource == "aura" and effect.applicationSource == "loc"))
             and state and state.applicationKey == key then
             -- The identity was observed before timing became readable. Correct
             -- that application in place; its arrival is not another CC.

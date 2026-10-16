@@ -700,15 +700,59 @@ test("derived refresh advances observed stage while preserving ambiguity", funct
     local r=only(m:GetDR("a",25)); eq(r.stage,2); eq(r.uncertain,true)
 end)
 
-test("a new readable start after an untimed observation identifies reapplication", function()
+test("first readable timing after an untimed identity calibrates rather than proving a refresh", function()
     for _,source in ipairs({"loc","aura"}) do
         local m = new(); baseline(m,"a")
         m:Observe("a",{a=effect("stun",100,41)},21,true)
         local a=effect("stun",100,45,25); a.applicationSource=source
         m:Observe("a",{a=a},26,true)
-        local r=only(m:GetDR("a",26)); eq(r.stage,2); eq(r.started,25); eq(r.remaining,19)
-        m:Observe("a",{a=a},27,true); eq(only(m:GetDR("a",27)).stage,2)
+        -- First-seen time is a local fallback, not a known earlier application
+        -- timestamp. Live 0.4.4 records a readable start after first-seen for
+        -- the same Hibernate; that alone cannot prove a second application.
+        local r=only(m:GetDR("a",26)); eq(r.stage,1); eq(r.started,25); eq(r.remaining,19)
+        m:Observe("a",{a=a},27,true); eq(only(m:GetDR("a",27)).stage,1)
+        local refreshed=effect("stun",100,50,30); refreshed.applicationSource=source
+        m:Observe("a",{a=refreshed},30,true)
+        r=only(m:GetDR("a",30)); eq(r.stage,2); eq(r.started,30)
     end
+end)
+
+test("live Hibernate a315 gets its first readable timestamp without advancing stage", function()
+    local m=new()
+    m:Observe("a",{["a:315"]=effect("incapacitate",2637,2655141.649)},2655121.649,true)
+    eq(only(m:GetDR("a",2655121.649)).stage,1)
+    local timed=effect("incapacitate",2637,2655141.750,2655121.750); timed.applicationSource="loc"
+    m:Observe("a",{["a:315"]=timed},2655121.778,true)
+    local row=only(m:GetDR("a",2655121.778))
+    eq(row.stage,1); eq(row.observedStage,1); eq(row.started,2655121.750)
+    m:Observe("a",{},2655138.995,true)
+    row=only(m:GetDR("a",2655140.750)); eq(row.stage,1); eq(row.remaining,1)
+    eq(#m:GetDR("a",2655141.750),0)
+end)
+
+test("live second Hibernate a319 counts once when its timestamp becomes readable", function()
+    local m=new()
+    local first=effect("incapacitate",2637,2655196.750,2655176.750); first.applicationSource="loc"
+    m:Observe("a",{["a:317"]=first},2655176.779,true)
+    eq(only(m:GetDR("a",2655176.779)).stage,1)
+    m:Observe("a",{},2655186.431,true)
+    m:Observe("a",{["a:319"]=effect("incapacitate",2637,2655196.838)},2655186.838,true)
+    eq(only(m:GetDR("a",2655186.838)).stage,2)
+    local second=effect("incapacitate",2637,2655197.000,2655187.000); second.applicationSource="loc"
+    m:Observe("a",{["a:319"]=second},2655187.034,true)
+    local row=only(m:GetDR("a",2655187.034))
+    eq(row.stage,2); eq(row.observedStage,2); eq(row.started,2655187.000)
+    m:Observe("a",{["a:319"]=second},2655190,true)
+    row=only(m:GetDR("a",2655190)); eq(row.stage,2); eq(row.remaining,17)
+end)
+
+test("first timing after a complete witness gap still calibrates the retained untimed identity", function()
+    local m=new()
+    m:Observe("a",{same=effect("stun",100,41)},21,true)
+    m:Observe("a",{},21.1,true)
+    local timed=effect("stun",100,41.15,21.15); timed.applicationSource="loc"
+    m:Observe("a",{same=timed},21.2,true)
+    local row=only(m:GetDR("a",22.15)); eq(row.stage,1); eq(row.started,21.15); eq(row.remaining,19)
 end)
 
 test("explicit LoC timing corrects the same application derived from aura duration", function()
