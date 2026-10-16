@@ -260,8 +260,10 @@ function UI.Update(now)
                         icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
                     else
                         icon.time:SetText(UI.FormatTime(row.remaining))
-                        icon.state:SetText(row.uncertain and '?' or ({'50%','25%','IMM'})[row.stage])
-                        icon.state:SetShown(row.uncertain or ns.db.showDRText)
+                        -- Keep uncertainty in the tooltip and status report. An
+                        -- inferred stage cannot supply an exact percentage.
+                        icon.state:SetText(row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])
+                        icon.state:SetShown(not row.uncertain and ns.db.showDRText)
                         if not row.uncertain and ns.db.showDRText then
                             icon.state:ClearAllPoints(); icon.state:SetPoint('BOTTOM',0,1)
                             icon.time:ClearAllPoints(); icon.time:SetPoint('CENTER',0,4)
@@ -365,10 +367,10 @@ function UI.OpenOptions()
         function() return ns.db.ownCastEstimates end,function(v) ns.db.ownCastEstimates=v; ns.OwnCasts.Init() end)
     slider(page,'DR timer (seconds)',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
         if v~=ns.db.resetSeconds then
-            ns.db.resetSeconds=v; ns.model=ns.Model.New(v); ns.Observer.Init(); ns.OwnCasts.Init()
+            ns.db.resetSeconds=v; ns.model=ns.Model.New(v); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
         end
     end)
-    label(page,'50% / 25% / immune: green / yellow / red. ?: uncertain stage.',6,-266,450)
+    label(page,'Green / yellow / red: stages 1 / 2 / 3. Hover for tracking details.',6,-266,450)
 
     page=pages[3]
     check(page,'Only current target',0,0,function() return ns.db.targetOnly end,function(v) ns.db.targetOnly=v end)

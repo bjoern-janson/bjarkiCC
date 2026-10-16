@@ -1,6 +1,16 @@
 # bjarkiCC known issues and validation status
 
-## Current report: 0.4.1
+## Current report: 0.4.2 Hibernate cycles
+
+The user reports reduced outgoing Hibernate showing the first-cycle green border, full incoming Hibernate showing the second-cycle yellow border, and unnecessary DR question marks. The installed TOC is 0.4.2-beta. Live `/bcc status` during incoming Hibernate shows player LoC with one mapped witness, observed stage two at start 2654073.250, no own-cast estimates, and no scan gaps. Target/focus show the same player GUID's history. This rules out the own-cast overlay for that incoming yellow icon, but does not reveal the prior observation transition.
+
+Two duplicate-count paths were reproduced through the real observer/model: a fallback LoC start changing from 21 to 21.0001 produced a new key and another stage, and a complete empty snapshot followed by the identical application also advanced the count. Version 0.4.3 stabilizes fallback identity within the existing 0.001-second tolerance and retains one bounded witness with category history. Tests cover each path and their combination, a real later start, distinct aura IDs and unchanged polls. Their relevance to the exact live incident remains unconfirmed.
+
+**The reduced outgoing Hibernate case remains open.** The user is unsure whether the previous application was less or more than 20 seconds earlier. The selected policy resets the stage after 20 seconds from application; a full 20-second CC followed by another at 21 seconds therefore displays stage one even if the game still diminishes it. That policy consequence is reproduced, but it is not established as the screenshot's cause. Version 0.4.3 records bounded recent witness/stage transitions in `/bcc status` so a live repeat can distinguish expired history from missed evidence. It does not change timer semantics or infer server stages from remaining portrait seconds.
+
+DR question marks are removed in 0.4.3. Incomplete or inferred evidence is still described in tooltips and status; uncertain rows omit optional percentages. Cooldown readiness markers and manual-use markers are unchanged. Live confirmation of the duplicate-count corrections remains pending.
+
+## Previous report: 0.4.1
 
 The user reports that the first offensive application still has no DR timer and a later screenshot shows stage one on the second CC. The live status report records `ownCast.captured: 0`, `ownCast.unresolved: 7`, and zero mapped target/focus aura or per-unit LoC witnesses. Readable UnitName fields were `Björn`, `Janson`; the actual SENT destination was `Björn Janson`. The resolver accepted only the bare name or `Björn-Janson`. This exact mismatch is reproduced and corrected in 0.4.2 by adding an exact space-qualified alias built from readable fields. Same-GUID aliases now share readable names, while distinct ambiguity remains rejected.
 
@@ -27,7 +37,7 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Condition | Consequence | Status |
 | --- | --- | --- |
 | Beta hides enemy spell/identity/aura fields | Automatic target/focus DR or enemy cooldown tracking may be unavailable | Supported failure mode; live coverage unverified |
-| Successful own cast is resisted, immune, delayed or sent to another same-name unit | Stage-colored `?` estimate can appear without an actual application | Optional fallback; confirmed aura evidence takes precedence; cast success is not a hit guarantee |
+| Successful own cast is resisted, immune, delayed or sent to another same-name unit | Stage-colored estimate can appear without an actual application | Optional fallback; hover shows uncertainty; cast success is not a hit guarantee |
 | Application event and its timestamp are both hidden | The display can start late; a correct earlier deadline cannot be recovered without evidence | Readable timing corrects late observations; no claim of universally immediate detection |
 | Own cast lacks a readable cast ID/name or targets an area/trap/pet effect | No own-cast fallback appears | Deliberately excluded; target/focus name matching is not global victim identification |
 | Per-unit LoC API exists but returns secret, incomplete or no records | Target/focus fallback may add no usable witnesses | Only readable positives accepted; incomplete aura coverage stays uncertain |
@@ -50,6 +60,9 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 
 | Diagnosed cause | Source fix | Verification |
 | --- | --- | --- |
+| Fallback LoC key included every start-time digit, bypassing refresh tolerance | Reconcile same-spell fallback identity within 0.001 seconds while retaining the original boundary | Tiny corrections remain stage one; genuine later starts advance; distinct aura IDs stay separate |
+| Empty snapshot cleared the active identity, so the same returning record counted again | Retain one bounded immutable application witness with the category and its flat predecessor | Exact replay and replay with timestamp rounding stay on the same stage; activity still clears on removal |
+| Persistent DR question marks clutter the compact display | Keep evidence details in tooltip/status; omit uncertain percentage text | UI integration confirms no DR badge while preserving tooltip provenance and independent cooldown markers |
 | Forever SENT used a readable space-qualified name that the resolver did not accept | Build exact space-qualified aliases from readable name/realm fields; share names across same-GUID views | Exact live name case fails before the change and passes afterward; full Main-to-UI first/second cast regression passes |
 | Later readable application discarded earlier inferred stage continuity | Store inferred stage separately from observed stage and expose uncertainty in UI/status | Hidden first/second cast followed by second-application confirmation retains yellow stage two with observed stage one; estimates-off shows the observed count |
 | Expired display timer deleted category history before a delayed second application arrived; an untimed arrival could overwrite its predecessor | Retain bounded current-category evidence plus one flat predecessor and reconcile original application times | Delayed second application and split identity/timing arrivals advance within the first window; a genuine application at or beyond the boundary resets |
@@ -71,7 +84,7 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | First observation discarded readable application timing | Preserve guarded LoC start or aura expiration-minus-duration; correct late clocks without inventing a new application | Nine-second-late, untimed-to-timed correction, expired identity and cast confirmation regressions |
 | Same aura identity prevented all reapplications from advancing | Recognize a later explicit start or a changed derived start/end pair, preserving ambiguity markers | Stable-key refresh, shortened repeated CC, unchanged polling and incomplete-timing regressions |
 | First aura-to-LoC sensor handoff discarded earlier observed DR | Preserve same-GUID stages/deadlines and reconcile identities while invalidating confidence | Same-effect handoff must not duplicate; a second readable CC must advance the retained stage |
-| Gray uncertainty border hid counted DR stage | Always show stage color; keep a separate visible `?` and tooltip | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
+| Gray uncertainty border hid counted DR stage | Always show stage color; explain uncertainty in tooltip/status (on-icon `?` removed in 0.4.3) | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
 | Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
 
-All eight suites pass for 0.4.2: Model 61 cases, Observer 69, OwnCasts 14, plus bootstrap, anchors, UI, end-to-end integration and the backdrop regression. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
+All nine suites pass for 0.4.3: Model 63 cases, Observer 72, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.

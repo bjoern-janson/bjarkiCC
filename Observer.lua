@@ -6,6 +6,7 @@ ns.Observer = Observer
 -- self target/focus aliases retain the player-only Loss of Control fallback.
 local trackedUnits = {"player", "target", "focus"}
 local MAX_WITNESSES = 512
+local APPLICATION_EPSILON = 0.001 -- Match the model's timestamp rounding tolerance.
 
 local function countEffects(effects)
     local count = 0
@@ -230,6 +231,11 @@ end
 local function reconcileWitnesses(effects, previous)
     local result, ambiguous = {}, false
     local prior = previous and previous.witnesses or {}
+    local function sameFallbackTime(first, second)
+        return first.fallbackIdentity and second.fallbackIdentity
+            and first.appliedAt and second.appliedAt
+            and math.abs(first.appliedAt - second.appliedAt) <= APPLICATION_EPSILON
+    end
     local function add(key, effect)
         local existing = result[key]
         if not existing or (effect.applicationSource == "loc" and effect.appliedAt
@@ -245,7 +251,8 @@ local function reconcileWitnesses(effects, previous)
             -- identity (or the current instance) and flag the ambiguity.
             for oldKey, old in pairs(prior) do
                 if old.spellID == effect.spellID and old.category == effect.category
-                    and (old.fallbackIdentity == true) ~= (effect.fallbackIdentity == true) then
+                    and ((old.fallbackIdentity == true) ~= (effect.fallbackIdentity == true)
+                        or sameFallbackTime(old, effect)) then
                     candidates[oldKey] = old
                 end
             end
@@ -267,7 +274,11 @@ local function reconcileWitnesses(effects, previous)
                         -- polls cannot create another copy of this application.
                         local timed = {}
                         for field, value in pairs(witness) do timed[field] = value end
-                        timed.appliedAt, timed.applicationSource = effect.appliedAt, "loc"
+                        -- Rounding in a no-instance key is not a new CC. Keep
+                        -- the original boundary so repeated corrections cannot
+                        -- slide the tolerance forward on every poll.
+                        timed.appliedAt = sameFallbackTime(witness, effect) and witness.appliedAt or effect.appliedAt
+                        timed.applicationSource = "loc"
                         timed.expires = effect.expires or witness.expires
                         witness = timed
                     end
@@ -400,6 +411,7 @@ local function scanGuid(unit, guid, previous, now)
     }
     for key, value in pairs(diagnostics) do state[key] = value end
     ns.model:Observe(guid, effects, now, complete)
+    if ns.RecordDRObservation then ns.RecordDRObservation(guid, effects, now, complete, sensor) end
     return state
 end
 

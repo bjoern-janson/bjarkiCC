@@ -676,6 +676,28 @@ test("explicit timing can correct a later refresh without counting it again", fu
     local r=only(m:GetDR("a",27)); eq(r.stage,2); eq(r.started,25); eq(r.remaining,18)
 end)
 
+test("a removed witness returning unchanged does not advance its category", function()
+    local m=new()
+    local a=effect("stun",100,41,21); a.applicationSource="loc"
+    m:Observe("a",{same=a},21,true)
+    m:Observe("a",{},21.1,true)
+    m:Observe("a",{same=a},21.2,true)
+    local row=only(m:GetDR("a",21.2)); eq(row.stage,1); eq(row.started,21); eq(row.active,true)
+    m:Observe("a",{},22,true)
+    local b=effect("stun",100,35,25); b.applicationSource="loc"
+    m:Observe("a",{same=b},25,true)
+    row=only(m:GetDR("a",25)); eq(row.stage,2); eq(row.started,25)
+end)
+
+test("timing becoming readable after a witness gap corrects the existing application", function()
+    local m=new()
+    m:Observe("a",{same=effect("stun",100)},25,true)
+    m:Observe("a",{},26,true)
+    local timed=effect("stun",100,41,21); timed.applicationSource="loc"
+    m:Observe("a",{same=timed},27,true)
+    local row=only(m:GetDR("a",27)); eq(row.stage,1); eq(row.started,21); eq(row.remaining,14)
+end)
+
 local function runModelTests()
     local failed=0
     for _, case in ipairs(cases) do

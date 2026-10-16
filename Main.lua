@@ -3,8 +3,44 @@ local S = ns.Safe
 local frame = CreateFrame('Frame')
 ns.eventFrame, ns.eventErrors = frame, {}
 local initialized, scanElapsed, drawElapsed, dirty = false, 0, 0, true
+ns.drTrace = {}
+
+-- Observer calls this only with guarded, normalized application evidence.
+-- Keep changes rather than polling noise; no raw API values enter this log.
+function ns.RecordDRObservation(guid, effects, now, complete, sensor)
+    local function stamp(value) return value and string.format('%.3f',value) or 'unknown' end
+    local keys, witnesses, identities, stages = {}, {}, {}, {}
+    for key in pairs(effects) do keys[#keys+1]=key end
+    table.sort(keys)
+    for i=1,math.min(6,#keys) do
+        local key, effect = keys[i], effects[keys[i]]
+        local identity=key..' spell='..effect.spellID..' start='..stamp(effect.appliedAt)
+        identities[#identities+1]=identity
+        witnesses[#witnesses+1]=identity..' end='..stamp(effect.expires)
+    end
+    if #keys>6 then witnesses[#witnesses+1]='+'..(#keys-6)..' witnesses' end
+    for _,row in ipairs(ns.model:GetDR(guid,now,true)) do
+        stages[#stages+1]=row.category..' observed='..(row.observedStage or row.stage)..' shown='..row.stage
+            ..' start='..stamp(row.started)..(row.estimated and ' cast-estimate' or (row.stageEstimated and ' inferred-history' or ' observed'))
+    end
+    local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')
+        ..' | DR='..(#stages>0 and table.concat(stages,'; ') or 'none')
+    detail=detail:sub(1,1536)
+    -- A fallback end computed as now + timeRemaining can drift on every poll.
+    -- Include it as context, but only identity/start/stage/coverage changes log.
+    local signature=sensor..':'..tostring(complete)..':'..#keys..':'..table.concat(identities,';')..'|'..table.concat(stages,';')
+    for i=#ns.drTrace,1,-1 do
+        if ns.drTrace[i].guid==guid then
+            if ns.drTrace[i].signature==signature then return end
+            break
+        end
+    end
+    ns.drTrace[#ns.drTrace+1]={guid=guid,at=now,detail=detail,signature=signature}
+    if #ns.drTrace>48 then table.remove(ns.drTrace,1) end
+end
 
 local function resetTracking()
+    ns.drTrace = {}
     ns.model = ns.Model.New(ns.db.resetSeconds)
     ns.Observer.Init()
     ns.OwnCasts.Init()
@@ -73,6 +109,16 @@ function ns.BuildStatus()
         lines[#lines+1]='ownCast.resolve.'..key..': '..tostring((ns.OwnCasts.resolutionCounts or {})[key] or 0)
     end
     if ns.OwnCasts.lastResolution then lines[#lines+1]='ownCast.lastResolution: '..ns.OwnCasts.lastResolution end
+    if #ns.drTrace>0 then
+        lines[#lines+1]='Recent DR observations (latest 8 changes; guarded evidence):'
+        for i=math.max(1,#ns.drTrace-7),#ns.drTrace do
+            local entry, aliases=ns.drTrace[i],{}
+            for _,unit in ipairs({'player','target','focus'}) do
+                if ns.Observer.GetUnitState(unit).guid==entry.guid then aliases[#aliases+1]=unit end
+            end
+            lines[#lines+1]=string.format('  t=%.3f %s %s',entry.at,#aliases>0 and table.concat(aliases,'/') or 'previous unit',entry.detail)
+        end
+    end
     if #ns.eventErrors>0 then lines[#lines+1]='Unavailable events: '..table.concat(ns.eventErrors,', ') end
     lines[#lines+1]='Enemy timers require readable spell, identity and hostility. No observations is not proof of readiness.'
     lines[#lines+1]='Static and simulated tests passed; this report does not establish live DR correctness.'

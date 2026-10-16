@@ -803,6 +803,57 @@ test("a simultaneous aura cannot overwrite canonical explicit LoC timing", funct
     equal(row.stage,1); equal(row.started,21); equal(row.remaining,19); truth(row.uncertain)
 end)
 
+test("fallback LoC rounding corrections preserve one application identity", function()
+    reset(); realModel(); fixture.guid.target=nil; C_UnitAuras=nil
+    fixture.loc={{spellID=118,startTime=21,duration=20}}
+    ns.Observer.Scan(21)
+    for _,start in ipairs({21.0001,21.0008,21.0003}) do
+        fixture.loc[1].startTime=start
+        ns.Observer.Scan(21.1)
+        local row=ns.model:GetDR("Player-1-Self",21.1)[1]
+        equal(row.stage,1,"rounding is not a second application"); equal(row.started,21)
+        equal(size(ns.model.units["Player-1-Self"].effects),1)
+    end
+    fixture.loc[1].startTime=25; fixture.loc[1].duration=10
+    ns.Observer.Scan(25)
+    local row=ns.model:GetDR("Player-1-Self",25)[1]
+    equal(row.stage,2); equal(row.started,25)
+    ns.Observer.Scan(25.1); equal(ns.model:GetDR("Player-1-Self",25.1)[1].stage,2)
+end)
+
+test("an identical LoC application returning after an empty snapshot is not another CC", function()
+    for _,instance in ipairs({false,true}) do
+        reset(); realModel(); fixture.guid.target=nil; C_UnitAuras=nil
+        local record={spellID=118,auraInstanceID=instance and 19 or nil,startTime=21,duration=20}
+        fixture.loc={record}; ns.Observer.Scan(21)
+        fixture.loc={}; ns.Observer.Scan(21.1)
+        equal(ns.model:GetDR("Player-1-Self",21.1)[1].active,false)
+        fixture.loc={record}; ns.Observer.Scan(21.2)
+        local row=ns.model:GetDR("Player-1-Self",21.2)[1]
+        equal(row.stage,1); equal(row.started,21); equal(row.remaining,19.8); truth(row.active)
+        ns.Observer.Scan(21.3); equal(ns.model:GetDR("Player-1-Self",21.3)[1].stage,1)
+        fixture.loc={}; ns.Observer.Scan(21.4)
+        record.startTime=21.0001
+        fixture.loc={record}; ns.Observer.Scan(21.5)
+        row=ns.model:GetDR("Player-1-Self",21.5)[1]
+        equal(row.stage,1,"an empty gap plus rounding is still the same application"); equal(row.started,21)
+        fixture.loc={}; ns.Observer.Scan(22)
+        fixture.loc={{spellID=118,auraInstanceID=instance and 19 or nil,startTime=25,duration=10}}
+        ns.Observer.Scan(25)
+        row=ns.model:GetDR("Player-1-Self",25)[1]
+        equal(row.stage,2,"a later explicit application still advances"); equal(row.started,25)
+    end
+end)
+
+test("distinct known aura identities are not collapsed by matching LoC timestamps", function()
+    reset(); realModel(); fixture.guid.target=nil; C_UnitAuras=nil
+    fixture.loc={{spellID=118,auraInstanceID=19,startTime=21,duration=20},
+        {spellID=118,auraInstanceID=20,startTime=21,duration=20}}
+    ns.Observer.Scan(21)
+    equal(ns.model:GetDR("Player-1-Self",21)[1].stage,2)
+    ns.Observer.Scan(21.1); equal(ns.model:GetDR("Player-1-Self",21.1)[1].stage,2)
+end)
+
 local failures={}
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2])

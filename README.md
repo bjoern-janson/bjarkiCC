@@ -2,12 +2,19 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.2-beta** targets **1.60.1.70425**, interface **16001**. All eight offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.3-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Corrections in 0.4.3
+
+- A sub-millisecond correction to a Loss of Control start time no longer counts the same CC again when no aura instance ID is available. The same application returning after an empty snapshot also keeps its count; a genuinely newer application still advances it.
+- DR icons no longer show question marks. Uncertainty remains in the tooltip and `/bcc status`; uncertain rows omit optional percentage text. Borders show the tracked cycle: green first, yellow second, red third.
+- `/bcc status` includes the last eight observation changes, with readable witness identities, original timing and counted stages. A bounded 48-entry history ignores unchanged polls and expiry-only noise, so another mismatch can be diagnosed from its actual sequence.
+- Reduced Hibernate showing green remains an open live report. The current application-only policy restarts the cycle at 20 seconds from the preceding application; that can differ from the game's DR reset. The earlier cast interval was not recorded. No server-timing change or duration-based stage guess is included.
 
 ## Corrections in 0.4.2
 
 - Accept Forever's observed `Name Realm` cast destination alongside `Name` and `Name-Realm`, using readable unit-name fields. This fixes the reproduced matching failure that prevented offensive estimates from starting. Target/focus aliases of the same GUID share readable names; distinct ambiguous destinations remain rejected.
-- Keep inferred stage progression when a later application becomes readable. A confirmed second CC no longer discards the earlier cast estimate and displays stage one. Earlier inferred applications remain marked `?`; tooltips and diagnostics distinguish them from observed stages.
+- Keep inferred stage progression when a later application becomes readable. A confirmed second CC no longer discards the earlier cast estimate and displays stage one. Tooltips and diagnostics distinguish earlier inferred applications from observed stages.
 - Retain bounded category history after the icon expires so a delayed readable application can advance from its actual timestamp. Applications at or beyond the preceding 20-second boundary still begin a new stage-one window.
 - `/bcc status` now gives destination-resolution counts and the last safe name-matching summary. The application-based timer, frame offsets and solid texture borders are unchanged.
 
@@ -15,15 +22,15 @@ Version **0.4.2-beta** targets **1.60.1.70425**, interface **16001**. All eight 
 
 - Late observations use a readable application timestamp instead of starting another full 20 seconds at discovery. A timestamp becoming readable later corrects the existing clock. This cannot make hidden events visible earlier.
 - Consecutive applications can refresh a reused aura identity when its readable timing establishes a new application. Unchanged polling does not advance DR.
-- Switching observation sources preserves already recorded DR instead of resetting its stage; incomplete evidence remains marked `?`.
-- Borders keep their green/yellow/red stage colors. `?` separately marks uncertain history or an inferred cast; color alone is not confirmation of the victim's actual DR.
+- Switching observation sources preserves already recorded DR instead of resetting its stage; incomplete evidence remains flagged as uncertain.
+- Borders keep their green/yellow/red stage colors. Tooltips distinguish uncertain history or an inferred cast; color alone is not confirmation of the victim's actual DR.
 - Whole-second text uses the portrait's rounding convention, without subtracting a second from the timer.
 - Anchored bars/icons use solid textures instead of Blizzard's backdrop size handler. The client log identified that handler performing arithmetic on a protected width during CC.
 
 ## Changes in 0.4
 
 - Target/focus can supplement incomplete aura scans with readable per-unit Loss of Control records. Diagnostics explain which sources are available and list readable unmapped IDs.
-- Your eligible targeted CC casts can start an estimated DR display when enemy auras are hidden. These always show `?`: a successful cast does not prove the CC landed. Readable applications take precedence without counting the same cast twice. Disable this fallback in DR settings.
+- Your eligible targeted CC casts can start an estimated DR display when enemy auras are hidden. Hover identifies these estimates: a successful cast does not prove the CC landed. Readable applications take precedence without counting the same cast twice. Disable this fallback in DR settings.
 - Icons now sit above the name/health area, inset from portrait badges. Player grows right; target/focus grow left. Old defaults migrate; custom positions are kept. `/bcc reset` adopts the new placement.
 - The requested application-based timer remains: application starts or refreshes it, and breaking/removing CC never restarts it. Research distinguishes this chosen display policy from Classic's removal-based reset convention; Forever's exact reset rule remains unconfirmed. See [architecture.md](architecture.md).
 
@@ -43,7 +50,7 @@ Upgrading initializes frame-relative DR offsets once, preserving size, filters a
 - Live bars have no headings, category captions, backgrounds or empty-state messages.
 - Timers use whole seconds, or compact minutes for long cooldowns.
 - DR stages use colored borders. Percentage text and caster names are optional in Display settings.
-- Small `?` markers remain visible when information is uncertain; `M` identifies a manually marked use.
+- DR uncertainty is explained on hover. Cooldown `?` marks the uncertain talent range; `M` identifies a manually marked use.
 - Empty bars disappear when locked. Labels appear only in preview or while moving bars.
 
 Previous default sizes and spacing migrate once to the compact defaults. Diagnostics remain available through `/bcc status`.
@@ -76,7 +83,7 @@ The Display panel has enable, size and vertical-layout controls for each of the 
 
 ## Read the bars
 
-DR borders show the estimated duration of the **next** application: **green = 50%**, **yellow = 25%**, **red = immune**. Optional percentage text shows the same stages. The countdown starts on application, including while CC remains active. New applications refresh it; an early break or removal does not change its start. **?** means the colored stage is based on incomplete history or an inferred cast. It stays visible even when percentage text is disabled.
+DR borders show the tracked cycle: **green = first**, **yellow = second**, **red = third**. In the baseline profile these correspond to a next duration of **50%**, **25%**, and **immune**. Optional percentage text appears only when history is considered complete; hover to see whether the count is observed or inferred. The countdown starts on application, including while CC remains active. New applications refresh it; an early break or removal does not change its start. The display has no DR question-mark badge.
 
 The default profile uses nine Classic categories and the requested 20-second timer from the last observed application. Its category and timing assumptions remain provisional for Forever. Own-cast estimates instead start at cast success, approximating an application that may be hidden or may never land; they always remain uncertain. Initial login, a newly observed player, unavailable data, and a scan gap longer than one second invalidate observed history. A full observation window is needed before new applications can be assigned confident stages. History remains continuous while the same player stays observable through player, target or focus, including target/focus swaps. Losing the last tracked reference discards that player's observed DR history. Recorded enemy cooldowns remain independent of target/focus changes.
 
@@ -105,7 +112,7 @@ There are **120 aura/effect IDs**, **85 cast IDs** and **27 cooldown families** 
 5. Within the reset window, test another mapped stun. Check duration/stage against what actually happens in the duel. Test Kidney Shot separately.
 6. Focus the opponent, then switch targets: the opponent's DR window should remain on the focus frame. Target the opponent again and confirm target/focus agree. Clear both references, then select the opponent again: observation should restart uncertain. Old enemy cooldown estimates may remain on the all-enemies bar.
 7. Copy `/bcc status` after the duel. Record expected behavior, actual behavior, spell rank, talents and any Lua error. Never treat test-mode icons as proof that the beta exposes the required combat events.
-8. Cast your own mapped CC on the target, then on a different focus via a focus macro. Where auras are hidden, a stage-colored `?` estimate should appear. Interrupt a cast before it succeeds and check that no new estimate appears. If an aura becomes readable, it must replace the estimate without a double stage advance. Capture `/bcc status` while a missing effect is still active.
+8. Cast your own mapped CC on the target, then on a different focus via a focus macro. Where auras are hidden, a stage-colored estimate should appear; hover to inspect its evidence. Interrupt a cast before it succeeds and check that no new estimate appears. If an aura becomes readable, it must replace the estimate without a double stage advance. Capture `/bcc status` while a missing effect or incorrect cycle is still active; it includes recent observation changes.
 9. Repeat the same category before the application timer expires. Confirm green → yellow → red and a fresh application countdown for each readable reapplication. An unchanged active CC must not advance on its own. Let the CC end and repeat it while checking for Lua errors.
 
 ## Development and tests

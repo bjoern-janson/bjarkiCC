@@ -148,10 +148,10 @@ local outgoing=ns.model:GetDR('Player-1-T',now)
 local targetIcon=ns.UI.bars.target.icons[1]
 assert(#outgoing==1 and outgoing[1].estimated and outgoing[1].uncertain and outgoing[1].stage==1,'correlated player success creates a separate uncertain estimate')
 assert(ns.UI.bars.target.shown and targetIcon.row.estimated and targetIcon.time.text=='20'
- and targetIcon.state.shown and targetIcon.state.text=='?','Main success dispatch reaches the visible target estimate with its uncertainty marker')
+ and not targetIcon.state.shown,'Main success dispatch renders the estimate with only its timer and border')
 assert(not targetIcon.template,'anchored icon cannot inherit BackdropTemplate size callbacks')
 for _,edge in ipairs(targetIcon.borderTextures) do
- assert(edge.color[1]==.25 and edge.color[2]==1 and edge.color[3]==.3,'estimated first DR retains its green stage border alongside the question mark')
+ assert(edge.color[1]==.25 and edge.color[2]==1 and edge.color[3]==.3,'estimated first DR retains its green stage border')
 end
 targetIcon.scripts.OnEnter(targetIcon)
 assert(ns.UI.tip.lines[1]=='Next duration: unknown','estimated stage color must not promise the next CC duration')
@@ -189,14 +189,14 @@ assert(targetIcon.row.stage==2 and targetIcon.row.started==102 and targetIcon.ti
 for _,edge in ipairs(targetIcon.borderTextures) do
  assert(edge.color[1]==1 and edge.color[2]==.8 and edge.color[3]==.15,'second observed application renders the yellow stage border')
 end
-assert(targetIcon.state.shown and targetIcon.state.text=='?','derived refresh preserves its uncertainty independently of color')
+assert(not targetIcon.state.shown and targetIcon.row.uncertain,'derived refresh retains uncertainty without an icon marker')
 assert(ns.BuildStatus():find('DR stun: stage 2; started 102.000',1,true),'status exposes the current application clock for runtime diagnosis')
 now=103; targetAura.expirationTime=105.5; targetAura.duration=2.5
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
 assert(targetIcon.row.stage==3 and targetIcon.row.started==103 and targetIcon.time.text=='20','third readable application refreshes the timer and reaches the final DR stage')
 for _,edge in ipairs(targetIcon.borderTextures) do
- assert(edge.color[1]==1 and edge.color[2]==.2 and edge.color[3]==.15,'third observed application renders red while keeping uncertainty visible')
+ assert(edge.color[1]==1 and edge.color[2]==.2 and edge.color[3]==.15,'third observed application renders its red border')
 end
 -- Failed/interrupted casts cannot seed focus predictions, even after a stale success.
 for index,event in ipairs({'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED'}) do
@@ -321,13 +321,19 @@ ns.UI.Update(now)
 assert(not ns.UI.bars.player.title.shown,'no headers in normal play')
 assert(ns.UI.bars.player.icons[1].time.text=='20','DR countdown is visible from application while CC remains active')
 assert(ns.UI.bars.player.icons[1].swipe.shown and ns.UI.bars.player.icons[1].swipe.cooldown[1]==now,'DR sweep starts on the observed application')
-assert(ns.UI.bars.player.icons[1].state.shown and ns.UI.bars.player.icons[1].state.text=='?','uncertain DR marker never hidden')
+assert(not ns.UI.bars.player.icons[1].state.shown,'uncertain DR does not add a question mark to the icon')
 for _,edge in ipairs(ns.UI.bars.player.icons[1].borderTextures) do
  assert(edge.color[1]==1 and edge.color[2]==.2 and edge.color[3]==.15,'uncertain observed stage three keeps its red stage border')
 end
 ns.UI.bars.player.icons[1].scripts.OnEnter(ns.UI.bars.player.icons[1])
 assert(ns.UI.tip.lines[1]=='Next duration: unknown'
  and table.concat(ns.UI.tip.lines,'\n'):find('observed stage 3',1,true),'incomplete observed history remains explicit in the stage-colored tooltip')
+ns.db.showDRText=true
+ns.UI.Update(now)
+assert(not ns.UI.bars.player.icons[1].state.shown,'optional percentages cannot claim an exact duration for uncertain DR')
+assert(ns.UI.bars.player.icons[1].time.point[1]=='CENTER'
+ and ns.UI.bars.player.icons[1].time.point[3]==0,'omitted uncertain percentages leave the timer centered')
+ns.db.showDRText=false
 assert(ns.UI.bars.cooldown.icons[1].state.shown and ns.UI.bars.cooldown.icons[1].state.text=='?','earliest-ready uncertainty visible')
 assert(ns.UI.bars.cooldown.overflow.shown and ns.UI.bars.cooldown.overflow.text=='+1','overflow stays visible without heading')
 local hovered=ns.UI.bars.cooldown.icons[1]

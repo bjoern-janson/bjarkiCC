@@ -56,6 +56,7 @@ local function predecessor(state)
         confirmationStage = state.confirmationStage,
         confirmationSentAt = state.confirmationSentAt,
         confirmationAppliedAt = state.confirmationAppliedAt,
+        witness = state.witness,
     }
 end
 
@@ -121,10 +122,22 @@ function Model:Observe(guid, effects, now, complete)
     for _, key in ipairs(keys) do
         local effect = effects[key]
         local category = effect.category
-        local previous = unit.effects[key]
-        local same = previous and previous.category == category and previous.spellID == effect.spellID
         local state = unit.categories[category]
         local preciseStart = applicationTime(effect, now)
+        -- A complete empty snapshot ends activity, not the identity of the
+        -- application. Retain one immutable witness with the category so the
+        -- same record returning cannot be counted as another CC. An untimed
+        -- identity seen again after its window has no such continuity proof.
+        local retained = state and state.witness
+        local sameFallback = retained and retained.fallbackIdentity and effect.fallbackIdentity
+            and retained.spellID == effect.spellID and preciseStart and retained.appliedAt
+            and math.abs(preciseStart - retained.appliedAt) <= APPLICATION_EPSILON
+        if retained and state.applicationKey ~= key and not sameFallback then retained = nil end
+        if retained and not retained.appliedAt and not preciseStart and not inWindow(state, now, self.resetSeconds) then
+            retained = nil
+        end
+        local previous = unit.effects[key] or retained
+        local same = previous and previous.category == category and previous.spellID == effect.spellID
         local refreshed = same and refreshedApplication(previous, effect, preciseStart)
         if not same or refreshed then
             local prediction = self.estimates[guid]
@@ -205,7 +218,10 @@ function Model:Observe(guid, effects, now, complete)
             expires = effect.expires or (same and previous.expires or nil),
             appliedAt = preciseStart or (same and previous.appliedAt or nil),
             applicationSource = preciseStart and effect.applicationSource or (same and previous.applicationSource or nil),
+            fallbackIdentity = effect.fallbackIdentity == true,
             firstSeenAt = same and not refreshed and previous.firstSeenAt or now}
+        local current = unit.categories[category]
+        if current and current.applicationKey == key then current.witness = nextEffects[key] end
     end
 
     for _, state in pairs(unit.categories) do state.activeCount = 0 end
