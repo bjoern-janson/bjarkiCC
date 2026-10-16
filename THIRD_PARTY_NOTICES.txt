@@ -1,0 +1,166 @@
+bjarkiCC third-party notices and data provenance
+Retrieved: 2026-10-16
+DR research rechecked: 2026-10-17; see architecture.md for pinned sources,
+Classic versus Forever distinctions, and the retained application-only policy.
+
+1. DRList-1.0 (MIT)
+
+Data.lua's Classic aura-to-DR-category mapping is adapted from:
+https://github.com/wardz/DRList-1.0/blob/05c3c794fc18791d2173ea5361a6aa9c0029d91f/DRList-1.0/Spells.lua
+
+Rules and declared license:
+https://github.com/wardz/DRList-1.0/blob/05c3c794fc18791d2173ea5361a6aa9c0029d91f/DRList-1.0/DRList-1.0.lua
+https://github.com/wardz/DRList-1.0/blob/05c3c794fc18791d2173ea5361a6aa9c0029d91f/README.md
+
+Upstream's README declares "Copyright (C) 2025 Wardz" and links the MIT
+License at https://opensource.org/license/mit. The pinned repository has
+no separate LICENSE file; the complete linked license is reproduced below
+with that copyright notice.
+
+Adaptation: retain the Classic Era rank/effect and item-effect mappings;
+exclude Season of Discovery entries 428739 and 400009; rename internal
+category keys; use nine static categories and no LibStub dependency.
+The separately sourced Forever Counterattack rank 1242634 is also assigned to
+its family's provisional root category. This one entry is not from DRList.
+No DRList runtime library, retail data, or expansion-detection code is shipped.
+DRList acknowledges that it is a fork of DRData-1.0 by Shadowed103.
+
+MIT License
+
+Copyright (C) 2025 Wardz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+2. Cooldown reference facts; no implementation copied
+
+Historical Classic spell/rank IDs, cooldown estimates, shared shock family,
+and the Cold Snap / Preparation reset relationships were cross-checked against:
+https://github.com/jordonwow/omnibar/blob/d83628924a92ecf0467783380c2dfd495fc79dc1/OmniBar_Vanilla.lua
+Observed file blob: 8c196c45409bc6f8b097882deed37f36fc4c7918
+
+bjarkiCC's registry and tracking implementation are independently written.
+No OmniBar or MyDRs runtime code, media, or UI implementation is included.
+The 0.4 own-cast observer is independently written. DRTrackerForever was
+consulted as evidence about beta restrictions and cast-based estimation;
+none of its implementation was copied. Source links are in architecture.md.
+The original addon authors do not endorse or validate this addon.
+
+Selected client-data comparisons from The Forever Era and ForeverDiff:
+- Hammer of Justice: 60s base; Improved HoJ reduces it by 5/10/15s.
+  Configured estimate: 45-60s.
+  https://theforeverera.com/en/spells/paladin/hammer-of-justice/
+  https://foreverdiff.com/talents/paladin/improved-hammer-of-justice-1521/
+- Psychic Scream: 30s base; talent reduces it by 2/4s.
+  Configured estimate: 26-30s.
+  https://theforeverera.com/en/spells/priest/psychic-scream/
+  https://theforeverera.com/en/talents/priest/improved-psychic-scream/
+- Frost Nova: 25s base; talent reduces it by 2/4s.
+  Configured estimate: 21-25s.
+  https://theforeverera.com/en/spells/mage/frost-nova/
+  https://theforeverera.com/en/talents/mage/improved-frost-nova/
+- Gouge: 10s base; the referenced PvP set bonus reduces it by 1s.
+  Configured estimate: 9-10s.
+  https://theforeverera.com/en/spells/rogue/gouge/
+  https://theforeverera.com/en/items/272765/
+- Blind: 300s base in the client comparison; historical tracking estimate 180s.
+  Configured estimate: 180-300s; lower bound is not a verified Forever talent.
+  https://theforeverera.com/en/spells/rogue/
+- Death Coil: 120s base; historical tracking estimate 102s.
+  Configured estimate: 102-120s; lower bound is not a verified Forever talent.
+  https://theforeverera.com/en/spells/warlock/death-coil/
+- Earth Shock: 6s base; historical shared-shock tracking estimate 5s.
+  Configured estimate: 5-6s; all observed Earth, Frost and Flame Shock ranks
+  normalize to one shared cooldown icon. This does not imply an Earth Shock
+  cast was observed. The shared cooldown is shown even with interrupts hidden.
+  https://theforeverera.com/en/spells/shaman/earth-shock/
+
+Other nonzero cooldowns use the historical fixed estimates listed in Data.lua.
+Equal minimum and maximum do not mean the cooldown was measured on this enemy.
+No guess is made about an enemy's talents or equipment.
+
+Additional checked beta abilities and corrections:
+- Bash remains 60s base, but Forever Brutal Impact now reduces its cooldown
+  by 15/30s. Configured estimate: 30-60s (not the old fixed 60s).
+  https://theforeverera.com/en/spells/druid/bash/
+  https://theforeverera.com/en/talents/druid/brutal-impact/
+- Intercept has 30s base, reduced by 5/10s with Improved Intercept.
+  Configured estimate: 20-30s, without unverified additional item modifiers.
+  https://theforeverera.com/en/spells/warrior/intercept/
+  https://theforeverera.com/en/talents/warrior/improved-intercept/
+- Freezing Trap now has 30s cast cooldown in Forever (Classic had 15s).
+  Configured estimate: 30s. The CC duration is separate from cast cooldown.
+  https://theforeverera.com/en/spells/hunter/freezing-trap/
+- Intimidation cast 19577 has 60s cooldown; its stun effect is 24394.
+  The hunter cast begins the estimate; the delayed pet effect does not.
+  https://theforeverera.com/en/spells/hunter/intimidation/
+  https://forevercraft.ru/database/spell/19577/
+- Counterattack has 5s cooldown. Retained Classic spell IDs 19306, 20909,
+  20910 are joined by new Forever rank 1242634. Its identifier and root
+  effect are documented by the database below (build 1.60.1.70291).
+  Its DR category is inherited provisionally from the existing family,
+  not independently confirmed on the Forever server.
+  https://theforeverera.com/en/spells/hunter/counterattack/
+  https://zugzugdb.com/spell/1242634/counterattack
+- Intimidating Shout 5246: 180s base cooldown in the beta client data.
+  https://theforeverera.com/en/spells/warrior/intimidating-shout/
+- War Stomp 20549: 90s, explicitly reduced from 120s in Blizzard's beta
+  development notes updated October 15 (the installed build is 70425).
+  https://us.forums.blizzard.com/en/wow/t/wow-forever-beta-development-notes-%E2%80%93-updated-october-15/2360696/6
+
+These beta spell pages describe build 70374 unless stated otherwise.
+
+3. Evidence limits
+
+The DR profile is a provisional Classic baseline, not a verified Forever
+server-rules specification. Its next-duration stages are 50%, 25%, immune.
+The default 20s duration comes from DRList's conservative upper value for a
+stated 15-20s dynamic Classic reset. Version 0.3.1 implements the user's
+requested start rule: each observed application starts or refreshes the timer;
+CC duration, breaking and removal do not change that deadline. This timing
+choice is not independent verification of Forever's server reset rule.
+The referenced Classic profile does not contain a separate Fear stage rule.
+
+Most selected beta spell pages identify client build 1.60.1.70374. That is older
+than the local target build 1.60.1.70425. Extracted client data and addon source
+are not live-client or server-behavior validation.
+
+The cooldown ranges are configured estimates, not guaranteed earliest/latest
+bounds. Unmodeled talents, items, set bonuses, beta changes, missed casts, and
+unobserved resets can invalidate them. HoJ's 45-60s range does not cover every
+possible set bonus. Use overrides when verified in the client. Intercept's
+20-30s range likewise does not include every possible equipment modifier.
+
+The two reset families are historical and only clear tracked abilities:
+Cold Snap 12472 -> Frost Nova 122.
+Preparation 14185 -> Kidney Shot 408, Blind 2094, Gouge 1776.
+Beyond those reset families and the shared shock family, no additional reset
+or shared-cooldown relationships are inferred.
+
+This is a curated starting registry, not complete coverage of every Forever
+class ability, racial, item or pet ability. Item effects are classified for DR,
+but item activation cooldown coverage is not complete. Spammable CC is
+classified for DR but is not given a made-up cooldown. Blind and Death Coil have cooldown
+presentation categories but no DR entry in the selected Classic mapping.
+Loss-of-Control data alone cannot detect every root or Frost Shock slow; a
+visible category in the options does not prove that the client supplies it.
+
+Texture paths reference assets supplied by World of Warcraft. Blizzard media
+is not redistributed in this package. World of Warcraft is a trademark of
+Blizzard Entertainment, Inc.
+

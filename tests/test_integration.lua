@@ -1,0 +1,245 @@
+-- Client boundaries only are simulated; all addon modules below are real.
+local ns, frames = {}, {}
+local frameMethods = {}
+local generic = {'SetSize','SetWidth','SetHeight','SetPoint','ClearAllPoints','SetAllPoints','SetTextColor',
+ 'SetFont','SetJustifyH','SetTexCoord','SetTexture','SetFrameStrata','SetMovable','SetClampedToScreen',
+ 'RegisterForDrag','EnableMouse','SetBackdrop','SetBackdropColor','SetBackdropBorderColor','SetDrawEdge',
+ 'SetHideCountdownNumbers','SetReverse','SetOwner','AddLine','SetOrientation','SetMinMaxValues',
+ 'SetValueStep','SetObeyStepOnDrag','SetThumbTexture','StartMoving','StopMovingOrSizing','SetAutoFocus',
+ 'SetMultiLine','SetFontObject','HighlightText','SetFocus','SetScrollChild','SetMaxLetters'}
+for _,key in ipairs(generic) do frameMethods[key]=function() end end
+function frameMethods:SetSize(w,h) self.width=w; self.height=h end
+function frameMethods:SetPoint(...) self.point={...} end
+function frameMethods:SetBackdropBorderColor(...) self.border={...} end
+function frameMethods:AddLine(text) self.lines=self.lines or {}; self.lines[#self.lines+1]=text end
+function frameMethods:SetScript(event, fn) self.scripts[event]=fn end
+function frameMethods:RegisterEvent(event) self.events[event]=true end
+function frameMethods:SetText(text) self.text=text end
+function frameMethods:SetChecked(value) self.checked=value end
+function frameMethods:GetChecked() return self.checked end
+function frameMethods:SetValue(value) self.value=value; if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self,value) end end
+function frameMethods:GetCenter() return 500,400 end
+function frameMethods:GetLeft() return 450 end
+function frameMethods:GetRight() return 550 end
+function frameMethods:GetTop() return 450 end
+function frameMethods:GetBottom() return 350 end
+function frameMethods:GetEffectiveScale() return 1 end
+function frameMethods:GetFrameLevel() return self.frameLevel or 1 end
+function frameMethods:SetFrameLevel(level) self.frameLevel=level end
+function frameMethods:IsShown() return self.shown end
+function frameMethods:IsVisible() return self.shown end
+function frameMethods:Hide() self.shown=false end
+function frameMethods:Show() local changed=not self.shown; self.shown=true; if changed and self.scripts.OnShow then self.scripts.OnShow(self) end end
+function frameMethods:SetShown(v) if v then self:Show() else self:Hide() end end
+function frameMethods:SetCooldown(start,duration) assert(type(start)=='number' and type(duration)=='number'); self.cooldown={start,duration} end
+local function object(kind,name,parent)
+ local f=setmetatable({kind=kind,name=name,parent=parent,scripts={},events={},shown=true},{__index=frameMethods})
+ frames[#frames+1]=f; if name then _G[name]=f end; return f
+end
+function frameMethods:CreateFontString() return object('FontString',nil,self) end
+function frameMethods:CreateTexture() return object('Texture',nil,self) end
+CreateFrame=object; UIParent=object('Frame','UIParent'); STANDARD_TEXT_FONT='font.ttf'; UISpecialFrames={}; SlashCmdList={}
+PlayerFrame=object('Frame','PlayerFrame',UIParent)
+TargetFrame=object('Frame','TargetFrame',UIParent)
+FocusFrame=object('Frame','FocusFrame',UIParent)
+local playerPortrait=object('MaskTexture',nil,PlayerFrame)
+local targetPortrait=object('MaskTexture',nil,TargetFrame)
+local focusPortrait=object('MaskTexture',nil,FocusFrame)
+PlayerFrame.PlayerFrameContainer={PlayerPortraitMask=playerPortrait}
+TargetFrame.TargetFrameContainer={PortraitMask=targetPortrait}
+FocusFrame.TargetFrameContainer={PortraitMask=focusPortrait}
+local playerHealth=object('StatusBar',nil,PlayerFrame)
+local targetHealth=object('StatusBar',nil,TargetFrame)
+local focusHealth=object('StatusBar',nil,FocusFrame)
+PlayerFrame.PlayerFrameContent={PlayerFrameContentMain={HealthBarsContainer={HealthBar=playerHealth}}}
+TargetFrame.TargetFrameContent={TargetFrameContentMain={HealthBarsContainer={HealthBar=targetHealth}}}
+FocusFrame.TargetFrameContent={TargetFrameContentMain={HealthBarsContainer={HealthBar=focusHealth}}}
+local now=100
+local combat=false
+InCombatLockdown=function() return combat end
+GetTime=function() return now end
+GetBuildInfo=function() return '1.60.1','70425','Oct 16 2026',16001 end
+local units={player='Player-1-A'}
+UnitGUID=function(unit) return units[unit] end
+UnitIsPlayer=function(unit) return units[unit]~=nil end
+UnitCanAttack=function() return false end
+UnitName=function(unit)
+ if units[unit] then return ({player='Tester',target='TargetEnemy',focus='FocusEnemy'})[unit] end
+end
+C_UnitAuras={GetAuraDataByIndex=function() return nil end}
+C_Spell={GetSpellTexture=function() return 135963 end}
+DEFAULT_CHAT_FRAME={AddMessage=function() end}
+issecretvalue=function() return false end; canaccessvalue=function() return true end
+local dir=ADDON_DIR or 'work/bjarkiCC'
+for _,file in ipairs({'Bootstrap','Data','Model','Observer','OwnCasts','Anchors','UI'}) do assert(loadfile(dir..'/'..file..'.lua'))('bjarkiCC',ns) end
+local main=io.open(dir..'/Main.lua'); assert(main,'Main is not implemented yet'); main:close()
+assert(loadfile(dir..'/Main.lua'))('bjarkiCC',ns)
+assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
+assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
+assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+assert(ns.UI.bars.player.point[2]==playerHealth and ns.UI.bars.target.point[2]==targetHealth and ns.UI.bars.focus.point[2]==focusHealth,'default DR bars attach to the matching modern health regions')
+assert(ns.UI.bars.player.point[1]=='BOTTOMLEFT' and ns.UI.bars.player.point[3]=='TOPLEFT'
+ and ns.UI.bars.player.point[4]==24 and ns.UI.bars.player.point[5]==24,'player starts above the inward health edge')
+assert(ns.UI.bars.target.point[1]=='BOTTOMRIGHT' and ns.UI.bars.target.point[3]=='TOPRIGHT'
+ and ns.UI.bars.target.point[4]==-24 and ns.UI.bars.target.point[5]==24,'target starts above the mirrored inward health edge')
+assert(ns.UI.bars.player.anchorFrame==PlayerFrame and ns.UI.bars.focus.anchorFrame==FocusFrame,'native visibility identity remains distinct from health-region geometry')
+assert(ns.eventFrame.events.PLAYER_FOCUS_CHANGED and ns.eventFrame.events.PLAYER_REGEN_ENABLED,'focus and anchor recovery events registered')
+assert(ns.eventFrame.events.UNIT_SPELLCAST_SENT and ns.eventFrame.events.UNIT_SPELLCAST_SUCCEEDED
+ and ns.eventFrame.events.UNIT_SPELLCAST_FAILED and ns.eventFrame.events.UNIT_SPELLCAST_INTERRUPTED,'outgoing cast correlation and cancellation events registered')
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.3)
+assert(not ns.UI.bars.player.shown and not ns.UI.bars.cooldown.shown,'empty bars hidden in normal play')
+-- CC can apply and be removed between render ticks; event callbacks must sample it.
+now=100.1
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if unit=='player' and index==1 then return {spellId=853,auraInstanceID=77,expirationTime=106} end
+end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','player')
+ns.UI.Update(now)
+assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='20','application immediately supplies a visible DR timer')
+assert(ns.UI.bars.player.icons[1].swipe.cooldown[1]==100.1,'application supplies the cooldown sweep start')
+now=100.15
+C_UnitAuras.GetAuraDataByIndex=function() return nil end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','player')
+local transient=ns.model:GetDR('Player-1-A',now)
+assert(#transient==1 and not transient[1].active,'short effects must retain reset window between UI ticks')
+assert(transient[1].started==100.1 and math.abs(transient[1].remaining-19.95)<.0001,'instant break cannot restart the application timer')
+-- Focus changes and aura events must work without waiting for the render tick.
+units.focus='Player-1-F'
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_FOCUS_CHANGED')
+assert(ns.Observer.GetUnitState('focus').guid=='Player-1-F','focus selection immediately observed')
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if unit=='focus' and index==1 then return {spellId=853,auraInstanceID=78,expirationTime=106} end
+end
+now=100.2
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','focus')
+now=100.25
+C_UnitAuras.GetAuraDataByIndex=function() return nil end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','focus')
+local focusRows=ns.model:GetDR('Player-1-F',now)
+assert(#focusRows==1 and focusRows[1].started==100.2,'focus aura transitions preserve the application start')
+ns.UI.Update(now)
+assert(ns.UI.bars.focus.shown,'focus DR renders beside visible FocusFrame')
+FocusFrame:Hide(); ns.UI.Update(now)
+assert(not ns.UI.bars.focus.shown,'live focus DR follows native visibility')
+FocusFrame:Show()
+units.focus=nil
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_FOCUS_CHANGED')
+ns.UI.Update(now)
+assert(not ns.UI.bars.focus.shown,'clearing focus removes its live bar')
+-- The real event path must render an estimate even when outgoing aura IDs are hidden.
+local outgoingSecret={}
+issecretvalue=function(value) return rawequal(value,outgoingSecret) end
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if (unit=='target' or unit=='focus') and index==1 then return {spellId=outgoingSecret,auraInstanceID=99} end
+end
+units.target='Player-1-T'; units.focus='Player-1-F'
+now=101
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','TargetEnemy','Cast-outgoing-1',853)
+assert(#ns.model:GetDR('Player-1-T',now)==0,'sending alone must not create the outgoing estimate')
+now=101.05
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-outgoing-1',853)
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+local outgoing=ns.model:GetDR('Player-1-T',now)
+local targetIcon=ns.UI.bars.target.icons[1]
+assert(#outgoing==1 and outgoing[1].estimated and outgoing[1].uncertain and outgoing[1].stage==1,'correlated player success creates a separate uncertain estimate')
+assert(ns.UI.bars.target.shown and targetIcon.row.estimated and targetIcon.time.text=='20'
+ and targetIcon.state.shown and targetIcon.state.text=='?','Main success dispatch reaches the visible target estimate with its uncertainty marker')
+assert(targetIcon.border[1]==.65 and targetIcon.border[2]==.65 and targetIcon.border[3]==.65,'estimated outgoing DR uses a gray border')
+assert(next(ns.model.units['Player-1-T'].categories)==nil,'outgoing cast events do not populate observed DR history')
+-- A later readable application replaces the estimate; it cannot become stage two.
+now=101.1
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if unit=='target' and index==1 then return {spellId=853,auraInstanceID=100,expirationTime=107} end
+ if unit=='focus' and index==1 then return {spellId=outgoingSecret,auraInstanceID=99} end
+end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+outgoing=ns.model:GetDR('Player-1-T',now)
+assert(#outgoing==1 and not outgoing[1].estimated and outgoing[1].stage==1
+ and outgoing[1].started==101.1,'readable application replaces the cast estimate without double counting')
+assert(ns.UI.bars.target.shown and not targetIcon.row.estimated and targetIcon.row.stage==1,'the rendered target row switches to observed evidence')
+-- Failed/interrupted casts cannot seed focus predictions, even after a stale success.
+for index,event in ipairs({'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED'}) do
+ now=102+index/10
+ local castID='Cast-cancelled-'..index
+ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','FocusEnemy',castID,118)
+ ns.eventFrame.scripts.OnEvent(ns.eventFrame,event,'player',castID,118)
+ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player',castID,118)
+ ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+ assert(#ns.model:GetDR('Player-1-F',now)==0 and not ns.UI.bars.focus.shown,'cancelled focus cast cannot become a visible estimate')
+end
+issecretvalue=function() return false end
+C_UnitAuras.GetAuraDataByIndex=function() return nil end
+units.target=nil; units.focus=nil
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+SlashCmdList.BJARKICC('clear')
+SlashCmdList.BJARKICC('test')
+assert(ns.demo and ns.UI.bars.player.icons[1].shown,'demo visible')
+assert(ns.UI.bars.focus.icons[1].shown,'focus has an independent preview')
+assert(ns.UI.bars.player.title.shown,'test bars identified')
+assert(not ns.UI.bars.player.icons[1].caption.shown,'no category captions in minimal view')
+assert(not ns.UI.bars.player.icons[1].state.shown,'known DR uses border without duplicate stage text')
+assert(not ns.UI.bars.cooldown.icons[1].caption.shown and not ns.UI.bars.cooldown.icons[1].state.shown,'cooldown minimal view has just timer')
+assert(ns.UI.bars.player.icons[1].time.parent:GetFrameLevel()>ns.UI.bars.player.icons[1].swipe:GetFrameLevel(),'countdown text must sit above swipe')
+SlashCmdList.BJARKICC('test')
+assert(not ns.demo and not ns.UI.bars.player.icons[1].shown,'demo never survives into live display')
+SlashCmdList.BJARKICC('unlock'); assert(not ns.db.locked and ns.UI.bars.player.shown,'empty anchors reappear to move')
+local focusBar=ns.UI.bars.focus
+focusBar.scripts.OnDragStart(focusBar)
+assert(focusBar.dragging,'unit anchor can be dragged out of combat')
+combat=true
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_REGEN_DISABLED')
+assert(not focusBar.dragging and focusBar.anchorPending,'combat cancels dragging and queues reattachment')
+combat=false
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_REGEN_ENABLED')
+assert(not focusBar.anchorPending and focusBar.point[2]==focusHealth,'combat exit restores the modern health-region anchor')
+SlashCmdList.BJARKICC('lock'); assert(ns.db.locked and not ns.UI.bars.player.shown,'locking removes empty anchors')
+SlashCmdList.BJARKICC('cooldown 10308 47')
+assert(ns.db.cooldownOverrides[853]==47,'rank override normalizes')
+SlashCmdList.BJARKICC('cooldown 853 -2')
+assert(ns.db.cooldownOverrides[853]==47,'invalid timing does not destroy saved override')
+SlashCmdList.BJARKICC('cooldown 853 default'); assert(ns.db.cooldownOverrides[853]==nil)
+ns.demo=true; ns.db.locked=false
+SlashCmdList.BJARKICC('')
+assert(ns.UI.options.shown,'settings opens')
+local endPreview,lockBars=false,false
+for _,f in ipairs(frames) do endPreview=endPreview or f.text=='End preview'; lockBars=lockBars or f.text=='Lock bars' end
+assert(endPreview and lockBars,'new settings reflect already active preview and unlocked bars')
+ns.demo=false; ns.db.locked=true
+SlashCmdList.BJARKICC('status'); assert(ns.BuildStatus():find('70425',1,true),'diagnostic includes actual build')
+assert(ns.BuildStatus():find('focus:',1,true) and ns.BuildStatus():find('FocusFrame',1,true),'diagnostics include focus sensor and anchor')
+-- Rebuild native frame layout in every orientation with test rows.
+ns.demo=true
+for _,bar in pairs(ns.db.bars) do bar.vertical=true; bar.reverse=true end
+ns.UI.ApplyLayout()
+assert(ns.UI.bars.cooldown.icons[1].cooldown==nil,'cooldown is rendered by child widget')
+assert(ns.UI.bars.cooldown.icons[1].swipe.cooldown[2]==60,'render uses estimated max duration')
+assert(ns.UI.bars.player.height==90,'vertical DR rows have no phantom caption spacing')
+ns.db.showNames=true; ns.db.showDRText=true
+ns.UI.Update(now)
+assert(ns.UI.bars.cooldown.icons[1].caption.shown and ns.UI.bars.cooldown.icons[1].caption.text=='Paladin','optional caster identity')
+assert(ns.UI.bars.player.icons[1].state.shown and ns.UI.bars.player.icons[1].state.text=='50%','optional accessible stage text')
+ns.db.showNames=false; ns.db.showDRText=false
+ns.demo=false
+local realModel=ns.model
+ns.Observer.units.player={guid='Player-1-A',status='readable'}
+ns.model={GetDR=function() return {{category='stun',spellID=853,stage=3,active=true,uncertain=true,started=now,duration=20,remaining=20}} end,
+ GetCooldowns=function() return {
+ {guid='Player-1-B',name='Enemy',spellID=853,category='stun',started=now-46,duration=60,remaining=14,earlyRemaining=0},
+ {guid='Player-1-C',name='Other',spellID=853,category='stun',started=now-2,duration=60,remaining=58,earlyRemaining=43}} end}
+ns.db.bars.cooldown.maxIcons=1
+ns.UI.Update(now)
+assert(not ns.UI.bars.player.title.shown,'no headers in normal play')
+assert(ns.UI.bars.player.icons[1].time.text=='20','DR countdown is visible from application while CC remains active')
+assert(ns.UI.bars.player.icons[1].swipe.shown and ns.UI.bars.player.icons[1].swipe.cooldown[1]==now,'DR sweep starts on the observed application')
+assert(ns.UI.bars.player.icons[1].state.shown and ns.UI.bars.player.icons[1].state.text=='?','uncertain DR marker never hidden')
+assert(ns.UI.bars.cooldown.icons[1].state.shown and ns.UI.bars.cooldown.icons[1].state.text=='?','earliest-ready uncertainty visible')
+assert(ns.UI.bars.cooldown.overflow.shown and ns.UI.bars.cooldown.overflow.text=='+1','overflow stays visible without heading')
+local hovered=ns.UI.bars.cooldown.icons[1]
+hovered.row.remaining=125
+hovered.scripts.OnEnter(hovered)
+assert(ns.UI.tip.lines[3]=='Estimated remaining: 125s','long tooltip timers keep correct seconds unit')
+ns.model=realModel
+print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')
