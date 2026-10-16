@@ -2,7 +2,11 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.3-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.4-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Correction in 0.4.4
+
+Further unconfirmed cast attempts no longer restart a red DR timer. The third application starts the final-stage countdown; subsequent own casts in that category leave its deadline intact until it expires. This applies to observed, inferred and mixed stage history. A readable new application can still correct the tracked state. Cast success alone does not prove a hit or immunity, and the chosen application-based timer is unchanged.
 
 ## Corrections in 0.4.3
 

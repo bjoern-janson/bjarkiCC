@@ -256,6 +256,37 @@ ns.db.ownCastEstimates=false; ns.UI.Update(now)
 assert(targetIcon.row.stage==1 and not targetIcon.row.stageEstimated,'disabling estimates removes inferred stage continuity')
 ns.db.ownCastEstimates=true; ns.UI.Update(now)
 assert(targetIcon.row.stage==2 and targetIcon.row.stageEstimated,'enabling estimates restores separate inferred continuity')
+-- Third application starts the red window; further unconfirmed casts cannot
+-- push its deadline forward, even for another spell in the same DR category.
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if (unit=='target' or unit=='focus') and index==1 then return {spellId=outgoingSecret,auraInstanceID=303} end
+end
+now=215
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-cap-3',2637)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-cap-3',2637)
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+assert(targetIcon.row.stage==3 and targetIcon.row.started==215 and targetIcon.time.text=='20',
+ 'the third application still starts its full red countdown')
+for _,time in ipairs({218,222,234}) do
+ now=time
+ local castID='Cast-cap-'..time
+ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson',castID,2637)
+ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player',castID,2637)
+ ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+ assert(targetIcon.row.stage==3 and targetIcon.row.started==215 and targetIcon.row.remaining==235-now,
+  'attempts at the final DR stage must preserve the original deadline')
+ assert(targetIcon.swipe.cooldown[1]==215 and targetIcon.time.text==tostring(235-now),
+  'neither sweep nor number can restart on an unconfirmed immune-stage attempt')
+ assert(ns.UI.bars.focus.icons[1].row.started==215,'same-GUID focus shares the preserved deadline')
+end
+assert(ns.OwnCasts.stats.estimated==3,'suppressed cap attempts are not accepted DR estimates')
+now=235; ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.2)
+assert(not ns.UI.bars.target.shown and not ns.UI.bars.focus.shown,'red icons expire on the third application deadline')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-after-cap',2637)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-after-cap',2637)
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
+assert(targetIcon.row.stage==1 and targetIcon.row.started==235 and targetIcon.time.text=='20',
+ 'a new cast after expiry begins a fresh first cycle')
 UnitName=originalUnitName
 issecretvalue=function() return false end
 C_UnitAuras.GetAuraDataByIndex=function() return nil end

@@ -272,6 +272,11 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     local previous = prediction.categories[category]
     local base = actual
     if previous and (not base or previous.appliedAt > base.appliedAt) then base = previous end
+    -- Cast success does not prove a CC landed. Once this category predicts
+    -- immunity, further unconfirmed attempts must not postpone its reset.
+    -- Keep the cast ID above so a duplicate cannot replay after expiry. A new
+    -- positive aura/LoC application still updates observed history in Observe.
+    if base and (base.inferredStage or base.stage) >= 3 then return false end
     prediction.categories[category] = {
         spellID = spellID, appliedAt = now, stage = math.min(3, (base and (base.inferredStage or base.stage) or 0) + 1),
         sentAt = sentAt or now,

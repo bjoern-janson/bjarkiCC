@@ -1,6 +1,12 @@
 # bjarkiCC known issues and validation status
 
-## Current report: 0.4.2 Hibernate cycles
+## Current report: final-stage timer restarts on further casts
+
+The user supplied an older-version screenshot and reports that attempts at full DR refresh the timer, obscuring when it drops. The same source defect remains in 0.4.3: `EstimateDR` caps the stage at three but unconditionally sets `appliedAt` to each new successful-cast event's time. That event confirms a cast, not a landed CC, so immune attempts can indefinitely postpone the displayed deadline.
+
+Version 0.4.4 rejects further own-cast estimates while the selected unexpired category is already at its final displayed stage. It preserves the third application's timer, still permits progression from stage two to three and a fresh cycle after expiry, and retains cast deduplication. Readable new application evidence can still update state; the entire observation path is not frozen because an inferred red stage may be wrong. The regression reproduces repeated cast attempts moving the red countdown, and checks that both target/focus countdown numbers and sweeps retain the original deadline. Live retesting remains pending; this does not establish Forever's exact server reset time.
+
+## Open earlier report: 0.4.2 Hibernate cycles
 
 The user reports reduced outgoing Hibernate showing the first-cycle green border, full incoming Hibernate showing the second-cycle yellow border, and unnecessary DR question marks. The installed TOC is 0.4.2-beta. Live `/bcc status` during incoming Hibernate shows player LoC with one mapped witness, observed stage two at start 2654073.250, no own-cast estimates, and no scan gaps. Target/focus show the same player GUID's history. This rules out the own-cast overlay for that incoming yellow icon, but does not reveal the prior observation transition.
 
@@ -60,6 +66,7 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 
 | Diagnosed cause | Source fix | Verification |
 | --- | --- | --- |
+| Stage was capped at three while every new cast estimate still replaced its application time | Reject unconfirmed cast estimates at an unexpired final displayed stage; keep deduplication and observed evidence handling | Repeated attempts preserve number/sweep deadline; third application, expiry, separate categories/GUIDs and positive evidence remain functional |
 | Fallback LoC key included every start-time digit, bypassing refresh tolerance | Reconcile same-spell fallback identity within 0.001 seconds while retaining the original boundary | Tiny corrections remain stage one; genuine later starts advance; distinct aura IDs stay separate |
 | Empty snapshot cleared the active identity, so the same returning record counted again | Retain one bounded immutable application witness with the category and its flat predecessor | Exact replay and replay with timestamp rounding stay on the same stage; activity still clears on removal |
 | Persistent DR question marks clutter the compact display | Keep evidence details in tooltip/status; omit uncertain percentage text | UI integration confirms no DR badge while preserving tooltip provenance and independent cooldown markers |
@@ -87,4 +94,4 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Gray uncertainty border hid counted DR stage | Always show stage color; explain uncertainty in tooltip/status (on-icon `?` removed in 0.4.3) | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
 | Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
 
-All nine suites pass for 0.4.3: Model 63 cases, Observer 72, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
+All nine suites pass for 0.4.4: Model 70 cases, Observer 72, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
