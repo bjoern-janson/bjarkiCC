@@ -821,4 +821,29 @@ for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
  assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
 end
 ns.UI.GetRows=originalRows
+-- New source path must run through the real Main event router, not only the
+-- unit observer's isolated fixture. A readable harmful AoE delta survives a
+-- restricted indexed scan, while the secret native DR feed is diagnostic only.
+SlashCmdList.BJARKICC('clear')
+now=3000000.01
+units.target='Player-1-Grenade'; units.focus=nil
+C_UnitAuras.GetAuraDataByIndex=function(unit)
+ if unit=='target' then error('restricted target aura stream',0) end
+ return nil
+end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target',{
+ addedAuras={{spellId=4068,auraInstanceID=2300,isHarmful=true,
+  expirationTime=3000003,duration=3}}
+})
+local grenade=ns.model:GetDR('Player-1-Grenade',now)
+assert(#grenade==1 and grenade[1].spellID==4068 and grenade[1].started==3000000
+ and not grenade[1].estimated,'Main routes a readable Grenade event to observed stun DR')
+assert(ns.Observer.GetUnitState('target').eventWitnesses==1
+ and ns.Observer.stats.auraEventPositives==1,'Main retains event evidence in diagnostics')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED',
+ 'target',{category=2,startTime=3000000,duration=18,showCountdown=true,isImmune=false})
+assert(ns.Observer.stats.nativeDREvents==1
+ and ns.model:GetDR('Player-1-Grenade',now)[1].stage==1,
+ 'native DR telemetry cannot advance an observed stage without a stun witness')
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')
