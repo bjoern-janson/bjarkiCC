@@ -293,7 +293,7 @@ function ns.Command(message)
         local option=rest:lower()
         if option=='on' or option=='off' then
             ns.db.nativeStunWitness=(option=='on')
-            local ok,reason=ns.NativeStuns.Refresh()
+            local ok,reason=ns.NativeStuns.Refresh(true)
             ns.Print(ns.NativeStuns.Status())
             ns.Print(option=='on' and 'Native stun AURA display requested. An actual visible icon is a matching aura, not a confirmed DR stage.' or 'Native stun aura display disabled.')
             if not ok then ns.Print(reason or 'Aura display will reconcile after combat.') end
@@ -395,9 +395,8 @@ frame:SetScript('OnEvent',function(_,event,...)
         local name=S.String(...)
         if name~=ns.name or initialized then return end
         ns.InitializeDB(); resetTracking(); ns.UI.Init()
-        -- Build secure aura hosts out of combat. Do not read their protected
-        -- selected-aura state; they are a separate native visual witness.
-        if ns.NativeStuns then ns.NativeStuns.Init() end
+        -- The native AuraContainer template may load after this addon.
+        -- Defer secure host construction until PLAYER_ENTERING_WORLD.
         initialized=true
         ns.Observer.Scan(GetTime()); ns.UI.Update(GetTime())
         ns.Print('Forever beta '..ns.version..' loaded. /bcc for settings, /bcc test to position bars.')
@@ -431,7 +430,9 @@ frame:SetScript('OnEvent',function(_,event,...)
             end
         elseif event=='UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED' then
             ns.Observer.OnNativeDR(...)
-        elseif event=='PLAYER_ENTERING_WORLD' then resetTracking()
+        elseif event=='PLAYER_ENTERING_WORLD' then
+            resetTracking()
+            if ns.NativeStuns then ns.NativeStuns.Init() end
         elseif event=='PLAYER_REGEN_ENABLED' then
             ns.UI.ApplyLayout()
             if ns.NativeStuns then ns.NativeStuns.Refresh(true) end
