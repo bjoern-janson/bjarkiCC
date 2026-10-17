@@ -38,6 +38,15 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
     if diagnostics and diagnostics.graspLookup then
         probe=probe..'; graspLookup='..diagnostics.graspLookup
     end
+    if diagnostics and diagnostics.aliasCoverage then
+        probe=probe..'; alias='..diagnostics.aliasUnit..':'..diagnostics.aliasCoverage
+            ..'; aliasMapped='..(diagnostics.aliasMapped or 0)
+    end
+    if diagnostics and diagnostics.castLookup then
+        probe=probe..'; castLookup='..diagnostics.castLookup
+            ..'; queries='..(diagnostics.castLookupQueries or 0)
+            ..'; hits='..(diagnostics.castLookupHits or 0)
+    end
     local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')..probe
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
@@ -97,6 +106,11 @@ function ns.BuildStatus()
             ..(state.byUnitCount and ('; records '..state.byUnitCount) or '')
         if state.stompLookup then lines[#lines+1]='  Exact War Stomp lookup: '..state.stompLookup end
         if state.graspLookup then lines[#lines+1]="  Exact Nature's Grasp lookup: "..state.graspLookup end
+        if state.aliasCoverage then lines[#lines+1]='  Shared-GUID alias: '..state.aliasUnit
+            ..'; coverage '..state.aliasCoverage..'; mapped '..(state.aliasMapped or 0) end
+        if state.castLookup then lines[#lines+1]='  Cast-guided exact lookup: '..state.castLookup
+            ..'; queries '..(state.castLookupQueries or 0)
+            ..'; positive hits '..(state.castLookupHits or 0) end
         if state.unmappedSpellIDs and #state.unmappedSpellIDs>0 then
             local ids={}; for _,id in ipairs(state.unmappedSpellIDs) do ids[#ids+1]=tostring(id) end
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')
@@ -135,6 +149,13 @@ function ns.BuildStatus()
     local stats=ns.Observer.stats or {}
     local keys={}; for key in pairs(stats) do keys[#keys+1]=key end; table.sort(keys)
     for _,key in ipairs(keys) do lines[#lines+1]=key..': '..tostring(stats[key]) end
+    local rejects = ns.Observer.castRejects or {}
+    local rejectKeys = {}
+    for reason in pairs(rejects) do rejectKeys[#rejectKeys+1] = reason end
+    table.sort(rejectKeys)
+    for _, reason in ipairs(rejectKeys) do
+        lines[#lines+1] = 'castReject.'..reason..': '..rejects[reason]
+    end
     local failures=ns.Observer.apiFailures or {}
     local operations={}; for operation in pairs(failures) do operations[#operations+1]=operation end
     table.sort(operations)
@@ -251,7 +272,9 @@ frame:SetScript('OnEvent',function(_,event,...)
         ns.Observer.Scan(GetTime()); ns.UI.Update(GetTime())
         ns.Print('Forever beta '..ns.version..' loaded. /bcc for settings, /bcc test to position bars.')
     elseif initialized then
-        if event=='UNIT_SPELLCAST_SENT' then
+        if event=='UNIT_SPELLCAST_START' or event=='UNIT_SPELLCAST_CHANNEL_START' then
+            ns.Observer.NoteCastStart(...)
+        elseif event=='UNIT_SPELLCAST_SENT' then
             local unit,targetName,castGUID,spellID=...
             ns.OwnCasts.Sent(unit,targetName,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_SUCCEEDED' then
@@ -294,8 +317,8 @@ end)
 -- No combat-log or secret native SpellDiminish event registration.
 for _,event in ipairs({'ADDON_LOADED','PLAYER_ENTERING_WORLD','PLAYER_TARGET_CHANGED','PLAYER_FOCUS_CHANGED',
     'PLAYER_REGEN_ENABLED','PLAYER_REGEN_DISABLED','UNIT_AURA',
-    'LOSS_OF_CONTROL_ADDED','LOSS_OF_CONTROL_UPDATE','UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_SUCCEEDED',
-    'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','PLAYER_DEAD','PLAYER_ALIVE'}) do register(event) end
+    'LOSS_OF_CONTROL_ADDED','LOSS_OF_CONTROL_UPDATE','UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_START',
+    'UNIT_SPELLCAST_CHANNEL_START','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','PLAYER_DEAD','PLAYER_ALIVE'}) do register(event) end
 SLASH_BJARKICC1='/bcc'
 SLASH_BJARKICC2='/bjarkicc'
 SlashCmdList.BJARKICC=ns.Command
