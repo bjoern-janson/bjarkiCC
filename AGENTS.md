@@ -22,6 +22,11 @@ These rules preserve the 0.4.17 baseline while improving correctness on the WoW 
 - Keep the native stun witness off by default and out-of-combat only. The successful creation of a CustomAuraContainer does *not* establish live ability to display secret stuns on this client. Test its effect in actual combat before claiming the feature works.
 - `C_Secrets.ShouldUnitAuraIndexBeSecret` may safely advise **not to query** an inaccessible aura index. Skipping its lookup must always yield partial/unknown coverage, never `complete=true` or a missing-stun conclusion.
 
+
+- The user **explicitly opted into visibly marked AoE estimates** for War Stomp and Iron Grenade after testing a shared DR category with Bash. `OwnCasts.lua` may snapshot *possible* target/focus player GUIDs and, only after your own successful AoE cast, set an uncertain Model estimate tagged `estimateKind="aoe"`; never call it a confirmed hit, even if only one target is selected.
+- An AoE `?` badge is mandatory in the existing DR icon whenever a guess owns the stage. Individual target/focus candidates have independent counters; duplicate GUID aliases count once. Real aura/LoC evidence retains priority, and turning AoE estimates OFF must not hide observed history underneath.
+- Avoid further secure native aura duplication unless explicitly requested. `/bcc aura off` hides the optional STUN AURA widget; `/bcc aoe on` handles marked DR guesses without it.
+
 ## Timer and HUD invariants
 
 - `resetSeconds` is the visible application-based countdown, default 20s. CC ending/removal does not restart it.
