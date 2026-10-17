@@ -926,4 +926,61 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELL_DIMINISH_CATEGORY_STATE_
 assert(ns.Observer.stats.nativeDREvents==1
  and ns.model:GetDR('Player-1-Grenade',now)[1].stage==1,
  'native DR telemetry cannot advance an observed stage without a stun witness')
+-- A caster-side War Stomp / Iron Grenade success cannot prove a landed hit.
+-- With explicit ? opt-in, the *currently known possible victims* receive a
+-- visually distinct guess in the very same shared-stun DR grid.
+SlashCmdList.BJARKICC('clear')
+now=4000000
+units.target='Player-1-AoE-T'; units.focus='Player-1-AoE-F'
+UnitCanAttack=function(_,unit) return unit=='target' or unit=='focus' end
+UnitCanAssist=function() return false end
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if (unit=='target' or unit=='focus') and index==1 then
+  return {spellId=outgoingSecret,auraInstanceID=304}
+ end
+ return nil
+end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_FOCUS_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','',
+ 'Cast-AoE-stomp',20549)
+assert(#ns.model:GetDR('Player-1-AoE-T',now)==0,
+ 'AoE cast-send does not make any DR application')
+now=4000000.4
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED',
+ 'player','Cast-AoE-stomp',20549)
+ns.UI.Update(now)
+local guessedT=ns.model:GetDR('Player-1-AoE-T',now)[1]
+local guessedF=ns.model:GetDR('Player-1-AoE-F',now)[1]
+assert(guessedT and guessedF and guessedT.estimateKind=='aoe' and guessedF.estimateKind=='aoe'
+ and guessedT.uncertain and guessedT.estimated
+ and guessedT.stage==1 and guessedF.stage==1,'successful AoE creates only optional possible-victim stages')
+assert(ns.UI.bars.target.icons[1].state.shown
+ and ns.UI.bars.target.icons[1].state.text=='?'
+ and ns.UI.bars.focus.icons[1].state.shown
+ and ns.UI.bars.focus.icons[1].state.text=='?',
+ 'both opponent icons must visibly mark the speculative stage with a question mark')
+ns.UI.bars.target.icons[1].scripts.OnEnter(ns.UI.bars.target.icons[1])
+assert(table.concat(ns.UI.tip.lines,'\n'):find('POSSIBLE victims only',1,true),
+ 'AoE tooltip must explicitly reject hit/stage certainty')
+ns.UI.bars.target.icons[1].scripts.OnLeave(ns.UI.bars.target.icons[1])
+now=4000002
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT',
+ 'player','', 'Cast-AoE-nade',4068)
+now=4000002.25
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED',
+ 'player','Cast-AoE-nade',4068)
+ns.UI.Update(now)
+guessedT=ns.model:GetDR('Player-1-AoE-T',now)[1]
+assert(guessedT.estimated and guessedT.spellID==4068 and guessedT.stage==2
+ and ns.UI.bars.target.icons[1].state.text=='?',
+ 'grenade guesses share Bash/War Stomp stun DR and keep the visible ?')
+assert(ns.BuildStatus():find('Last AoE guess: spell=4068',1,true)
+ and ns.BuildStatus():find('candidatePlayers=2',1,true),
+ 'diagnostics show the candidate count without claiming a landed grenade')
+SlashCmdList.BJARKICC('aoe off')
+assert(not ns.db.aoeCastEstimates,'AoE estimate toggle stays independent of existing DR')
+SlashCmdList.BJARKICC('aoe on')
+assert(ns.db.aoeCastEstimates,'AoE estimates can be re-enabled without changing DR layout')
+
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')
