@@ -1,5 +1,20 @@
 # bjarkiCC architecture and DR research
 
+## Evidence-first 0.4.17.2 candidate (2026-10-17)
+
+This isolated candidate retains the original 0.4.17.1 stage model and presentation. It adapts bjarkiPortraits' distinction between *observation*, *authorization*, and *display*, without copying native portrait behavior into an historical DR model.
+
+**Source recovery:** For a shared player GUID, the observer initially selects player > target > focus. When the selected target/focus harmful-aura scan is incomplete, it rechecks a readable alternate token's live GUID. If that alias yields a complete indexed snapshot, the alias is authoritative for presence and absence. Otherwise only its positive instance records are merged, with completeness staying false. The model receives a single reconciled snapshot per GUID. The player-only LoC strategy is unchanged.
+
+**Cast-guided verification:** The pure Model exposes a sorted, finite set of pending direct-cast spell IDs. An incomplete observer scan may use those IDs for positive-only GetUnitAuraBySpellID queries on the already resolved victim. Each accepted witness must carry a matching spell ID and a valid, guarded aura instance; nil/blocked/wrong identity does not prove hit/removal. The existing fixed War Stomp and six Grasp queries remain separate and bounded. A successful own cast is never promoted to confirmed DR merely by successful casting.
+
+**Enemy cooldown source diagnosis:** UNIT_SPELLCAST_START and UNIT_SPELLCAST_CHANNEL_START are now counted as events but cannot start a cooldown. SUCCEEDED is counted by unit class. Observer records fixed rejection reasons; acceptedCasts increases only when Model:Cast actually installs a new cooldown or applies a tracked reset. Readable Player- GUID type is a positive identity fallback for a secret UnitIsPlayer boolean. Unknown caster name is not a reason to discard an otherwise identified, hostile successful cast.
+
+**Presentation:** The native Cooldown object owns its own animation after the first SetCooldown. Stable starts/durations, icon sizes, icon offsets and bar geometry are not rewritten on every 0.1s paint. Changed applications, size settings and count still update as before. There is no change to default icon styling or timers.
+
+These improvements change which *readable* evidence is considered. They do not establish that Forever exposes the underlying information in every duel. The candidate requires the committed offline regressions and fresh in-client tests before being treated as a production replacement.
+
+
 ## Nature's Grasp exact lookup supplement (0.4.17.1)
 
 On an incomplete target/focus indexed scan, the observer supplements its existing War Stomp exact lookup with the six mapped Nature's Grasp proc-root IDs (19975 through 19970). The API's non-secret-aura result must pass matching spell and instance checks. Positive records merge by aura instance into the existing observation model; nil or unavailable records never make incomplete coverage complete or prove an aura ended. The self-buff cast supplies no victim and is not a DR application. This is a bounded observation change over the 0.4.17 baseline, with no model, UI, anchor or saved-settings migration changes. Live evidence that the fallback is readable during the reported restricted interval is still required.
