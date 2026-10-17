@@ -1719,6 +1719,26 @@ test("only unconfirmed live direct casts authorize bounded exact-spell probes", 
     eq(#m:GetPendingExactSpellIDs("b",10.1),0,"another GUID cannot borrow this query")
 end)
 
+test("AoE estimate toggle leaves independently confirmed DR visible", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{real={category="stun",spellID=100,appliedAt=9,expires=14,
+        applicationSource="aura"}},9,true)
+    eq(m:EstimateDR("a",100,"stun",10,"Cast-a",10,"aoe"),true)
+    local visible=only(m:GetDR("a",10,true,true))
+    eq(visible.estimated,true)
+    eq(visible.estimateKind,"aoe")
+    eq(visible.stage,2)
+    visible=only(m:GetDR("a",10,true,false))
+    eq(visible.estimated,false)
+    eq(visible.stage,1)
+    eq(visible.started,9)
+    eq(#m:GetDR("b",10,true,false),0)
+    local fresh=ns.Model.New(20,18)
+    eq(fresh:EstimateDR("b",100,"stun",10,"Cast-b",10,"aoe"),true)
+    eq(#fresh:GetDR("b",10,true,false),0)
+    eq(#fresh:GetDR("b",10,false),0)
+end)
+
 local function runModelTests()
     local failed=0
     for _, case in ipairs(cases) do

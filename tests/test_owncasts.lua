@@ -17,7 +17,13 @@ local function reset()
     UnitName=function(unit) if fixture[unit] then return fixture[unit].name,fixture[unit].realm end end
     UnitFullName=UnitName
     UnitIsPlayer=function(unit) return fixture[unit] and fixture[unit].isPlayer~=false end
-    ns.db={ownCastEstimates=true}; ns.model=ns.Model.New(20); ns.OwnCasts.Init()
+    UnitCanAttack=function(_,unit)
+        if fixture[unit] then return fixture[unit].hostile~=false end
+    end
+    UnitCanAssist=function(_,unit)
+        if fixture[unit] then return fixture[unit].friendly==true end
+    end
+    ns.db={ownCastEstimates=true,aoeCastEstimates=true}; ns.model=ns.Model.New(20); ns.OwnCasts.Init()
 end
 local function rows(guid,now) return ns.model:GetDR(guid or 'Player-1-A',now or 11) end
 local tests={}
@@ -59,33 +65,140 @@ test('success must match the original spell and cast identity',function()
 end)
 test('only reviewed direct CC can estimate a destination',function()
     reset()
-    for _,id in ipairs({2094,6789,1766,1499,19577,122,8122,20549,100,999999}) do
+    for _,id in ipairs({2094,6789,1766,1499,19577,122,8122,100,999999}) do
         eq(ns.OwnCasts.Sent('player','Enemy','Cast-'..id,id,10),false,'excluded spell '..id)
     end
     eq(ns.OwnCasts.Sent('player','Enemy','Cast-1',20252,10),true)
     eq(ns.OwnCasts.Succeeded('player','Cast-1',20252,11),true)
     eq(rows()[1].spellID,20253); eq(rows()[1].category,'stun')
 end)
-test('War Stomp success cannot estimate a hit or refresh a preceding Bash',function()
+test('War Stomp and grenade create visibly marked, unconfirmed shared-stun guesses',function()
     reset()
-    local estimateCalls=0
-    local estimateDR=ns.model.EstimateDR
-    ns.model.EstimateDR=function(self,...)
-        estimateCalls=estimateCalls+1
-        return estimateDR(self,...)
-    end
     eq(ns.OwnCasts.Sent('player','Enemy','Cast-bash',5211,10),true)
     eq(ns.OwnCasts.Succeeded('player','Cast-bash',5211,10.1),true)
-    eq(estimateCalls,1); eq(rows(nil,10.1)[1].stage,1)
-    for index,name in ipairs({'','Caster','Enemy'}) do
-        local castID='Cast-stomp-'..index
-        eq(ns.OwnCasts.Sent('player',name,castID,20549,11+index),false)
-        eq(ns.OwnCasts.Succeeded('player',castID,20549,11.5+index),false)
-        local row=rows(nil,11.5+index)[1]
-        eq(row.stage,1); eq(row.started,10.1); eq(row.spellID,5211)
-        eq(estimateCalls,1,'an area-cast destination is not evidence of a hit')
-    end
-    eq(ns.OwnCasts.stats.captured,1); eq(ns.OwnCasts.stats.estimated,1)
+    eq(rows(nil,10.1)[1].stage,1)
+    eq(ns.OwnCasts.Sent('player','', 'Cast-stomp',20549,11),true)
+    eq(rows(nil,11)[1].stage,1,'sending area cast cannot advance a stage')
+    eq(ns.OwnCasts.Succeeded('player','Cast-stomp',20549,11.5),true)
+    local r=rows(nil,11.5)[1]
+    eq(r.stage,2); eq(r.spellID,20549); eq(r.category,'stun')
+    eq(r.estimateKind,'aoe'); eq(r.estimated,true); eq(r.uncertain,true)
+    eq(ns.model.units['Player-1-A'],nil,'possible hit cannot become observed application')
+    eq(ns.OwnCasts.stats.estimated,1,'direct estimates remain separate')
+    eq(ns.OwnCasts.stats.aoeEstimated,2,'target and focus are both possible, not asserted, victims')
+    eq(ns.OwnCasts.Sent('player','', 'Cast-grenade',4068,12),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-grenade',4068,12.1),true)
+    r=rows(nil,12.1)[1]
+    eq(r.stage,3); eq(r.spellID,4068); eq(r.estimateKind,'aoe')
+    eq(ns.OwnCasts.Sent('player','', 'Cast-immune',20549,13),true)
+    -- The target is predicted immune, but a separately tracked focus could
+    -- still advance to stage three. Its speculative hit must never shift
+    -- the first target's established clock.
+    eq(ns.OwnCasts.Succeeded('player','Cast-immune',20549,13.5),true)
+    r=rows(nil,13.5)[1]
+    eq(r.stage,3); eq(r.started,12.1,'immune target cannot have its existing timer prolonged')
+end)
+
+test('same target/focus GUID receives one area estimate, not a double stage',function()
+    reset(); fixture.focus.guid=fixture.target.guid
+    eq(ns.OwnCasts.Sent('player','', 'Cast-stomp',20549,10),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-stomp',20549,10.5),true)
+    eq(rows(nil,10.5)[1].stage,1)
+    eq(ns.OwnCasts.stats.aoeEstimated,1)
+    eq(ns.OwnCasts.Succeeded('player','Cast-stomp',20549,11),false)
+    eq(rows(nil,11)[1].stage,1,'duplicate success never redirects/replays')
+end)
+
+test('AoE targets are snapped at SENT and START, not redirected by target swaps',function()
+    reset(); fixture.focus=nil
+    eq(ns.OwnCasts.Sent('player','', 'Cast-nade',4068,10),true)
+    fixture.target={guid='Player-1-C',name='Third',realm='R'}
+    eq(ns.OwnCasts.Succeeded('player','Cast-nade',4068,10.5),true)
+    eq(rows('Player-1-A',10.5)[1].spellID,4068)
+    eq(#rows('Player-1-C',10.5),0)
+    reset(); fixture.focus=nil
+    eq(ns.OwnCasts.Started('player','Cast-stomp',20549,10),true)
+    fixture.target.guid='Player-1-C'
+    eq(ns.OwnCasts.Succeeded('player','Cast-stomp',20549,10.5),true)
+    eq(rows('Player-1-A',10.5)[1].spellID,20549)
+    eq(#rows('Player-1-C',10.5),0)
+end)
+
+test('success-only AoE fallback uses currently selected player, still only an estimate',function()
+    reset(); fixture.focus=nil
+    eq(ns.OwnCasts.Succeeded('player','Cast-solo',4068,10),true)
+    local r=rows(nil,10)[1]
+    eq(r.estimated,true); eq(r.estimateKind,'aoe'); eq(r.spellID,4068)
+    eq(ns.OwnCasts.stats.aoeSuccessOnly,1)
+    eq(ns.OwnCasts.lastAoE.source,'success-only')
+    eq(ns.OwnCasts.Succeeded('player','Cast-solo',4068,11),false)
+    eq(rows(nil,11)[1].started,10)
+end)
+
+test('item-use success without normal cast GUID is deduplicated and remains uncertain',function()
+    reset(); fixture.focus=nil
+    eq(ns.OwnCasts.Succeeded('player',nil,4068,10),true)
+    eq(ns.OwnCasts.stats.aoeNoCastGUID,1)
+    eq(rows(nil,10)[1].stage,1)
+    eq(ns.OwnCasts.Succeeded('player',nil,4068,10.1),false)
+    eq(rows(nil,10.1)[1].stage,1)
+    eq(ns.OwnCasts.Succeeded('player',nil,4068,11),true)
+    eq(rows(nil,11)[1].stage,2)
+    eq(ns.OwnCasts.stats.aoeNoCastGUID,2)
+    -- An item cast ID may be private. Ignore its identity entirely and
+    -- still display only a clearly marked success-only possible victim.
+    eq(ns.OwnCasts.Succeeded('player',secret,4068,12),true)
+    eq(rows(nil,12)[1].stage,3)
+    eq(rows(nil,12)[1].estimateKind,'aoe')
+    eq(ns.OwnCasts.stats.aoeNoCastGUID,3)
+end)
+
+test('AoE failure, cancellation and orphan stale successes cannot make a guess',function()
+    reset()
+    eq(ns.OwnCasts.Sent('player','', 'Cast-cancel',4068,10),true)
+    eq(ns.OwnCasts.Failed('player','Cast-cancel',4068,10.1),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-cancel',4068,10.2),false)
+    eq(#rows('Player-1-A',10.2),0)
+    eq(ns.OwnCasts.Failed('player','Cast-orphan',20549,10.2),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-orphan',20549,10.3),false)
+    eq(ns.OwnCasts.stats.aoeFailed,2)
+    eq(ns.OwnCasts.Succeeded('target','Cast-other',4068,10.3),false)
+    eq(#rows('Player-1-A',10.3),0)
+end)
+
+test('AoE friend, nonplayer and explicitly nonhostile tokens never become candidates',function()
+    reset()
+    fixture.target.hostile=false; fixture.focus.friendly=true
+    eq(ns.OwnCasts.Sent('player','', 'Cast-stomp',20549,10),false)
+    eq(ns.OwnCasts.Succeeded('player','Cast-stomp',20549,10.5),false)
+    eq(#rows('Player-1-A',10.5),0)
+    eq(ns.OwnCasts.stats.aoeNoCandidates,1)
+    reset(); fixture.target.isPlayer=false; fixture.focus.guid='Creature-1-NPC'
+    eq(ns.OwnCasts.Succeeded('player','Cast-no-victim',4068,10),false)
+    eq(#rows('Player-1-A',10),0)
+end)
+
+test('area estimates are optional and follow the master estimate switch',function()
+    reset(); ns.db.aoeCastEstimates=false
+    eq(ns.OwnCasts.Sent('player','', 'Cast-stomp',20549,10),false)
+    eq(ns.OwnCasts.Succeeded('player','Cast-stomp',20549,10.5),false)
+    eq(#rows('Player-1-A',10.5),0)
+    ns.db.aoeCastEstimates=true
+    eq(ns.OwnCasts.Sent('player','', 'Cast-grenade',4068,11),true)
+    ns.db.ownCastEstimates=false
+    eq(ns.OwnCasts.Succeeded('player','Cast-grenade',4068,11.2),false)
+    eq(#rows('Player-1-A',11.2),0)
+end)
+
+test('confirmed target stun wins over AoE guess instead of advancing observed stage',function()
+    reset(); fixture.focus=nil
+    eq(ns.OwnCasts.Sent('player','', 'Cast-stomp',20549,10),true)
+    ns.model:Observe('Player-1-A',{hit={category='stun',spellID=20549,
+        appliedAt=10.1,expires=12.1,applicationSource='aura'}},10.1,true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-stomp',20549,10.2),false)
+    local r=rows(nil,10.2)[1]
+    eq(r.estimated,false); eq(r.stage,1)
+    eq(r.spellID,20549)
 end)
 
 test('disabled estimates cannot leave pending casts for a later enable',function()

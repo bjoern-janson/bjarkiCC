@@ -1,5 +1,16 @@
 # bjarkiCC architecture and DR research
 
+## 0.4.17.7 opt-in, visibly uncertain AoE estimates
+
+War Stomp 20549, Iron Grenade 4068 and Bash ranks are **one live-confirmed shared `stun` DR category** in the tested Forever beta. The API provides an own-player successful cast event, but not a trustworthy victim for ground/point-blank AoE.
+
+`OwnCasts.lua` snapshots deduplicated, readable Player-GUID candidate lists from target/focus at SENT/START (and only at success when no earlier cast event exists). Explicit friendly/non-player/nonhostile evidence vetoes candidates; unknown relation is still unconfirmed. A validated `UNIT_SPELLCAST_SUCCEEDED` advances a separate *estimated* `Model:EstimateDR(..., "aoe")` lane once per possible GUID, never `Model:Observe`. CastGUIDs are deduplicated and cancellation tombstones prevent canceled casts from being reclassified by a stale success. Missing/private item castGUID uses a short-debounced locally generated cast identity based on readable success event fields; no private value is compared, formatted, or unwrapped. Per-target predicted immunity caps further uncertain attempts.
+
+`Model:GetDR` preserves `row.estimateKind="aoe"` separately from `row.estimated`. `UI.lua` paints a visible `?` in the icon state for that kind, with explicit possible-victim tooltip language; observed auras retain their separate stage/clock. `GetDR(..., includeEstimates, includeAoE)` can hide AoE guesses while still rendering independently observed stun evidence rather than allowing a hidden estimate to shadow it.
+
+The `db.aoeCastEstimates` flag is new but requires no schema migration and defaults true for this user-requested test build, separately controlled by `/bcc aoe on|off|status` or a checkbox. Master `db.ownCastEstimates` still gates all such estimates. The optional secure `NativeStuns.lua` native aura visual remains disconnected from Model. Caster-visible DR remains *speculative* when all victim aura sources are blocked; this is neither a bypass of forbidden state nor proof of actual applications.
+
+
 ## 0.4.17.6 native secure stun presentation experiment
 
 This addition is intentionally a **visual-only, opt-in native plane**, not an adapter from secret Blizzard aura data to addon Lua state. `NativeStuns.lua` creates two secure `AuraContainer` slots after `PLAYER_ENTERING_WORLD`; each filters `HARMFUL|INCLUDE_NAME_PLATE_ONLY` to Bash's three ranks, War Stomp 20549, and Iron Grenade 4068. `AuraInstanceIDOnly/Reverse` ordering and `CooldownFrameTemplate` are owned by Blizzard's secure aura system. It uses the documented `CustomAuraContainerTemplate` callback, `DisableUntrustedLayoutScriptsTemplate` on layout-sensitive frames and no protected unit-frame reparenting.

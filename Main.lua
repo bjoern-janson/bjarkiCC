@@ -149,7 +149,7 @@ function ns.BuildStatus()
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')
         end
         if now and state.guid then
-            for _, row in ipairs(ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates)) do
+            for _, row in ipairs(ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates, ns.db.aoeCastEstimates)) do
                 lines[#lines+1]=string.format('  DR %s: stage %d; started %.3f; remaining %.3f; %s%s',
                     row.category, row.stage, row.started, row.remaining,
                     row.estimated and 'own-cast estimate' or 'observed application',
@@ -223,7 +223,17 @@ function ns.BuildStatus()
         end
     end
     lines[#lines+1]='Own-cast DR estimates: '..(ns.db.ownCastEstimates and 'enabled (always uncertain)' or 'disabled')
-    lines[#lines+1]='War Stomp DR: confirmed applications only; no cast estimate.'
+    lines[#lines+1]='Own AoE guesses (War Stomp/Iron Grenade): '
+        ..(ns.db.aoeCastEstimates and 'enabled; visibly marked ? (never confirmed hits)' or 'disabled')
+    lines[#lines+1]='Shared Controlled Stun: Bash, War Stomp, Iron Grenade (live user-tested).'
+    local lastAoE=ns.OwnCasts.lastAoE
+    if lastAoE then
+        lines[#lines+1]='Last AoE guess: spell='..lastAoE.spellID
+            ..' source='..lastAoE.source
+            ..' candidatePlayers='..lastAoE.candidates
+            ..' estimateShown='..tostring(lastAoE.estimated)
+            ..' (possible victims only)'
+    end
     local ownStats=ns.OwnCasts.stats or {}
     local ownKeys={}; for key in pairs(ownStats) do ownKeys[#ownKeys+1]=key end; table.sort(ownKeys)
     for _,key in ipairs(ownKeys) do lines[#lines+1]='ownCast.'..key..': '..tostring(ownStats[key]) end
@@ -273,7 +283,7 @@ function ns.ShowStatus()
 end
 
 local function help()
-    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; aura on|off|status; native on|off|status; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
+    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; aoe on|off|status; aura on|off|status; native on|off|status; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
 end
 
 function ns.Command(message)
@@ -289,6 +299,22 @@ function ns.Command(message)
     elseif command=='reset' then ns.ResetPositions(); ns.UI.ApplyLayout(); ns.Print('Bar positions reset.')
     elseif command=='clear' then resetTracking(); ns.UI.Update(GetTime()); ns.Print('Tracking history cleared.')
     elseif command=='status' then ns.ShowStatus()
+    elseif command=='aoe' then
+        local option=rest:lower()
+        if option=='on' or option=='off' then
+            ns.db.aoeCastEstimates=option=='on'
+            ns.OwnCasts.Init()
+            ns.UI.Update(GetTime())
+            ns.Print('War Stomp/Grenade candidate ? estimates '..(option=='on' and 'ON' or 'OFF')
+                ..'; actual hits remain unconfirmed by successful AoE casts.')
+        elseif option=='status' or option=='' then
+            ns.Print('Candidate AoE stun ? estimates: '
+                ..(ns.db.aoeCastEstimates and 'ON' or 'OFF')
+                ..'; master own-cast guesses: '..(ns.db.ownCastEstimates and 'ON' or 'OFF'))
+            ns.Print('A target/focus is only a POSSIBLE victim. The ? badge never denotes observed DR.')
+        else
+            ns.Print('Usage: /bcc aoe on|off|status')
+        end
     elseif command=='aura' then
         local option=rest:lower()
         if option=='on' or option=='off' then
@@ -402,7 +428,9 @@ frame:SetScript('OnEvent',function(_,event,...)
         ns.Print('Forever beta '..ns.version..' loaded. /bcc for settings, /bcc test to position bars.')
     elseif initialized then
         if event=='UNIT_SPELLCAST_START' or event=='UNIT_SPELLCAST_CHANNEL_START' then
-            ns.Observer.NoteCastStart(...)
+            local unit,castGUID,spellID=...
+            ns.Observer.NoteCastStart(unit)
+            ns.OwnCasts.Started(unit,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_SENT' then
             local unit,targetName,castGUID,spellID=...
             ns.Observer.NoteOwnCCCast('Sent',unit,spellID,GetTime())

@@ -596,8 +596,9 @@ function Model:PruneEstimates(now)
     end
 end
 
-function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
+function Model:EstimateDR(guid, spellID, category, now, castID, sentAt, estimateKind)
     if not guid or not castID or not self.categoryOrder[category] then return false end
+    if estimateKind ~= nil and estimateKind ~= "aoe" then return false end
     self:PruneEstimates(now)
     local prediction = self.estimates[guid]
     if not prediction then
@@ -624,7 +625,7 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     if base and (base.inferredStage or base.stage) >= 3 then return false end
     prediction.categories[category] = {
         spellID = spellID, appliedAt = now, stage = math.min(3, (base and (base.inferredStage or base.stage) or 0) + 1),
-        sentAt = sentAt or now,
+        sentAt = sentAt or now, estimateKind = estimateKind,
     }
     return true
 end
@@ -649,7 +650,7 @@ function Model:GetPendingExactSpellIDs(guid, now)
     return result
 end
 
-function Model:GetDR(guid, now, includeEstimates)
+function Model:GetDR(guid, now, includeEstimates, includeAoE)
     local rows = {}
     local unit = guid and self.units[guid]
     self:PruneEstimates(now)
@@ -659,7 +660,10 @@ function Model:GetDR(guid, now, includeEstimates)
     end
     local prediction = includeEstimates ~= false and guid and self.estimates[guid]
     for category, state in pairs(prediction and prediction.categories or {}) do
-        if not states[category] or state.appliedAt > states[category].appliedAt then
+        -- UI may hide only unconfirmed AoE guesses. Do not let a hidden
+        -- prediction shadow an independently observed application.
+        if (includeAoE ~= false or state.estimateKind ~= "aoe")
+            and (not states[category] or state.appliedAt > states[category].appliedAt) then
             states[category] = state
         end
     end
@@ -706,6 +710,7 @@ function Model:GetDR(guid, now, includeEstimates)
             uncertain = estimated or stageEstimated or state.uncertain
                 or (not active and state.stageResetSource == "predicted-end"),
             estimated = estimated,
+            estimateKind = estimated and state.estimateKind or nil,
             timeEstimated = state.timeEstimated == true,
         }
     end
