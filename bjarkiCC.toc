@@ -2,7 +2,7 @@
 ## Title: bjarkiCC |cffffd36a(Forever)|r
 ## Notes: Player/target/focus DR estimates and observed enemy CC cooldowns. /bcc
 ## Author: bjarki
-## Version: 0.4.17.5-native-probe
+## Version: 0.4.17.6-secure-stun-experiment
 ## SavedVariables: bjarkiCCDB
 
 Bootstrap.lua
@@ -12,4 +12,5 @@ Observer.lua
 OwnCasts.lua
 Anchors.lua
 UI.lua
+NativeStuns.lua
 Main.lua
