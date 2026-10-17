@@ -1393,7 +1393,8 @@ test("non-secret exact War Stomp aura confirms a hit when enumeration is blocked
     local current={spellId=20549,auraInstanceID=900,startTime=10,expirationTime=12,duration=2}
     local calls=0
     C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
-        equal(unit,"target"); equal(id,20549); calls=calls+1; return current
+        equal(unit,"target"); calls=calls+1
+        if id==20549 then return current end
     end
     ns.Observer.Scan(10)
     local row=ns.model:GetDR("Player-1-A",10)[1]
@@ -1403,7 +1404,7 @@ test("non-secret exact War Stomp aura confirms a hit when enumeration is blocked
     equal(ns.Observer.GetUnitState("target").auraComplete,false,"one hit cannot prove full aura coverage")
     equal(ns.Observer.GetUnitState("target").byUnitCount,0)
     ns.Observer.Scan(10.2); equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,2)
-    equal(calls,2,"shared target/focus identity queries only once per scan")
+    equal(calls,14,"shared target/focus identity queries seven reviewed effects once per scan")
     fixture.locByUnit.target={{spellID=20549,auraInstanceID=900,startTime=10,duration=2}}
     ns.Observer.Scan(10.3)
     equal(ns.model:GetDR("Player-1-A",10.3)[1].stage,2,"matching LoC cannot count the exact aura twice")
@@ -1429,7 +1430,8 @@ test("exact War Stomp lookup rejects hidden mismatched expired and failed record
     }
     for _,case in ipairs(cases) do
         reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
-        C_UnitAuras.GetUnitAuraBySpellID=function()
+        C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+            if id~=20549 then return nil end
             if case.fail then error("exact lookup denied",0) end
             return case.value
         end
@@ -1446,6 +1448,144 @@ test("complete aura enumeration does not add an exact War Stomp query", function
     C_UnitAuras.GetUnitAuraBySpellID=function() calls=calls+1; error("must not query") end
     ns.Observer.Scan(10)
     equal(calls,0); equal(ns.Observer.GetUnitState("target").stompLookup,nil)
+    equal(ns.Observer.GetUnitState("target").graspLookup,nil)
+end)
+
+test("exact Grasp observes the root immediately and later indexed discovery deduplicates", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.guid.focus="Player-1-A"
+    fixture.auraError=true
+    local current={spellId=19975,auraInstanceID=950,expirationTime=30,duration=20}
+    local calls=0
+    C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
+        equal(unit,"target"); calls=calls+1
+        if id==19975 then return current end
+    end
+    ns.Observer.Scan(10.01)
+    local row=ns.model:GetDR("Player-1-A",10.01)[1]
+    truth(row,"a readable exact root must be recorded before blanket access returns")
+    equal(row.category,"root"); equal(row.observedStage,1); equal(row.started,10)
+    local state=ns.Observer.GetUnitState("target")
+    equal(state.graspLookup,"confirmed"); equal(state.stompLookup,"none")
+    equal(state.status,"restricted"); equal(state.auraComplete,false)
+    equal(state.sensor,"aura+exact"); equal(state.byUnitAvailable,false)
+    equal(calls,7,"shared target/focus GUID is queried once")
+    ns.Observer.Scan(10.2); equal(calls,14)
+    fixture.auraError=false; fixture.auras.target={current}
+    ns.Observer.Scan(10.4)
+    row=ns.model:GetDR("Player-1-A",10.4)[1]
+    equal(row.observedStage,1); equal(row.started,10)
+    equal(calls,14,"complete enumeration skips every exact query")
+    equal(size(ns.Observer.GetUnitState("target").witnesses),1)
+    ns.Data=fixtureData
+end)
+
+test("all six Grasp proc ranks have bounded exact lookup support", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    for procID=19970,19975 do
+        reset(); fixture.guid.player=nil; fixture.auraError=true
+        local queried={}
+        C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+            truth(id==20549 or (id>=19970 and id<=19975),"never query a self-buff cast ID")
+            queried[id]=(queried[id] or 0)+1
+            if id==procID then return {spellId=id,auraInstanceID=960,expirationTime=20,duration=10} end
+        end
+        ns.Observer.Scan(10)
+        equal(size(queried),7)
+        for _,count in pairs(queried) do equal(count,1) end
+        equal(size(last("Player-1-A").effects),1)
+        equal(effect(last("Player-1-A")).spellID,procID)
+        equal(last("Player-1-A").complete,false)
+        equal(ns.Observer.GetUnitState("target").graspLookup,"confirmed")
+    end
+    ns.Data=fixtureData
+end)
+
+test("Grasp lookup refuses hidden malformed expired mismatched and failed records", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    local cases={
+        {status="none"}, {value=secret,status="blocked"},
+        {value=false,status="identity-unavailable"},
+        {value={spellId=secret,auraInstanceID=970},status="identity-unavailable"},
+        {value={spellId=19975,auraInstanceID=secret},status="identity-unavailable"},
+        {value={spellId=19975,auraInstanceID=0},status="identity-unavailable"},
+        {value={spellId=19975,auraInstanceID=1.5},status="identity-unavailable"},
+        {value={spellId=16689,auraInstanceID=970},status="mismatch"},
+        {value={spellId=19974,auraInstanceID=970},status="mismatch"},
+        {value={spellId=19975,auraInstanceID=970,expirationTime=10},status="expired"},
+        {fail=true,status="blocked"},
+    }
+    for _,case in ipairs(cases) do
+        reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+        C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+            if id~=19975 then return nil end
+            if case.fail then error("root lookup denied",0) end
+            return case.value
+        end
+        ns.Observer.Scan(10)
+        equal(#ns.model:GetDR("Player-1-A",10),0,"no fabricated root from rejected input")
+        equal(ns.Observer.GetUnitState("target").graspLookup,case.status)
+        equal(ns.Observer.GetUnitState("target").auraComplete,false)
+    end
+    ns.Data=fixtureData
+end)
+
+test("Grasp nil lookup and buff casts never prove application or removal", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    local current
+    C_UnitAuras.GetUnitAuraBySpellID=function(_,id) if id==19975 then return current end end
+    for _,id in ipairs({16689,16810,16811,16812,16813,17329}) do
+        ns.Observer.OnCast("target","Cast-Buff"..id,id,10)
+    end
+    ns.Observer.Scan(10); equal(#ns.model:GetDR("Player-1-A",10),0)
+    current={spellId=19975,auraInstanceID=980,expirationTime=30,duration=20}
+    ns.Observer.Scan(10.2)
+    current=nil; ns.Observer.Scan(10.4)
+    local row=ns.model:GetDR("Player-1-A",10.4)[1]
+    truth(row); equal(row.observedStage,1)
+    truth(row.stageResetSource~="observed-end","negative exact lookup is never removal proof")
+    equal(ns.Observer.GetUnitState("target").graspLookup,"none")
+    equal(ns.Observer.GetUnitState("target").auraComplete,false)
+    ns.Data=fixtureData
+end)
+
+test("Grasp aggregate prioritizes confirmed then blocked independent of queried rank", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    for _,confirmedID in ipairs({19975,19970}) do
+        reset(); fixture.guid.player=nil; fixture.auraError=true
+        C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+            if id==20549 then return nil end
+            if id==confirmedID then return {spellId=id,auraInstanceID=990} end
+            return secret
+        end
+        ns.Observer.Scan(10)
+        equal(ns.Observer.GetUnitState("target").graspLookup,"confirmed")
+    end
+    reset(); fixture.guid.player=nil; fixture.auraError=true
+    C_UnitAuras.GetUnitAuraBySpellID=function(_,id) if id==19970 then return secret end end
+    ns.Observer.Scan(10); equal(ns.Observer.GetUnitState("target").graspLookup,"blocked")
+    reset(); fixture.guid.player=nil; fixture.auraError=true
+    ns.Observer.Scan(10); equal(ns.Observer.GetUnitState("target").graspLookup,"unavailable")
+    ns.Data=fixtureData
+end)
+
+test("exact lookups remain bounded per distinct readable target and focus identity", function()
+    reset(); fixture.auraError=true; fixture.guid.focus="Player-1-B"
+    local calls={}
+    C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
+        truth(unit~="player","player fallback must not query these effects")
+        calls[unit]=(calls[unit] or 0)+1
+    end
+    ns.Observer.Scan(10)
+    equal(calls.target,7); equal(calls.focus,7); equal(calls.player,nil)
+    fixture.guid.focus=secret; calls={}; ns.Observer.Scan(10.2)
+    equal(calls.target,7); equal(calls.focus,nil)
 end)
 
 local failures={}

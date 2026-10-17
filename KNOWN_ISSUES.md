@@ -1,5 +1,15 @@
 # bjarkiCC known issues and validation status
 
+## Nature's Grasp arrives late on the caster (0.4.17)
+
+**Reported:** Nature's Grasp does not trigger caster-side root DR promptly.
+
+**Observed:** The supplied report records restricted indexed scanning with no root at 2672665.579. The first readable root is spell 19975, instance a:25, at 2672672.095; its duration-derived application time is 2672665.719. Detection was therefore 6.376 seconds late. It is still present in target/focus DR state after observed removal at 2672672.918. The trace contains 419 indexed-aura API failures. Mapping and eventual detection work; initial data access failed. This does not prove that the alternate exact lookup is readable on the live client.
+
+**Change in 0.4.17.1:** Extend the bounded exact-spell fallback from War Stomp to Nature's Grasp's six proc-root IDs. Require readable matching spell/instance identity. Hidden, failed, mismatched, expired or nil results cannot create a hit or prove removal. Target/focus aliases share the scan; a later indexed observation of the same instance cannot count twice. Status and recent history retain the lookup outcome. Timers, stage policy, visuals and cast-estimation settings are unchanged.
+
+**Validation ceiling:** Offline tests cover early readable confirmation, all ranks, deduplication and rejected evidence. Live retesting remains pending; this patch cannot make restricted root data readable.
+
 ## Current recovery status (2026-10-17)
 
 The user returned to 0.4.17 after reporting later builds unusable. Installed Lua and TOC files matched the original release, but two saved profiles retained disabled caster estimates and the later stage-reset value. Replaying the original initializer reproduced this mismatch. Backed-up repairs restored `ownCastEstimates=true` and `stageResetSeconds=18`, preserving every other setting; both writes were read back and hash-verified.

@@ -1,8 +1,12 @@
 # bjarkiCC architecture and DR research
 
+## Nature's Grasp exact lookup supplement (0.4.17.1)
+
+On an incomplete target/focus indexed scan, the observer supplements its existing War Stomp exact lookup with the six mapped Nature's Grasp proc-root IDs (19975 through 19970). The API's non-secret-aura result must pass matching spell and instance checks. Positive records merge by aura instance into the existing observation model; nil or unavailable records never make incomplete coverage complete or prove an aura ended. The self-buff cast supplies no victim and is not a DR application. This is a bounded observation change over the 0.4.17 baseline, with no model, UI, anchor or saved-settings migration changes. Live evidence that the fallback is readable during the reported restricted interval is still required.
+
 ## Current runtime baseline and persistent settings (2026-10-17)
 
-Runtime and tests are restored to original 0.4.17. SavedVariables are a separate persistence layer: replacing addon files leaves valid saved booleans and numbers intact. The verified recovery restores this version's defaults (`ownCastEstimates=true`, application countdown 20 seconds, stage retention 18 seconds after CC ends); only the first and third values needed changing in the inspected profiles. See [RECOVERY.md](RECOVERY.md) for evidence, instructions and unresolved live limitations. No later tracking or visual changes are included in this baseline.
+The original 0.4.17 runtime and tests form the baseline for the narrow observation supplement above. SavedVariables are a separate persistence layer: replacing addon files leaves valid saved booleans and numbers intact. The verified recovery restores this version's defaults (`ownCastEstimates=true`, application countdown 20 seconds, stage retention 18 seconds after CC ends); only the first and third values needed changing in the inspected profiles. See [RECOVERY.md](RECOVERY.md) for evidence, instructions and unresolved live limitations. No later tracking or visual changes are included in this baseline.
 
 Research checked 2026-10-17. This document separates source evidence, addon policy, reported behavior and offline validation.
 

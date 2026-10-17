@@ -152,4 +152,24 @@ assert(ns.BuildStatus():find('lookup20549=confirmed; ByUnit=complete; records=0'
  'completed stun probe remains available after the latest scan becomes empty')
 SlashCmdList.BJARKICC('clear')
 assert(not ns.BuildStatus():find('lookup20549=',1,true),'clear resets the probe history')
+-- A delayed Nature's Grasp report must retain the alternate lookup outcome,
+-- including after the root disappears; stable polling must not evict it.
+C_UnitAuras={GetAuraDataByIndex=function() error('restricted enumeration',0) end,
+ GetUnitAuraBySpellID=function(_,id)
+  if id==19975 then return {spellId=19975,auraInstanceID=1400,expirationTime=1312,duration=12} end
+ end}
+now=1300; frame.scripts.OnEvent(frame,'UNIT_AURA','focus')
+assert(ns.BuildStatus():find("Exact Nature's Grasp lookup: confirmed",1,true),
+ 'status must expose whether the proc root has a readable exact witness')
+assert(ns.BuildStatus():find('graspLookup=confirmed',1,true),
+ 'recent history must preserve the root lookup result')
+local graspCount=#ns.drTrace
+now=1300.2; frame.scripts.OnEvent(frame,'UNIT_AURA','focus')
+assert(#ns.drTrace==graspCount,'stable root lookup results cannot fill the trace')
+C_UnitAuras.GetAuraDataByIndex=function() end
+now=1313; frame.scripts.OnEvent(frame,'UNIT_AURA','focus')
+assert(ns.BuildStatus():find('graspLookup=confirmed',1,true),
+ 'root lookup remains diagnosable after removal')
+SlashCmdList.BJARKICC('clear')
+assert(not ns.BuildStatus():find('graspLookup=',1,true),'clear resets the root lookup history')
 print('diagnostics: real observation transitions, deduplication, bounded history and reset passed')

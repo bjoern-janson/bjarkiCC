@@ -35,6 +35,9 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
             ..(loc==nil and 'not-sampled' or (loc and 'complete' or 'restricted'))
             ..'; records='..(diagnostics.byUnitCount or 'unknown')
     end
+    if diagnostics and diagnostics.graspLookup then
+        probe=probe..'; graspLookup='..diagnostics.graspLookup
+    end
     local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')..probe
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
@@ -93,6 +96,7 @@ function ns.BuildStatus()
         lines[#lines+1]='  Unit LoC: '..(state.byUnitAvailable and coverage(state.byUnitComplete) or 'unavailable')..'; mapped '..(state.mappedLoC or 0)
             ..(state.byUnitCount and ('; records '..state.byUnitCount) or '')
         if state.stompLookup then lines[#lines+1]='  Exact War Stomp lookup: '..state.stompLookup end
+        if state.graspLookup then lines[#lines+1]="  Exact Nature's Grasp lookup: "..state.graspLookup end
         if state.unmappedSpellIDs and #state.unmappedSpellIDs>0 then
             local ids={}; for _,id in ipairs(state.unmappedSpellIDs) do ids[#ids+1]=tostring(id) end
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')

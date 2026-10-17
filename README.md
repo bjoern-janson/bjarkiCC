@@ -1,8 +1,14 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.1: Nature's Grasp confirmation fallback
+
+This narrow patch keeps the 0.4.17 artwork, layout, timers and saved-setting policy. When target/focus indexed aura scanning is restricted, it also checks the six known Nature's Grasp root-effect IDs through the same guarded exact-spell API used for War Stomp. Only a readable matching spell and aura instance can add a root application; activating the self-buff never assigns a victim.
+
+The supplied caster report first saw root 19975 at 2672672.095, despite its application time being 2672665.719: 6.376 seconds late. The mapping worked, but indexed access was blocked initially. The fallback can recover an individually readable root when enumeration fails; it cannot read a root whose own data is restricted. Live availability of this alternate source is unverified. `/bcc status` records its outcome as `graspLookup`.
+
 ## Current baseline: 0.4.17 rollback
 
-Runtime and tests have been restored to the original 0.4.17-beta. Newer SavedVariables can survive reinstalling it and change its behavior. See [RECOVERY.md](RECOVERY.md) for the verified two-setting recovery and remaining limitations. This rollback does not establish reliable live DR tracking; direct-cast false positives, caster-side War Stomp and enemy cooldown coverage remain unresolved.
+The original 0.4.17-beta is the baseline for the narrow observation patch above. Newer SavedVariables can survive reinstalling it and change its behavior. See [RECOVERY.md](RECOVERY.md) for the verified two-setting recovery and remaining limitations. This rollback does not establish reliable live DR tracking; direct-cast false positives, caster-side War Stomp and enemy cooldown coverage remain unresolved.
 
 The version sections below describe historical changes; the current layout is the 0.4.17 side grid.
 

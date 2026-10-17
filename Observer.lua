@@ -165,21 +165,21 @@ end
 -- The index scan requires blanket aura access. This documented getter instead
 -- requires a non-secret aura: only a readable positive matching this exact
 -- spell/instance is evidence. Nil, errors and hidden values never prove absence.
--- One reviewed spell keeps this fallback bounded; it is not an AoE cast guess.
-local function exactWarStomp(unit, now)
+-- The reviewed effect IDs below keep this bounded; no cast identifies a victim.
+local function exactAura(unit, wantedSpellID, now)
     local api = C_UnitAuras
     if type(api) ~= "table" or type(api.GetUnitAuraBySpellID) ~= "function" then
         return nil, "unavailable"
     end
     local aura, readable = call("C_UnitAuras.GetUnitAuraBySpellID", unit,
-        api.GetUnitAuraBySpellID, unit, 20549)
+        api.GetUnitAuraBySpellID, unit, wantedSpellID)
     if not readable then return nil, "blocked" end
     if aura == nil then return nil, "none" end
     if type(aura) ~= "table" then return nil, "identity-unavailable" end
     local rawSpell = field(aura, "spellId", "AuraData.spellId", unit)
     local spellID = identifier(rawSpell)
     if not spellID then return nil, "identity-unavailable" end
-    if spellID ~= 20549 then return nil, "mismatch" end
+    if spellID ~= wantedSpellID then return nil, "mismatch" end
     local rawInstance = field(aura, "auraInstanceID", "AuraData.auraInstanceID", unit)
     local instanceID = identifier(rawInstance)
     if not instanceID then return nil, "identity-unavailable" end
@@ -199,6 +199,23 @@ local function exactWarStomp(unit, now)
         category = category, spellID = spellID, expires = expires,
         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
     }}, "confirmed"
+end
+
+local graspEffects = {19975, 19974, 19973, 19972, 19971, 19970}
+-- A single fixed status summarizes six positive-only queries. Confirmed takes
+-- precedence; otherwise retain the strongest limitation regardless of rank.
+local exactStatusPriority = {none=1, unavailable=2, unmapped=3, expired=4,
+    mismatch=5, ["identity-unavailable"]=6, blocked=7, confirmed=8}
+local function exactGrasp(unit, now)
+    local effects, status = {}, "none"
+    for _, spellID in ipairs(graspEffects) do
+        local additional, result = exactAura(unit, spellID, now)
+        if exactStatusPriority[result] > exactStatusPriority[status] then status = result end
+        if additional then
+            for key, effect in pairs(additional) do effects[key] = effect end
+        end
+    end
+    return next(effects) and effects or nil, status
 end
 
 local function byUnitAvailable()
@@ -464,8 +481,11 @@ local function scanGuid(unit, guid, previous, now)
         elseif unit ~= "player" and not complete then
             limited = true
             local exactEffects
-            exactEffects, diagnostics.stompLookup = exactWarStomp(unit, now)
+            exactEffects, diagnostics.stompLookup = exactAura(unit, 20549, now)
             if exactEffects then mergeEffects(effects, exactEffects); sensor = "aura+exact" end
+            local roots
+            roots, diagnostics.graspLookup = exactGrasp(unit, now)
+            if roots then mergeEffects(effects, roots); sensor = "aura+exact" end
             if diagnostics.byUnitAvailable then
                 local locEffects, locComplete, locUnmapped, locCount = lossOfControlSnapshot(now, unit)
                 diagnostics.byUnitComplete = locComplete
@@ -474,7 +494,7 @@ local function scanGuid(unit, guid, previous, now)
                 diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, locUnmapped)
                 mergeEffects(effects, locEffects)
                 if diagnostics.mappedLoC > 0 then
-                    sensor = exactEffects and "aura+exact+loc" or "aura+loc"
+                    sensor = (exactEffects or roots) and "aura+exact+loc" or "aura+loc"
                 end
             end
             -- LoC does not enumerate every debuff. Even a complete/empty LoC
@@ -507,6 +527,8 @@ local function scanGuid(unit, guid, previous, now)
             or "Complete harmful aura scan has no mapped crowd-control witness."
     elseif diagnostics.stompLookup == "confirmed" then
         diagnostics.reason = "Restricted harmful aura scan; exact readable War Stomp aura added."
+    elseif diagnostics.graspLookup == "confirmed" then
+        diagnostics.reason = "Restricted harmful aura scan; exact readable Nature's Grasp root added."
     elseif diagnostics.mappedLoC > 0 then
         diagnostics.reason = "Restricted harmful aura scan; readable ByUnit Loss of Control witness added."
     elseif not diagnostics.byUnitAvailable then
