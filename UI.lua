@@ -420,7 +420,7 @@ function UI.OpenOptions()
         check(page,category.name,6+((i-1)%2)*240,-28-math.floor((i-1)/2)*30,
             function() return ns.db.categories[key] end,function(v) ns.db.categories[key]=v end)
     end
-    check(page,'Estimate my CC casts when auras are hidden',6,-183,
+    check(page,'Predict casts (may count dodges/resists)',6,-183,
         function() return ns.db.ownCastEstimates end,function(v) ns.db.ownCastEstimates=v; ns.OwnCasts.Init() end)
     slider(page,'Application countdown (s)',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
         if v~=ns.db.resetSeconds then

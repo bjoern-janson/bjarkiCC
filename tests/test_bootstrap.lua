@@ -77,7 +77,7 @@ for _,oldSchema in ipairs({0,1,2,3,4,5,6}) do
             focus={anchorKind='portrait',offsetX=10,offsetY=0},
             cooldown={x=444,y=-333,size=48,gap=5,vertical=false,reverse=false,enabled=false}}}
     ns.InitializeDB(); sideDefaults()
-    assert(ns.db.schema==7,'layout migration runs once')
+    assert(ns.db.schema==8,'migrations record the current schema')
     assert(ns.db.bars.player.size==44 and ns.db.bars.player.gap==5
         and not ns.db.bars.player.enabled and ns.db.bars.player.maxIcons==4,'DR appearance and enable preferences survive')
     local cd=ns.db.bars.cooldown
@@ -111,4 +111,16 @@ ns.InitializeDB()
 assert(ns.db.bars.player.offsetX==-18 and ns.db.bars.player.offsetY==0,'hidden and NaN offsets use safe defaults')
 assert(ns.db.bars.target.offsetX==18 and ns.db.bars.target.offsetY==0,'infinite offsets use safe defaults')
 assert(ns.db.bars.focus.offsetX==10000 and ns.db.bars.focus.offsetY==-10000,'finite offsets remain bounded')
-print('bootstrap: protected values, compact defaults, centered portrait migration and saved preferences passed')
+-- Legacy automatic cast guesses can count a dodged/resisted spell. Migrate
+-- their default off once; a later deliberate opt-in remains the user's choice.
+bjarkiCCDB={schema=7,ownCastEstimates=true,bars={target={anchorKind='unit-side',offsetX=77,offsetY=-9}}}
+ns.InitializeDB()
+assert(ns.db.ownCastEstimates==false,'existing automatic cast predictions are disabled once')
+assert(ns.db.bars.target.offsetX==77 and ns.db.bars.target.offsetY==-9,'hit-policy migration preserves current grid offsets')
+ns.db.ownCastEstimates=true; ns.InitializeDB()
+assert(ns.db.ownCastEstimates==true,'explicit post-migration opt-in survives reload')
+ns.ResetPositions()
+assert(ns.db.ownCastEstimates==true,'position reset cannot change the hit policy')
+bjarkiCCDB=nil; ns.InitializeDB()
+assert(ns.db.ownCastEstimates==false,'fresh installs require observed applications')
+print('bootstrap: protected values, compact defaults, layout and confirmed-application policy migrations passed')

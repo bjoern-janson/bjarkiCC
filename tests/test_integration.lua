@@ -102,6 +102,27 @@ assert(ns.eventFrame.events.UNIT_SPELLCAST_SENT and ns.eventFrame.events.UNIT_SP
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.3)
 assert(not ns.UI.bars.player.shown and not ns.UI.bars.cooldown.shown,'empty bars hidden in normal play')
 -- CC can apply and be removed between render ticks; event callbacks must sample it.
+-- Default policy must not turn SUCCEEDED + no aura (including dodge/resist/
+-- immune outcomes) into a DR application. Positive aura evidence still works.
+assert(ns.db.ownCastEstimates==false,'default live tracking requires observed applications')
+units.target='Player-1-Dodge'
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','TargetEnemy','Cast-dodge-default',5211)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-dodge-default',5211)
+ns.UI.Update(now)
+assert(not ns.UI.bars.target.shown and #ns.model:GetDR(units.target,now,true)==0,
+ 'a cast without a confirmed hit cannot show or seed default DR tracking')
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+ if unit=='target' and index==1 then return {spellId=5211,auraInstanceID=889,expirationTime=103,duration=3} end
+end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target'); ns.UI.Update(now)
+assert(ns.UI.bars.target.shown and not ns.UI.bars.target.icons[1].row.estimated,
+ 'confirmed aura still supplies a normal observed DR icon with predictions off')
+units.target=nil; C_UnitAuras.GetAuraDataByIndex=function() end
+ns.Command('clear')
+-- Historical prediction fixtures below explicitly opt in; they exercise the
+-- optional uncertain feature rather than establish a landed hit.
+ns.db.ownCastEstimates=true
 now=100.1
 C_UnitAuras.GetAuraDataByIndex=function(unit,index)
  if unit=='player' and index==1 then return {spellId=853,auraInstanceID=77,expirationTime=106} end

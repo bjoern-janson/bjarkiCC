@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.18-beta'
+ns.name, ns.version = addonName, '0.4.19-beta'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -72,7 +72,10 @@ function ns.InitializeDB()
     db.locked = bool(db.locked, true)
     db.targetOnly = bool(db.targetOnly, false)
     db.interrupts = bool(db.interrupts, false)
-    db.ownCastEstimates = bool(db.ownCastEstimates, true)
+    -- Cast success does not confirm a hit. Retire the old automatic prediction
+    -- default once; later deliberate opt-ins remain available and uncertain.
+    if savedSchema < 8 then db.ownCastEstimates = false
+    else db.ownCastEstimates = bool(db.ownCastEstimates, false) end
     db.showNames = bool(db.showNames, false)
     db.showDRText = bool(db.showDRText, false)
     db.resetSeconds = bounded(db.resetSeconds, 20, 10, 30)
@@ -125,7 +128,7 @@ function ns.InitializeDB()
         end
         db.bars[key] = bar
     end
-    db.schema = 7
+    db.schema = 8
     bjarkiCCDB, ns.db = db, db
 end
 
