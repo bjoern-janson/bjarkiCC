@@ -202,6 +202,8 @@ local function exactAura(unit, wantedSpellID, now)
 end
 
 local graspEffects = {19975, 19974, 19973, 19972, 19971, 19970}
+local graspEffectIDs = {}
+for _, id in ipairs(graspEffects) do graspEffectIDs[id] = true end
 -- A single fixed status summarizes six positive-only queries. Confirmed takes
 -- precedence; otherwise retain the strongest limitation regardless of rank.
 local exactStatusPriority = {none=1, unavailable=2, unmapped=3, expired=4,
@@ -429,7 +431,10 @@ local function readIdentity(unit)
     if not guid or not guid:match("^Player%-") then return nil end
     if unit ~= "player" then
         local isPlayer = call("UnitIsPlayer", unit, UnitIsPlayer, unit)
-        if Safe.Boolean(isPlayer) ~= true then return nil end
+        -- A readable Player- GUID is already positive identity evidence.
+        -- An inaccessible secondary boolean cannot turn that into a nonplayer.
+        -- A readable contradiction still vetoes the association.
+        if Safe.Boolean(isPlayer) == false then return nil end
     end
     return guid
 end
@@ -451,7 +456,7 @@ local function exactPlayerHandoff(unit, previous, effects, complete, sensor, amb
     return true
 end
 
-local function scanGuid(unit, guid, previous, now)
+local function scanGuid(unit, guid, previous, now, aliases)
     local effects, complete, sensor, limited
     local diagnostics = {mappedAuras = 0, unmappedSpellIDs = {}, mappedLoC = 0,
         byUnitAvailable = unit ~= "player" and byUnitAvailable() or false}
@@ -468,6 +473,34 @@ local function scanGuid(unit, guid, previous, now)
         diagnostics.mappedAuras = auraInfo.mappedAuras
         diagnostics.unmappedSpellIDs = auraInfo.unmappedSpellIDs
         sensor, limited = "aura", false
+        -- Target and focus can expose different readable data for the SAME
+        -- player. Probe a verified alias only if the owner's enumeration failed.
+        -- Prefer a complete alias snapshot; otherwise merge positive instance
+        -- witnesses and preserve incomplete coverage. Commit to the model ONCE.
+        if unit ~= "player" and not complete then
+            for _, alias in ipairs(aliases or {}) do
+                if alias ~= unit and readIdentity(alias) == guid then
+                    local other, otherComplete, otherInfo = auraSnapshot(alias, now)
+                    diagnostics.aliasUnit = alias
+                    diagnostics.aliasCoverage = otherComplete and "complete" or "partial"
+                    diagnostics.aliasMapped = otherInfo.mappedAuras
+                    if otherComplete then
+                        effects, complete, auraInfo = other, true, otherInfo
+                        diagnostics.auraComplete = true
+                        diagnostics.mappedAuras = otherInfo.mappedAuras
+                        diagnostics.unmappedSpellIDs = otherInfo.unmappedSpellIDs
+                        diagnostics.authoritativeUnit = alias
+                        sensor, limited = "aura-alias", false
+                        Observer.stats.aliasRecoveries = Observer.stats.aliasRecoveries + 1
+                        break
+                    end
+                    mergeEffects(effects, other)
+                    diagnostics.mappedAuras = countEffects(effects)
+                    diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, otherInfo.unmappedSpellIDs)
+                    if next(other) then sensor = "aura+alias" end
+                end
+            end
+        end
         if unit == "player" and not complete then
             local locUnmapped
             effects, complete, locUnmapped = lossOfControlSnapshot(now)
@@ -486,6 +519,29 @@ local function scanGuid(unit, guid, previous, now)
             local roots
             roots, diagnostics.graspLookup = exactGrasp(unit, now)
             if roots then mergeEffects(effects, roots); sensor = "aura+exact" end
+            -- A targeted, successful own cast is NOT proof of application.
+            -- It can, however, select a small exact-spell QUERY on the actual
+            -- resolved victim. Only a readable positive aura instance counts.
+            local pending = ns.model.GetPendingExactSpellIDs
+                and ns.model:GetPendingExactSpellIDs(guid, now) or {}
+            local lookup, queryCount, positiveCount = "none", 0, 0
+            for _, spellID in ipairs(pending) do
+                if spellID ~= 20549 and not graspEffectIDs[spellID] then
+                    local additional, result = exactAura(unit, spellID, now)
+                    queryCount = queryCount + 1
+                    if exactStatusPriority[result] > exactStatusPriority[lookup] then lookup = result end
+                    if additional then
+                        mergeEffects(effects, additional)
+                        positiveCount = positiveCount + 1
+                        sensor = "aura+exact"
+                    end
+                end
+            end
+            if queryCount > 0 then
+                diagnostics.castLookup = lookup
+                diagnostics.castLookupQueries = queryCount
+                diagnostics.castLookupHits = positiveCount
+            end
             if diagnostics.byUnitAvailable then
                 local locEffects, locComplete, locUnmapped, locCount = lossOfControlSnapshot(now, unit)
                 diagnostics.byUnitComplete = locComplete
@@ -560,7 +616,11 @@ function Observer.Init()
     Observer.units = {}
     for _, unit in ipairs(trackedUnits) do Observer.units[unit] = unavailableState() end
     Observer.stats = {scans = 0, restricted = 0, casts = 0, acceptedCasts = 0, apiErrors = 0, missingApis = 0,
-        scanCaps = 0, scanGaps = 0, handoffsPreserved = 0, handoffsInvalidated = 0}
+        scanCaps = 0, scanGaps = 0, handoffsPreserved = 0, handoffsInvalidated = 0,
+        aliasRecoveries = 0, castStartsPlayer = 0, castStartsOther = 0, castStartsUnknown = 0,
+        castSuccessPlayer = 0, castSuccessOther = 0, castSuccessUnknown = 0,
+        castNameUnavailable = 0, castPlayerGuidFallback = 0}
+    Observer.castRejects = {}
 end
 
 function Observer.GetUnitState(unit)
@@ -572,13 +632,17 @@ function Observer.Scan(now)
     now = number(now)
     if not now or now < 0 then return end
     Observer.stats.scans = Observer.stats.scans + 1
-    local identities, owners, previous = {}, {}, {}
+    local identities, owners, previous, aliases = {}, {}, {}, {}
     -- Resolve every identity before releasing any GUID. A target/focus handoff
     -- or swap must not erase history still observable through another token.
     for _, unit in ipairs(trackedUnits) do
         local guid = readIdentity(unit)
         identities[unit] = guid
         if guid and not owners[guid] then owners[guid] = unit end
+        if guid then
+            aliases[guid] = aliases[guid] or {}
+            aliases[guid][#aliases[guid] + 1] = unit
+        end
         local state = Observer.units[unit]
         if state.guid and not previous[state.guid] then previous[state.guid] = state end
     end
@@ -604,7 +668,7 @@ function Observer.Scan(now)
         local guid = identities[unit]
         if guid then
             if not scanned[guid] then
-                scanned[guid] = scanGuid(owners[guid], guid, previous[guid], now)
+                scanned[guid] = scanGuid(owners[guid], guid, previous[guid], now, aliases[guid])
             end
             units[unit] = scanned[guid]
         else
@@ -614,32 +678,71 @@ function Observer.Scan(now)
     Observer.units = units
 end
 
+-- START is telemetry only: it must NEVER start an enemy cooldown or DR.
+-- Compare delivery by unit against successful cast events in /bcc status.
+function Observer.NoteCastStart(unit)
+    local token = unitToken(unit)
+    local field = token == "player" and "castStartsPlayer"
+        or token and "castStartsOther" or "castStartsUnknown"
+    Observer.stats[field] = Observer.stats[field] + 1
+end
+
+local function rejectCast(reason)
+    local rejects = Observer.castRejects
+    rejects[reason] = (rejects[reason] or 0) + 1
+    return false
+end
+
 function Observer.OnCast(unit, castGUID, spellID, now)
     Observer.stats.casts = Observer.stats.casts + 1
     unit = unitToken(unit)
+    local delivery = unit == "player" and "castSuccessPlayer"
+        or unit and "castSuccessOther" or "castSuccessUnknown"
+    Observer.stats[delivery] = Observer.stats[delivery] + 1
     spellID = identifier(spellID)
     now = number(now)
-    if not unit or not spellID or not now or now < 0 then return end
-    if not Safe.Readable(castGUID) then Observer.stats.restricted = Observer.stats.restricted + 1; return end
+    if not unit or not spellID or not now or now < 0 then return rejectCast("invalidEvent") end
+    if not Safe.Readable(castGUID) then
+        Observer.stats.restricted = Observer.stats.restricted + 1
+        return rejectCast("restrictedCastID")
+    end
     if castGUID ~= nil then
         castGUID = Safe.String(castGUID)
-        if not castGUID or castGUID == "" or #castGUID > 128 then return end
+        if not castGUID or castGUID == "" or #castGUID > 128 then return rejectCast("invalidCastID") end
     end
     local canonicalID = ns.Data.castToSpell[spellID]
-    if not canonicalID and not ns.Data.resets[spellID] then return end
-    if canonicalID and not ns.Data.spells[canonicalID] and not ns.Data.resets[spellID] then return end
+    if not canonicalID and not ns.Data.resets[spellID] then return rejectCast("unknownSpell") end
+    if canonicalID and not ns.Data.spells[canonicalID] and not ns.Data.resets[spellID] then
+        return rejectCast("untrackedSpell")
+    end
     local rawGuid = call("UnitGUID", unit, UnitGUID, unit)
     local guid = guidString(rawGuid)
-    if not guid then return end
+    if not guid then return rejectCast("unreadableGuid") end
     local hostile = call("UnitCanAttack", unit, UnitCanAttack, "player", unit)
-    if Safe.Boolean(hostile) ~= true then return end
+    if Safe.Boolean(hostile) ~= true then return rejectCast("hostilityUnconfirmed") end
     local isPlayer = call("UnitIsPlayer", unit, UnitIsPlayer, unit)
-    if Safe.Boolean(isPlayer) ~= true and not guid:match("^Pet%-") and not guid:match("^Vehicle%-") then return end
+    if Safe.Boolean(isPlayer) == false and guid:match("^Player%-") then
+        return rejectCast("conflictingIdentity")
+    end
+    if Safe.Boolean(isPlayer) ~= true then
+        if guid:match("^Player%-") then
+            -- Positive GUID type is valid even when UnitIsPlayer is secret.
+            Observer.stats.castPlayerGuidFallback = Observer.stats.castPlayerGuidFallback + 1
+        elseif not guid:match("^Pet%-") and not guid:match("^Vehicle%-") then
+            return rejectCast("unconfirmedUnitType")
+        end
+    end
     local rawName = call("UnitName", unit, UnitName, unit)
     local name = Safe.String(rawName)
-    if not name or name == "" or #name > 128 then return end
-    -- Interrupt settings are a view filter, so enabling them later can reveal
-    -- already observed cooldowns. Pet identities are never invented as owners.
-    ns.model:Cast(guid, name, spellID, now, castGUID, false, ns.db.cooldownOverrides)
+    if not name or name == "" or #name > 128 then
+        -- A verified caster GUID suffices for a cooldown; the model labels
+        -- it by GUID until a future readable name is available.
+        name = nil
+        Observer.stats.castNameUnavailable = Observer.stats.castNameUnavailable + 1
+    end
+    -- Interrupt settings are a view filter. No cast is a DR application.
+    local accepted = ns.model:Cast(guid, name, spellID, now, castGUID, false, ns.db.cooldownOverrides)
+    if not accepted then return rejectCast("duplicateOrNoCooldown") end
     Observer.stats.acceptedCasts = Observer.stats.acceptedCasts + 1
+    return true
 end
