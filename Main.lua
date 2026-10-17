@@ -224,7 +224,7 @@ function ns.BuildStatus()
     end
     lines[#lines+1]='Own-cast DR estimates: '..(ns.db.ownCastEstimates and 'enabled (always uncertain)' or 'disabled')
     lines[#lines+1]='Own AoE guesses (War Stomp/Iron Grenade): '
-        ..(ns.db.aoeCastEstimates and 'enabled; visibly marked ? (never confirmed hits)' or 'disabled')
+        ..(ns.db.aoeCastEstimates and 'enabled; unconfirmed (check tooltip/status for source)' or 'disabled')
     lines[#lines+1]='Shared Controlled Stun: Bash, War Stomp, Iron Grenade (live user-tested).'
     local lastAoE=ns.OwnCasts.lastAoE
     if lastAoE then
