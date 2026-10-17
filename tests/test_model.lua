@@ -1705,55 +1705,6 @@ test("a replacement boundary cannot teach a quiet baseline after a configured ea
     eq(row.fullDurationBaseline,nil,"predicted nonoverlap is not twenty seconds of observed quiet")
 end)
 
-
--- Shipping policy: stage and presentation share the application deadline.
-test("application policy uses twenty seconds regardless of CC duration or early break", function()
-    for _,duration in ipairs({2,3,4,20,30}) do
-        local m=ns.Model.New(20,20,true)
-        m:Observe("a",{x=effect("stun",100,100+duration,100)},100,true)
-        local row=only(m:GetDR("a",100))
-        eq(row.stageResetAt,120); eq(row.stageResetSource,"application")
-        m:Observe("a",{},101,true)
-        row=only(m:GetDR("a",119)); eq(row.remaining,1); eq(row.stage,1)
-        eq(row.started,100); eq(row.active,false); eq(#m:GetDR("a",120),0)
-        m:Observe("a",{y=effect("stun",100,124,120)},120,true)
-        row=only(m:GetDR("a",120)); eq(row.stage,1); eq(row.stageResetAt,140)
-    end
-end)
-test("application policy advances only on a new application within the window", function()
-    local m=ns.Model.New(20,20,true)
-    m:Observe("a",{x=effect("stun",100,120,100)},100,true)
-    -- A rejected cast has no new aura. Stable polls must leave history alone.
-    for _,at in ipairs({101,107,109}) do
-        m:Observe("a",{x=effect("stun",100,120,100)},at,true)
-        local row=only(m:GetDR("a",at)); eq(row.stage,1); eq(row.started,100); eq(row.stageResetAt,120)
-    end
-    m:Observe("a",{y=effect("stun",100,130,110)},110,true)
-    local row=only(m:GetDR("a",110)); eq(row.stage,2); eq(row.stageResetAt,130)
-    m:Observe("a",{},111,true)
-    row=only(m:GetDR("a",129)); eq(row.stage,2); eq(row.remaining,1)
-    eq(#m:GetDR("a",130),0)
-end)
-test("expired application cannot be recounted by an ongoing effect", function()
-    local m=ns.Model.New(20,20,true)
-    for _,at in ipairs({100,119,120,125,130}) do
-        m:Observe("a",{x=effect("stun",100,140,100)},at,true)
-        if at<120 then eq(only(m:GetDR("a",at)).stage,1)
-        else eq(#m:GetDR("a",at),0) end
-    end
-end)
-test("application policy cannot learn an earlier duration-based reset", function()
-    local m=ns.Model.New(20,20,true)
-    for i,duration in ipairs({20,10,5,20}) do
-        local at=100+(i-1)*5
-        local e=effect("stun",100,at+duration,at)
-        e.applicationSource="loc"; e.reportedDuration=duration
-        m:Observe("a",{[tostring(i)]=e},at,true)
-        local row=only(m:GetDR("a",at))
-        eq(row.stage,math.min(i,3)); eq(row.resetEvidence,nil); eq(row.stageResetAt,at+20)
-    end
-end)
-
 local function runModelTests()
     local failed=0
     for _, case in ipairs(cases) do

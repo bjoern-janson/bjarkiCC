@@ -38,19 +38,19 @@ assert(ns.db.bars.focus, 'fresh settings include a focus DR bar')
 assert(ns.db.bars.focus.size == 28 and ns.db.bars.focus.x == 230 and ns.db.bars.focus.y == -230, 'focus gets compact icons and its fallback placement')
 assert(ns.db.bars.cooldown.size == 32, 'fresh cooldown bar uses compact icons')
 assert(ns.db.showNames == false and ns.db.showDRText == false, 'fresh bars omit optional text')
-assert(ns.db.resetSeconds == 20 and ns.db.stageResetSeconds == 20, 'stage and display use the fixed application policy')
+assert(ns.db.resetSeconds == 20 and ns.db.stageResetSeconds == 18, 'application display and stage reset have independent defaults')
 ns.db.resetSeconds, ns.db.stageResetSeconds = 24, 19
 ns.InitializeDB()
-assert(ns.db.resetSeconds == 20 and ns.db.stageResetSeconds == 20, 'reload normalizes legacy clocks to the fixed twenty-second policy')
+assert(ns.db.resetSeconds == 24 and ns.db.stageResetSeconds == 19, 'both custom clock settings survive reload independently')
 ns.db.stageResetSeconds = secret
 ns.InitializeDB()
-assert(ns.db.stageResetSeconds == 20 and ns.db.resetSeconds == 20, 'unreadable legacy clocks normalize to twenty')
+assert(ns.db.stageResetSeconds == 18 and ns.db.resetSeconds == 24, 'unreadable stage setting falls back without changing the application clock')
 ns.db.stageResetSeconds = math.huge
 ns.InitializeDB()
-assert(ns.db.stageResetSeconds == 20, 'nonfinite legacy stage field normalizes to twenty')
+assert(ns.db.stageResetSeconds == 18, 'nonfinite stage reset uses its own default')
 ns.db.stageResetSeconds = 99
 ns.InitializeDB()
-assert(ns.db.stageResetSeconds == 20, 'obsolete stage override cannot change the live policy')
+assert(ns.db.stageResetSeconds == 30, 'stage reset setting is bounded')
 ns.db.resetSeconds, ns.db.stageResetSeconds = 20, 18
 for _, key in ipairs({'player', 'target', 'focus', 'cooldown'}) do
     assert(ns.db.bars[key].gap == 3 and ns.db.bars[key].label == false, 'fresh bars have tight gaps and no labels')
@@ -77,14 +77,14 @@ for _,oldSchema in ipairs({0,1,2,3,4,5,6}) do
             focus={anchorKind='portrait',offsetX=10,offsetY=0},
             cooldown={x=444,y=-333,size=48,gap=5,vertical=false,reverse=false,enabled=false}}}
     ns.InitializeDB(); sideDefaults()
-    assert(ns.db.schema==9,'migrations record the current schema')
+    assert(ns.db.schema==8,'migrations record the current schema')
     assert(ns.db.bars.player.size==44 and ns.db.bars.player.gap==5
         and not ns.db.bars.player.enabled and ns.db.bars.player.maxIcons==4,'DR appearance and enable preferences survive')
     local cd=ns.db.bars.cooldown
     assert(cd.x==444 and cd.y==-333 and cd.size==48 and cd.gap==5
         and not cd.vertical and not cd.reverse and not cd.enabled,'cooldown bar is unaffected by DR migration')
     assert(not ns.db.locked and ns.db.targetOnly and ns.db.interrupts and not ns.db.ownCastEstimates
-        and ns.db.resetSeconds==20 and ns.db.stageResetSeconds==20,'tracking preferences survive and legacy clocks normalize')
+        and ns.db.resetSeconds==24 and ns.db.stageResetSeconds==17,'tracking and both clocks survive')
     assert(not ns.db.categories.stun and ns.db.disabledSpells[853] and ns.db.cooldownOverrides[408]==45,
         'ability filters and cooldown overrides survive')
     ns.db.bars.target.offsetX,ns.db.bars.target.offsetY=15.5,-21.25

@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.22-beta'
+ns.name, ns.version = addonName, '0.4.19-beta'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -78,8 +78,8 @@ function ns.InitializeDB()
     else db.ownCastEstimates = bool(db.ownCastEstimates, false) end
     db.showNames = bool(db.showNames, false)
     db.showDRText = bool(db.showDRText, false)
-    db.resetSeconds = 20
-    db.stageResetSeconds = 20 -- Compatibility field; live policy uses the application deadline.
+    db.resetSeconds = bounded(db.resetSeconds, 20, 10, 30)
+    db.stageResetSeconds = bounded(db.stageResetSeconds, 18, 10, 30)
     db.categories = type(db.categories) == 'table' and db.categories or {}
     for _, category in ipairs(ns.Data.categories) do
         db.categories[category.key] = bool(db.categories[category.key], true)
@@ -128,7 +128,7 @@ function ns.InitializeDB()
         end
         db.bars[key] = bar
     end
-    db.schema = 9
+    db.schema = 8
     bjarkiCCDB, ns.db = db, db
 end
 

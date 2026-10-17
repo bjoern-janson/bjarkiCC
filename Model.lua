@@ -13,7 +13,6 @@ local CAST_ID_TTL = 120
 local FALLBACK_DEDUP_SECONDS = 0.15
 local APPLICATION_EPSILON = 0.001 -- Ignore sub-millisecond API rounding changes.
 local MAX_DURATION_BASELINES = 64
-local MAX_CLOSED_AURAS = 512
 local DURATION_QUIET_SECONDS = 20 -- Conservative Classic maximum; not a fixed server rule.
 local DURATION_RESET_MINIMUM = 15 -- Only reconcile within/after the documented uncertainty range.
 
@@ -32,12 +31,11 @@ local function trimOldest(records, maximum)
     end
 end
 
-function Model.New(applicationSeconds, stageResetSeconds, resetOnApplication)
+function Model.New(applicationSeconds, stageResetSeconds)
     local order = {}
     for index, category in ipairs(ns.Data.categories) do order[category.key] = index end
     return setmetatable({
         resetSeconds = applicationSeconds or 20,
-        resetOnApplication = resetOnApplication == true,
         stageResetSeconds = stageResetSeconds or 18,
         units = {},
         estimates = {}, -- Own casts are predictions, never observed applications.
@@ -61,7 +59,7 @@ local function recordEnd(state, effect, now)
     return endedAt
 end
 
-local function updateStageClocks(unit, effects, now, stageResetSeconds, applicationSeconds)
+local function updateStageClocks(unit, effects, now, stageResetSeconds)
     for _, state in pairs(unit.categories) do
         state.activeCount = 0
         state.stageResetPending = false
@@ -89,11 +87,6 @@ local function updateStageClocks(unit, effects, now, stageResetSeconds, applicat
         state.stageResetAt = not state.stageResetPending and state.stageEndAt
             and state.stageEndAt + stageResetSeconds or nil
         if state.stageResetPending then state.stageResetSource = nil end
-        if applicationSeconds then
-            state.stageResetAt = state.appliedAt + applicationSeconds
-            state.stageResetPending = false
-            state.stageResetSource = "application"
-        end
     end
 end
 
@@ -340,7 +333,7 @@ function Model:Observe(guid, effects, now, complete)
     if not guid then return end
     local unit = self.units[guid]
     if not unit then
-        unit = {seen = now, effects = {}, closedAuras = {}, categories = {}, durationBaselines = {}, durationLadders = {}, durationEpoch = 0}
+        unit = {seen = now, effects = {}, categories = {}, durationBaselines = {}, durationLadders = {}, durationEpoch = 0}
         self.units[guid] = unit
     end
     unit.seen = now
@@ -408,7 +401,7 @@ function Model:Observe(guid, effects, now, complete)
             stageEffects[key] = previous
         end
     end
-    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
+    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
 
     local nextEffects = {}
     if not complete then
@@ -439,11 +432,10 @@ function Model:Observe(guid, effects, now, complete)
         if retained and not retained.appliedAt and not preciseStart and not stageInWindow(state, now) then
             retained = nil
         end
-        local previous = unit.effects[key] or unit.closedAuras[key] or retained
+        local previous = unit.effects[key] or retained
         local same = previous and previous.category == category and previous.spellID == effect.spellID
         local refreshed = same and refreshedApplication(previous, effect, preciseStart)
         if not same or refreshed then
-            unit.closedAuras[key] = nil
             local prediction = self.estimates[guid]
             local candidate = prediction and prediction.categories[category]
             local matchedPrediction = candidate and candidate.spellID == effect.spellID
@@ -463,7 +455,7 @@ function Model:Observe(guid, effects, now, complete)
                     -- this identity. Its old predicted end must not outlive it.
                     recordEnd(state, previous, appliedAt)
                     stageEffects[key] = nil
-                    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
+                    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
                 end
                 local prior = predecessor(state)
                 local context = durationContext(unit, priorDurationHistory[category], effects, key, category)
@@ -549,7 +541,7 @@ function Model:Observe(guid, effects, now, complete)
         end
         local expires = retainTiming and previous.expires or effect.expires or (same and previous.expires or nil)
         local endedAt = same and not refreshed and previous.endedAt or nil
-        if endedAt and expires and expires > now and not previous.confirmedRemoval then
+        if endedAt and expires and expires > now then
             -- A still-live identical witness can repair a transient empty
             -- snapshot. It restores coverage, never another application.
             endedAt = nil
@@ -557,7 +549,6 @@ function Model:Observe(guid, effects, now, complete)
         end
         nextEffects[key] = {category = category, spellID = effect.spellID,
             expires = expires, endedAt = endedAt,
-            confirmedRemoval = same and not refreshed and previous.confirmedRemoval or nil,
             appliedAt = retainTiming and previous.appliedAt or preciseStart or (same and previous.appliedAt or nil),
             applicationSource = retainTiming and previous.applicationSource
                 or (preciseStart and effect.applicationSource) or (same and previous.applicationSource or nil),
@@ -567,13 +558,13 @@ function Model:Observe(guid, effects, now, complete)
         if current and current.applicationKey == key then
             current.witness = nextEffects[key]
             rememberAuraDuration(current, effect, preciseStart)
-            if not self.resetOnApplication then reconcileDuration(unit, current, effect, preciseStart, now, complete) end
+            reconcileDuration(unit, current, effect, preciseStart, now, complete)
         end
         stageEffects[key] = nextEffects[key]
-        updateStageClocks(unit, stageEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
+        updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
     end
 
-    updateStageClocks(unit, nextEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
+    updateStageClocks(unit, nextEffects, now, self.stageResetSeconds)
     local presentCategories = {}
     for _, effect in pairs(nextEffects) do presentCategories[effect.category] = true end
     for category, state in pairs(unit.categories) do
@@ -585,39 +576,6 @@ function Model:Observe(guid, effects, now, complete)
     end
     unit.effects = nextEffects
     trimOldest(self.units, MAX_UNITS)
-end
-
--- Exact readable UNIT_AURA removal IDs end only matching known instances.
--- They do not establish absence of any other effect or create an application.
-function Model:EndAuras(guid, keys, now)
-    local unit = self.units[guid]
-    if not unit then return 0 end
-    local count = 0
-    for key in pairs(keys) do
-        local effect = unit.effects[key] or unit.closedAuras[key]
-        if not effect then
-            -- A complete scan can close activity before the exact removal
-            -- event arrives. Its retained identity is still a known witness.
-            for _, state in pairs(unit.categories) do
-                local candidate = state.applicationKey == key and state or state.previousApplication
-                if candidate and candidate.applicationKey == key then effect = candidate.witness end
-                if effect then break end
-            end
-        end
-        if effect and not effect.confirmedRemoval then
-            local state = unit.categories[effect.category]
-            effect.endedAt = effect.endedAt or recordEnd(state, effect, now)
-            effect.confirmedRemoval = true
-            effect.seen = now
-            unit.closedAuras[key] = effect
-            unit.effects[key] = nil
-            count = count + 1
-        end
-    end
-    trimOldest(unit.closedAuras, MAX_CLOSED_AURAS)
-    updateStageClocks(unit, unit.effects, now, self.stageResetSeconds,
-        self.resetOnApplication and self.resetSeconds or nil)
-    return count
 end
 
 function Model:Forget(guid)

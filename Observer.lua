@@ -481,26 +481,10 @@ local function scanGuid(unit, guid, previous, now)
             -- list must not turn this restricted aura scan into absence proof.
         end
     end
-    local delta = Observer.pendingAuras[guid]
-    if delta then
-        -- Event records are direct positives, not a complete aura enumeration.
-        -- Do not let a same-frame empty indexed read erase an added witness.
-        if next(delta.effects) then
-            mergeEffects(delta.effects, effects)
-            effects, complete = delta.effects, false
-        end
-        for key in pairs(delta.removed) do effects[key] = nil end
-        diagnostics.eventStatus = delta.status
-        diagnostics.eventAdds = delta.adds
-        diagnostics.eventRemovals = countEffects(delta.removed)
-    end
     local ambiguous
     effects, ambiguous = reconcileWitnesses(effects, previous)
     if ambiguous then complete, limited = false, true end
     local witnesses, capped = retainWitnesses(effects, previous, complete)
-    if delta then
-        for key in pairs(delta.removed) do witnesses[key] = nil end
-    end
     if capped then complete, limited = false, true end
     if previous and (previous.sensor == "loc") ~= (sensor == "loc") then
         if exactPlayerHandoff(unit, previous, effects, complete, sensor, ambiguous, capped) then
@@ -534,7 +518,6 @@ local function scanGuid(unit, guid, previous, now)
     end
     if ambiguous then diagnostics.reason = "Ambiguous aura/LoC application identity; canonical witness retained." end
     if capped then diagnostics.reason = "Observation capacity reached while removal data remains restricted." end
-    if delta and delta.adds > 0 then diagnostics.reason = "Readable UNIT_AURA application; other aura coverage may remain restricted." end
     local state = {
         guid = guid, status = complete and "readable" or "restricted", sensor = sensor,
         coverageLimited = limited,
@@ -542,95 +525,9 @@ local function scanGuid(unit, guid, previous, now)
         witnesses = witnesses,
     }
     for key, value in pairs(diagnostics) do state[key] = value end
-    if delta and next(delta.removed) then
-        local ended = ns.model:EndAuras(guid, delta.removed, now)
-        Observer.stats.auraEventsRemoved = Observer.stats.auraEventsRemoved + ended
-    end
     ns.model:Observe(guid, effects, now, complete)
     if ns.RecordDRObservation then ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostics) end
     return state
-end
-
--- UNIT_AURA can carry useful readable records even when the separate indexed
--- enumeration fails. Hidden payloads are rejected, never decoded or guessed.
-function Observer.OnAura(unit, updateInfo, now)
-    unit, now = Safe.String(unit), number(now)
-    if (unit ~= "player" and unit ~= "target" and unit ~= "focus") or not now or now < 0 then return end
-    Observer.stats.auraEvents = Observer.stats.auraEvents + 1
-    local guid = readIdentity(unit)
-    if not guid then Observer.Scan(now); return end
-    local delta = {effects = {}, removed = {}, adds = 0, status = "readable"}
-    Observer.pendingAuras[guid] = delta
-    if not Safe.Readable(updateInfo) then
-        delta.status = "blocked"
-        Observer.stats.auraEventsBlocked = Observer.stats.auraEventsBlocked + 1
-    elseif type(updateInfo) ~= "table" then
-        delta.status = "no-payload"
-    else
-        local function eachReadable(name, callback)
-            local list, readable = field(updateInfo, name, "UnitAuraUpdateInfo." .. name, unit)
-            if not readable then delta.status = "partial"; return end
-            if list == nil then return end
-            if type(list) ~= "table" then delta.status = "partial"; return end
-            for i = 1, MAX_WITNESSES do
-                local value, ok = field(list, i, "UnitAuraUpdateInfo.entry", unit)
-                if not ok then delta.status = "partial"
-                elseif value == nil then return
-                else callback(value) end
-            end
-            delta.status = "capped"
-            Observer.stats.scanCaps = Observer.stats.scanCaps + 1
-        end
-        local function acceptAura(aura, expectedID)
-            if not Safe.Readable(aura) or type(aura) ~= "table" then return end
-            local harmful, harmfulReadable = field(aura, "isHarmful", "AuraData.isHarmful", unit)
-            if not harmfulReadable then delta.status = "partial"; return end
-            if Safe.Boolean(harmful) ~= true then return end
-            local rawSpell, spellReadable = field(aura, "spellId", "AuraData.spellId", unit)
-            local rawInstance, instanceReadable = field(aura, "auraInstanceID", "AuraData.auraInstanceID", unit)
-            if not spellReadable or not instanceReadable then delta.status = "partial"; return end
-            local spellID, instanceID = identifier(rawSpell), identifier(rawInstance)
-            if not spellID or not instanceID then return end
-            if expectedID and instanceID ~= expectedID then return end
-            local category = ns.Data.auraCategory[spellID]
-            if not category then return end
-            local rawExpiry = field(aura, "expirationTime", "AuraData.expirationTime", unit)
-            local rawDuration = field(aura, "duration", "AuraData.duration", unit)
-            local expires, duration = number(rawExpiry), number(rawDuration)
-            if expires and expires > 0 and expires <= now then return end
-            if expires and expires <= 0 then expires = nil end
-            local start = expires and duration and duration > 0 and applicationTime(expires-duration, now) or nil
-            local key = "a:" .. tostring(instanceID)
-            if not delta.effects[key] then delta.adds = delta.adds + 1 end
-            delta.effects[key] = {category=category,spellID=spellID,expires=expires,
-                appliedAt=start,applicationSource=start and "aura" or nil}
-        end
-        eachReadable("addedAuras", function(aura) acceptAura(aura) end)
-        local queried = {}
-        eachReadable("updatedAuraInstanceIDs", function(value)
-            local id = identifier(value)
-            if not id or queried[id] then return end
-            queried[id] = true
-            local api = C_UnitAuras
-            if type(api) ~= "table" or type(api.GetAuraDataByAuraInstanceID) ~= "function" then return end
-            local aura, readable = call("C_UnitAuras.GetAuraDataByAuraInstanceID", unit,
-                api.GetAuraDataByAuraInstanceID, unit, id)
-            -- A nil/hidden/failed lookup does not remove a known aura.
-            if readable then acceptAura(aura, id) end
-        end)
-        eachReadable("removedAuraInstanceIDs", function(value)
-            local id = identifier(value)
-            if id then
-                local key = "a:" .. tostring(id)
-                -- A contradictory same-event record is not a second hit.
-                if delta.effects[key] then delta.effects[key] = nil; delta.adds = delta.adds - 1 end
-                delta.removed[key] = true
-            end
-        end)
-    end
-    if delta.status == "partial" then Observer.stats.auraEventsBlocked = Observer.stats.auraEventsBlocked + 1 end
-    Observer.stats.auraEventsAdded = Observer.stats.auraEventsAdded + delta.adds
-    Observer.Scan(now)
 end
 
 function Observer.Init()
@@ -639,11 +536,9 @@ function Observer.Init()
     Observer.playerLoCSelected = false
     Observer.lastScan = nil
     Observer.units = {}
-    Observer.pendingAuras = {}
     for _, unit in ipairs(trackedUnits) do Observer.units[unit] = unavailableState() end
     Observer.stats = {scans = 0, restricted = 0, casts = 0, acceptedCasts = 0, apiErrors = 0, missingApis = 0,
-        scanCaps = 0, scanGaps = 0, handoffsPreserved = 0, handoffsInvalidated = 0,
-        auraEvents = 0, auraEventsAdded = 0, auraEventsRemoved = 0, auraEventsBlocked = 0}
+        scanCaps = 0, scanGaps = 0, handoffsPreserved = 0, handoffsInvalidated = 0}
 end
 
 function Observer.GetUnitState(unit)
@@ -695,7 +590,6 @@ function Observer.Scan(now)
         end
     end
     Observer.units = units
-    Observer.pendingAuras = {}
 end
 
 function Observer.OnCast(unit, castGUID, spellID, now)

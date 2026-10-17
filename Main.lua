@@ -35,10 +35,6 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
             ..(loc==nil and 'not-sampled' or (loc and 'complete' or 'restricted'))
             ..'; records='..(diagnostics.byUnitCount or 'unknown')
     end
-    if diagnostics and diagnostics.eventStatus and diagnostics.eventStatus~='no-payload' then
-        probe=probe..' | auraEvent='..diagnostics.eventStatus..'; records='..(diagnostics.eventAdds or 0)
-            ..'; removals='..(diagnostics.eventRemovals or 0)
-    end
     local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')..probe
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
@@ -57,7 +53,7 @@ end
 
 local function resetTracking()
     ns.drTrace = {}
-    ns.model = ns.Model.New(20, 20, true)
+    ns.model = ns.Model.New(ns.db.resetSeconds, ns.db.stageResetSeconds)
     ns.Observer.Init()
     ns.OwnCasts.Init()
     dirty = true
@@ -80,7 +76,7 @@ function ns.BuildStatus()
         'Client: '..version..' build '..build..' / interface '..interface,
         'Rules: '..ns.Data.profile,
         'DR timer: '..ns.db.resetSeconds..'s from last observed application; removal does not restart it',
-        'DR stage reset: 20s from last confirmed application; icon hidden until CC ends.',
+        'DR stage reset: '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate; separate from countdown)',
         'Mode: '..(ns.demo and 'TEST (synthetic display)' or 'live observation'),
         'Combat log: deliberately not registered (restricted on Forever)',
     }
@@ -266,11 +262,7 @@ frame:SetScript('OnEvent',function(_,event,...)
             if not unit or unit=='player' or unit=='target' or unit=='focus' then
                 -- Sample synchronously: a short CC can start and end between
                 -- render ticks. Render remains throttled independently.
-                if event=='UNIT_AURA' and unit then
-                    local _,updateInfo=...
-                    ns.Observer.OnAura(unit,updateInfo,GetTime())
-                else ns.Observer.Scan(GetTime()) end
-                drawElapsed=.1 -- Draw on the next frame after an observed fade.
+                ns.Observer.Scan(GetTime())
             end
         elseif event=='PLAYER_ENTERING_WORLD' then resetTracking()
         elseif event=='PLAYER_REGEN_ENABLED' then ns.UI.ApplyLayout(); dirty=true

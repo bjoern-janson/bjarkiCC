@@ -1,39 +1,5 @@
 # bjarkiCC architecture and DR research
 
-## UNIT_AURA input path in0.4.22
-
-Main forwards the readable unit token plus update payload to `Observer.OnAura`. The adapter accepts ordinary readable harmful mapped aura records from `addedAuras`. For `updatedAuraInstanceIDs`, it queries each unique readable ID once through `GetAuraDataByAuraInstanceID`, requiring readable matching identity and harmful classification. A nil, hidden, mismatched or failed lookup is not a removal. Existing model identity and start/expiry refresh rules remain in force; an updated ID alone is not proof of a new application.
-
-The matching-build generated schema defines `addedAuras`, `updatedAuraInstanceIDs`, `removedAuraInstanceIDs` and `isFullUpdate`. The event itself can be secret when auras are restricted. The instance API also requires unit-aura access; it is not a workaround for that restriction. This path consumes usable events when available, and rejects hidden payloads. [Pinned event structure](https://github.com/Gethe/wow-ui-source/blob/b401e0332adfbf0460d319b06d8ea29279a941f1/Interface/AddOns/Blizzard_APIDocumentationGenerated/UnitConstantsDocumentation.lua), [pinned event and instance API restrictions](https://github.com/Gethe/wow-ui-source/blob/b401e0332adfbf0460d319b06d8ea29279a941f1/Interface/AddOns/Blizzard_APIDocumentationGenerated/UnitAuraDocumentation.lua).
-
-Each event is bound to its current readable tracked player GUID and consumed synchronously by one Scan. Target/focus aliases share that scan. Event positives take precedence over same-frame empty indexed results without upgrading the whole snapshot to complete. Exact removed keys are excluded from the snapshot, and `Model.EndAuras` closes existing matching instances before Observe. It cannot create category history or end other overlapping effects. Confirmed removals are retained in a512-entry closed-instance cache per tracked GUID so stale unchanged returns do not restore activity or advance a stage; real later refresh evidence still follows normal rules. Partial omissions remain unknown. The existing128-GUID limit remains.
-
-The caller does not iterate secret tables, measure secret arrays or branch on hidden fields. Each container/entry/identity/classification/timing read is guarded. Each array is capped at512 entries; invalid input can only reduce coverage. The recorded `auraEventsAdded` count is accepted unique records within each event (including positive updated-instance results), not a count of distinct applications across events. `auraEventsRemoved` counts known instances actually closed; `auraEventsBlocked` covers inaccessible payloads or structural fields. Recent diagnostics retain the event status and record/removal-ID counts without printing hidden values.
-
-The rendering change is independent: `SetDrawSwipe(false)` removes the dark radial mask for DR while preserving the requested native frame and final-five-second number. Enemy cooldowns explicitly retain swipe drawing. Tests verify flags, not live pixel appearance.
-
-Validation separates input-routing correctness from live coverage. Real-module fixtures reproduce blocked indexed reads with readable event additions/removals, bounded stress, repeated aliases, accepted refreshes and rejected hidden data. No claim is made that Forever actually exposes those records during the user's restricted periods. No reset clock, stage boundary, category or cast-prediction policy is changed by this release.
-
-## Visual correction: native frame and deterministic Hibernate art (0.4.21)
-
-Use the requested action-bar atlas with `SetBlendMode("ADD")`, transparent panel backing, stage tint above the sweep and 46:45 sizing derived only from saved icon size. This restores the native frame shape without multiplying its black border pixels over icon artwork. The plain four-texture outline remains a compatibility fallback only. No protected dimensions, backdrop templates, new frame callbacks or tracking-policy changes are introduced.
-
-`Data.auraIcons` supplies Hibernate's `Spell_Nature_Sleep` texture for spell IDs2637/18657/18658 independently of the cooldown catalog. `textureFor` checks this explicit mapping first, so caster/recipient views cannot disagree due to spell-texture API availability. The previous API-first path could substitute category Polymorph art when Hibernate's texture was unavailable, since Hibernate was absent from `Data.spells` by design (no cooldown). Tests exercise real UI rendering across all three ranks/views and five API outcomes. This reproduces and closes that fallback path; it does not prove the supplied screenshot used that path.
-
-All tracking modules and timing settings remain unchanged from0.4.20. The reported delayed/restricted observations remain unresolved. Atlas selection and blending are verified offline; final in-game appearance is not.
-
-## Shipping policy: application deadline and post-CC visibility (0.4.20)
-
-Main constructs `Model.New(20,20,true)`. The third argument selects the requested application policy: every confirmed application sets `stageResetAt = appliedAt + 20`, and both displayed countdown and stage history expire at that deadline. CC duration, spell rank, early removal and immunity/rejection attempts do not add a post-end interval. Duration-based baseline reconciliation is disabled in this policy. Earlier research and release sections below describe alternative/legacy policies, not proof of Forever's server implementation.
-
-The model still tracks effect identity and activity independently. UI suppresses active categories and standalone cast estimates, then renders inactive categories only while their application countdown is positive. Partial omissions preserve activity; complete absence or readable expiry can end it. Relevant aura/LoC events scan synchronously and request a draw on the next OnUpdate, rather than waiting for the normal 0.1-second render interval. The 20-second window is not restarted by that draw or by subsequent empty scans.
-
-The two-argument Model constructor retains legacy end-based behavior for earlier recorded-trace regressions. Live Main always opts into application policy. New policy tests cover 2/3/4/20/30-second effects, early removal, stable rejected attempts, successive confirmed applications, exact expiry, ongoing effects after expiry, and prevention of duration-based early reset. Historical trace fixtures explicitly opt into legacy behavior so their evidence scope remains visible.
-
-Icons no longer use `UI-HUD-ActionBar-IconFrame`. Four one-pixel textures provide stage tint above the cooldown sweep, over transparent backing and full-bleed art. No backdrop template or protected geometry read is introduced. Schema 9 normalizes both saved timing fields to 20, preserving existing grid offsets and other appearance/filter settings; obsolete timing sliders are replaced by a fixed-policy explanation.
-
-This implementation follows the user's requested timing contract. The screenshot's “A more powerful spell is already active” proves that particular recast was rejected; it does not independently establish a universal reset formula. Confirmed enemy observations can still be unavailable.
-
 Research checked 2026-10-17. This document separates source evidence, addon policy, reported behavior and offline validation.
 
 ## Findings that matter for this bug

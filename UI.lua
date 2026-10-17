@@ -9,7 +9,7 @@ local stageColors = {{.25,1,.3},{1,.8,.15},{1,.2,.15}}
 function UI.FormatTime(seconds)
     if seconds >= 60 then return math.ceil(seconds/60)..'m' end
     if seconds <= 0 then return '0' end
-    -- Match the updated native-style portrait text without shifting the countdown deadline.
+    -- Match the updated native-style portrait text without changing either clock.
     if seconds < 5 then return string.format('%.1f', seconds) end
     return tostring(math.floor(seconds))
 end
@@ -51,7 +51,7 @@ function UI.GetRows(key, now)
         for _, row in ipairs(rows) do
             -- Retained stage history belongs to the model; expired application
             -- countdowns must not occupy icon slots or inflate the overflow.
-            if not row.active and not row.estimated and row.remaining > 0 and ns.db.categories[row.category] ~= false then out[#out+1] = row end
+            if row.remaining > 0 and ns.db.categories[row.category] ~= false then out[#out+1] = row end
         end
     end
     return out
@@ -135,7 +135,14 @@ local function tooltip(owner, row, key)
         tip:AddLine(row.remaining>0 and ('Application countdown: '..UI.FormatTime(row.remaining)..'s')
             or 'Application countdown finished; DR stage is still retained.',1,.85,.4,true)
         tip:AddLine('Starts on application. Breaking or removing CC does not restart it.',.7,.7,.7,true)
-        tip:AddLine('Icon appears after CC ends; the application deadline stays unchanged.',.7,.7,.7,true)
+        if not row.estimated then
+            if row.stageRemaining then
+                local basis=row.stageResetSource=='observed-end' and 'observed disappearance' or 'predicted CC end'
+                tip:AddLine('Estimated stage reset in '..math.ceil(row.stageRemaining)..'s ('..basis..').',1,.85,.4,true)
+            else
+                tip:AddLine('Stage reset waits for a readable CC end.',.7,.7,.7,true)
+            end
+        end
         if row.estimated then
             tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
         else
@@ -148,7 +155,7 @@ local function tooltip(owner, row, key)
                 tip:AddLine('Observation started late or data was unavailable.',1,.55,.25,true)
             end
         end
-        tip:AddLine('Stage and countdown reset 20s after the last confirmed application.',.7,.7,.7,true)
+        tip:AddLine('Stage resets '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate).',.7,.7,.7,true)
     end
     tip:Show()
 end
@@ -161,9 +168,6 @@ local function makeIcon(bar)
     icon.swipe = CreateFrame('Cooldown',nil,icon,'CooldownFrameTemplate')
     icon.swipe:SetAllPoints(icon.texture)
     icon.swipe:SetDrawEdge(false)
-    -- DR uses a clear spell icon and only final-five-second text. A radial
-    -- dark mask obscures the artwork and is not part of that presentation.
-    icon.swipe:SetDrawSwipe(bar.key=='cooldown')
     icon.swipe:SetHideCountdownNumbers(true)
     icon.swipe:SetReverse(true)
     icon.textLayer=CreateFrame('Frame',nil,icon)
@@ -174,12 +178,10 @@ local function makeIcon(bar)
         panelBackground(icon,0)
         icon.actionBorder=icon.textLayer:CreateTexture(nil,'OVERLAY')
         icon.actionBorder:SetAtlas(atlas,false)
-        -- Preserve the requested bevel's highlights without painting its dark
-        -- pixels over the spell art. No opaque matte or geometry reads.
-        icon.actionBorder:SetBlendMode('ADD')
         icon.actionBorder:SetPoint('TOPLEFT',icon,'TOPLEFT',0,0)
         icon.borderTextures={icon.actionBorder}
     else
+        -- Keep an outline on clients without the new artwork, without geometry reads.
         solidPanel(icon,0,icon.textLayer)
     end
     icon.time=font(icon.textLayer,nil,16); icon.time:SetPoint('CENTER',0,0)
@@ -227,8 +229,6 @@ function UI.ApplyLayout()
 end
 
 local function textureFor(row)
-    local auraIcon = ns.Data.auraIcons and ns.Data.auraIcons[row.spellID]
-    if auraIcon then return auraIcon end
     local spell = ns.Data.spells[row.spellID]
     if C_Spell and C_Spell.GetSpellTexture then
         local texture = ns.Safe.Call(C_Spell.GetSpellTexture,row.spellID)
@@ -279,7 +279,8 @@ function UI.Update(now)
                     if not bar.icons[i] then bar.icons[i]=makeIcon(bar) end
                     local icon=bar.icons[i]
                     icon.row=row; icon:Show(); icon:SetSize(settings.size,settings.size); icon:ClearAllPoints()
-                    -- Match the native 46x45 artwork using ordinary saved size.
+                    -- Native action buttons use a 46x45 bevel on a 45x45 button.
+                    -- Derive it from our saved size, never protected frame dimensions.
                     if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
                     local offset=(i-1)*step
                     if grid then
@@ -421,7 +422,16 @@ function UI.OpenOptions()
     end
     check(page,'Predict casts (may count dodges/resists)',6,-183,
         function() return ns.db.ownCastEstimates end,function(v) ns.db.ownCastEstimates=v; ns.OwnCasts.Init() end)
-    label(page,'DR: 20 seconds from application. Icons appear after CC fades.',6,-218,450)
+    slider(page,'Application countdown (s)',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
+        if v~=ns.db.resetSeconds then
+            ns.db.resetSeconds=v; ns.model=ns.Model.New(v,ns.db.stageResetSeconds); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
+        end
+    end,210)
+    slider(page,'Stage reset after CC (s)',246,-218,10,30,function() return ns.db.stageResetSeconds end,function(v)
+        if v~=ns.db.stageResetSeconds then
+            ns.db.stageResetSeconds=v; ns.model=ns.Model.New(ns.db.resetSeconds,v); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
+        end
+    end,210)
     label(page,'Green / yellow / red: stages 1 / 2 / 3. Hover for tracking details.',6,-266,450)
 
     page=pages[3]
