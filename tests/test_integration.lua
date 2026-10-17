@@ -85,6 +85,10 @@ assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
 assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
 assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+assert(ns.db.bars.cooldown.enabled==false and ns.db.bars.cooldown.y==-170,
+ 'fresh enemy cooldown bar is opt-in and no longer overlaps the old castbar position')
+assert(ns.BuildStatus():find('Enemy cooldown HUD: OFF by default',1,true),
+ 'status must not imply an unverified enemy feed is working')
 -- These legacy timelines deliberately configure a 20-second stage window.
 -- The Forever 18-second trace below exercises the independent default.
 ns.db.stageResetSeconds=20
@@ -330,11 +334,22 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
 SlashCmdList.BJARKICC('clear')
 SlashCmdList.BJARKICC('test')
 assert(ns.demo and ns.UI.bars.player.icons[1].shown,'demo visible')
+assert(not ns.UI.bars.cooldown.shown,
+ 'normal DR preview must not show sample enemy cooldown icons without explicit opt-in')
+SlashCmdList.BJARKICC('cooldowns on')
+assert(ns.db.bars.cooldown.enabled and ns.UI.bars.cooldown.shown,
+ 'explicit command enables experimental cooldown preview without altering DR')
+assert(ns.UI.bars.cooldown.title.text=='Enemy cooldowns (SAMPLE)',
+ 'fake preview must not be confused with detected enemy cooldowns')
 assert(ns.UI.bars.focus.icons[1].shown,'focus has an independent preview')
 assert(ns.UI.bars.player.title.shown,'test bars identified')
 assert(not ns.UI.bars.player.icons[1].caption.shown,'no category captions in minimal view')
 assert(not ns.UI.bars.player.icons[1].state.shown,'known DR uses border without duplicate stage text')
 assert(not ns.UI.bars.cooldown.icons[1].caption.shown and not ns.UI.bars.cooldown.icons[1].state.shown,'cooldown minimal view has just timer')
+local previewIcon=ns.UI.bars.cooldown.icons[1]
+previewIcon.scripts.OnEnter(previewIcon)
+assert(ns.UI.tip.lines[1]=='SAMPLE ONLY: no enemy cast was observed.',
+ 'hovering a demo cooldown must identify it as synthetic, not verified live data')
 assert(ns.UI.bars.player.icons[1].time.parent:GetFrameLevel()>ns.UI.bars.player.icons[1].swipe:GetFrameLevel(),'countdown text must sit above swipe')
 SlashCmdList.BJARKICC('test')
 assert(not ns.demo and not ns.UI.bars.player.icons[1].shown,'demo never survives into live display')
@@ -821,6 +836,11 @@ for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
  assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
 end
 ns.UI.GetRows=originalRows
+SlashCmdList.BJARKICC('cooldowns off')
+assert(not ns.db.bars.cooldown.enabled and not ns.UI.bars.cooldown.shown,
+ 'disabling unverified cooldown HUD never requires clearing DR history')
+assert(ns.BuildStatus():find('Enemy cooldown HUD: OFF by default',1,true),
+ 'cooldown off state is exposed in status')
 -- New source path must run through the real Main event router, not only the
 -- unit observer's isolated fixture. A readable harmful AoE delta survives a
 -- restricted indexed scan, while the secret native DR feed is diagnostic only.
