@@ -185,6 +185,41 @@ local function matchesDurationCandidate(state, candidate)
         and math.abs(state.appliedAt - candidate.appliedAt) <= APPLICATION_EPSILON
 end
 
+local function categoryHasSibling(effects, key, category)
+    for otherKey, other in pairs(effects or {}) do
+        if otherKey ~= key and other.category == category then return true end
+    end
+    return false
+end
+
+local function chainReplacementEnd(unit, state, previous, effect, effects, key, start, complete)
+    -- A real aura identity can stay present across an explicit LoC refresh.
+    -- Its accepted old duration can prove a nonoverlapping successor for the
+    -- halving chain only. It cannot prove observed absence or a stage reset.
+    local candidate = unit.durationLadders[effect.category]
+    if not complete or not state or not candidate or not start
+        or type(key) ~= "string" or not key:match("^a:%d+$")
+        or unit.effects[key] ~= previous or state.witness ~= previous
+        or previous.endedAt or previous.fallbackIdentity or effect.fallbackIdentity
+        or previous.applicationSource ~= "loc" or effect.applicationSource ~= "loc"
+        or not previous.appliedAt or not previous.expires
+        or state.applicationKey ~= key or state.spellID ~= effect.spellID
+        or previous.spellID ~= effect.spellID or previous.category ~= effect.category
+        or math.abs(state.appliedAt - previous.appliedAt) > APPLICATION_EPSILON
+        or state.stageResetPending or state.inferredStage
+        or candidate.coverageEpoch ~= unit.durationEpoch
+        or not matchesDurationCandidate(state, candidate) then return end
+    local duration = state.reportedDurationWitness
+    if type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 120
+        or type(previous.expires) ~= "number" or previous.expires ~= previous.expires
+        or previous.expires >= math.huge
+        or math.abs(previous.expires - previous.appliedAt - duration) > APPLICATION_EPSILON
+        or start < previous.expires or start - previous.expires >= DURATION_RESET_MINIMUM then return end
+    if categoryHasSibling(unit.effects, key, effect.category)
+        or categoryHasSibling(effects, key, effect.category) then return end
+    return previous.expires
+end
+
 local function observeHalvingChain(unit, state, effect, start, duration, now, context)
     local category = effect.category
     if unit.durationBaselines[effect.spellID] then
@@ -206,14 +241,20 @@ local function observeHalvingChain(unit, state, effect, start, duration, now, co
         return
     end
     local prior = state.previousApplication
+    local connected = context.chainReplacementEnd
+        and start >= context.chainReplacementEnd
+        and start - context.chainReplacementEnd < DURATION_RESET_MINIMUM
+    if not connected then
+        connected = context.priorEndObserved and context.priorEnd and context.quietSince
+            and start >= context.priorEnd and start >= context.quietSince
+            and start - context.priorEnd < DURATION_RESET_MINIMUM
+            and start - context.quietSince < DURATION_RESET_MINIMUM
+    end
     if not candidate or candidate.spellID ~= effect.spellID
         or candidate.coverageEpoch ~= unit.durationEpoch
         or state.stage ~= candidate.step + 1 or candidate.step >= 3
         or not matchesDurationCandidate(prior, candidate) or prior.inferredStage
-        or not context.priorEndObserved or not context.priorEnd or not context.quietSince
-        or start < context.priorEnd or start < context.quietSince
-        or start - context.priorEnd >= DURATION_RESET_MINIMUM
-        or start - context.quietSince >= DURATION_RESET_MINIMUM
+        or not connected
         or math.abs(duration - candidate.firstDuration / (2 ^ candidate.step)) > APPLICATION_EPSILON then
         unit.durationLadders[category] = nil
         return
@@ -247,7 +288,17 @@ local function reconcileDuration(unit, state, effect, preciseStart, now, complet
     local context = state.durationContext
     if not context or context.coverageEpoch ~= unit.durationEpoch
         or not context.completeSince or preciseStart < context.completeSince
-        or context.pending or context.overlap then
+        or context.pending or context.chainReplacementInvalid then
+        unit.durationLadders[effect.category] = nil
+        return
+    end
+    if context.chainReplacementEnd then
+        -- This separate entry can connect only an existing observed chain.
+        -- It never reaches quiet baseline learning or stage reset correction.
+        observeHalvingChain(unit, state, effect, preciseStart, duration, now, context)
+        return
+    end
+    if context.overlap then
         unit.durationLadders[effect.category] = nil
         return
     end
@@ -311,6 +362,17 @@ function Model:Observe(guid, effects, now, complete)
     -- quiet time for this new application.
     local priorDurationHistory = {}
     for category, state in pairs(unit.categories) do
+        local context = state.durationContext
+        if context and context.chainReplacementEnd and not state.reportedDurationWitness
+            and (categoryHasSibling(unit.effects, state.applicationKey, category)
+                or categoryHasSibling(effects, state.applicationKey, category)) then
+            -- Later raw timing cannot consume a previously isolated successor
+            -- after another category witness appeared, even if it disappeared
+            -- again before the timing became readable.
+            context.chainReplacementEnd = nil
+            context.chainReplacementInvalid = true
+            unit.durationLadders[category] = nil
+        end
         priorDurationHistory[category] = {
             stageEndAt = state.stageEndAt, stageResetSource = state.stageResetSource,
             stageResetPending = state.stageResetPending, activeCount = state.activeCount,
@@ -386,6 +448,8 @@ function Model:Observe(guid, effects, now, complete)
                 -- or confidently reconstruct intervening application order.
                 state.uncertain = true
             else
+                local replacementEnd = refreshed
+                    and chainReplacementEnd(unit, state, previous, effect, effects, key, preciseStart, complete)
                 if refreshed then
                     -- A positive refresh replaces the preceding application on
                     -- this identity. Its old predicted end must not outlive it.
@@ -395,6 +459,7 @@ function Model:Observe(guid, effects, now, complete)
                 end
                 local prior = predecessor(state)
                 local context = durationContext(unit, priorDurationHistory[category], effects, key, category)
+                context.chainReplacementEnd = replacementEnd or nil
                 if not stageInWindow(state, appliedAt) then
                     state = {
                         stage = 0,

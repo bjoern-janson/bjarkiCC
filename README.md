@@ -2,7 +2,15 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.12-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.13-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Preserve consecutive refreshes in 0.4.13
+
+The latest trace exposes a missing sequence-learning case: a ten-second Hibernate refreshes into a five-second Hibernate on the same aura ID, with the new start exactly at the prior end. The applications counted correctly, but the addon discarded its full/half/quarter learning progress because no empty snapshot occurred between them. Without that baseline, the following full and half-duration casts stayed red.
+
+Version 0.4.13 accepts a narrowly verified, nonoverlapping same-ID refresh as a link in that three-application sequence. Both applications need explicit Loss of Control timing, coherent reported duration and exact identity; the gap must be shorter than 15 seconds with no competing category effect or observation gap. This only supplies sequence evidence. It does not invent an observed removal, shorten the stage-reset setting or restart a timer. The later reset correction still requires observed absence and a matching learned full duration.
+
+The supplied sequence now replays green/yellow/red, then green/yellow. Border meaning remains the next expected duration: after the first successful CC green means 50%, after the second yellow means 25%, and after the third red means immune. The new bevel, decimal formatting and separate application/stage clocks remain in place. Offline replay passes; live retesting is still needed.
 
 ## Native action-button borders and countdown text in 0.4.12
 

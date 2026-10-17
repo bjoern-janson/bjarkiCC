@@ -434,6 +434,9 @@ local function handoffEvent(at,event,stage,start)
    assert(icon.time.text==ns.UI.FormatTime(start+20-now),
     'visible countdown retains the application policy')
    local color=({{.25,1,.3},{1,.8,.15},{1,.2,.15}})[stage]
+   assert(icon.actionBorder and icon.actionBorder.atlas=='UI-HUD-ActionBar-IconFrame'
+    and icon.actionBorder.parent.frameLevel>icon.swipe:GetFrameLevel(),
+    'native action-button artwork stays above the cooldown on '..unit)
    for _,edge in ipairs(icon.borderTextures) do
     assert(edge.color[1]==color[1] and edge.color[2]==color[2] and edge.color[3]==color[3],
      'rendered Hibernate border follows the corrected observed cycle')
@@ -688,6 +691,58 @@ assert(ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
 advanceObserved(2660132)
 handoffLoC={spellID=2637,auraInstanceID=485,startTime=2660132,duration=5,timeRemaining=5}
 handoffEvent(2660132,'LOSS_OF_CONTROL_ADDED',3,2660132)
+
+-- Replay the 0.4.12 a519/a521/a523/a525 report. The first cycle's third
+-- application refreshes the same a521 identity at its prior expiry, without
+-- any empty observation between the ten-second and five-second durations.
+SlashCmdList.BJARKICC('clear')
+handoffAura=nil; handoffLoC=nil
+handoffEvent(2661803.181,'UNIT_AURA')
+advanceObserved(2661812.161)
+handoffAura={spellId=2637,auraInstanceID=519,expirationTime=2661832.161,duration=20}
+handoffEvent(2661812.161,'UNIT_AURA',1,2661812.161)
+handoffAura={spellId=handoffSecret,auraInstanceID=519}
+handoffLoC={spellID=2637,auraInstanceID=519,startTime=2661812.250,duration=20,timeRemaining=20}
+handoffEvent(2661812.161,'LOSS_OF_CONTROL_ADDED',1,2661812.161)
+handoffEvent(2661812.334,'LOSS_OF_CONTROL_UPDATE',1,2661812.250)
+assert(ns.UI.bars.player.icons[1].row.fullDurationBaseline==nil
+ and ns.UI.bars.player.icons[1].row.durationCandidateStep==1,
+ 'the short initial quiet period begins a sequence without inventing a full baseline')
+advanceObserved(2661831.139); handoffLoC=nil
+handoffEvent(2661831.139,'LOSS_OF_CONTROL_UPDATE',1,2661812.250)
+handoffLoC={spellID=2637,auraInstanceID=521,startTime=2661831.750,duration=10,timeRemaining=10}
+handoffEvent(2661831.598,'LOSS_OF_CONTROL_ADDED',2,2661831.598)
+handoffEvent(2661831.934,'LOSS_OF_CONTROL_UPDATE',2,2661831.750)
+assert(ns.UI.bars.player.icons[1].row.durationCandidateStep==2,
+ 'the ten-second application supplies the second observation')
+advanceObserved(2661841.677)
+handoffLoC={spellID=2637,auraInstanceID=521,startTime=2661841.750,duration=5,timeRemaining=5}
+handoffEvent(2661841.677,'LOSS_OF_CONTROL_UPDATE',2,2661831.750)
+handoffEvent(2661841.940,'LOSS_OF_CONTROL_UPDATE',3,2661841.750)
+advanceObserved(2661846.575); handoffLoC=nil
+handoffEvent(2661846.575,'LOSS_OF_CONTROL_UPDATE',3,2661841.750)
+advanceObserved(2661863.386)
+handoffLoC={spellID=2637,auraInstanceID=523,startTime=2661863.500,duration=20,timeRemaining=19.999}
+handoffEvent(2661863.386,'LOSS_OF_CONTROL_ADDED',3,2661863.386)
+handoffEvent(2661863.671,'LOSS_OF_CONTROL_UPDATE',1,2661863.500)
+local refreshCorrected=ns.UI.bars.player.icons[1].row
+assert(refreshCorrected.resetEvidence=='matching-full-duration'
+ and refreshCorrected.resetBaselineSource=='observed-halving-chain'
+ and refreshCorrected.resetBaselineDuration==20 and refreshCorrected.uncertain,
+ 'a verified same-ID quarter refresh supports the later bounded reset correction')
+advanceObserved(2661873.175); handoffLoC=nil
+handoffEvent(2661873.175,'LOSS_OF_CONTROL_UPDATE',1,2661863.500)
+advanceObserved(2661876.116)
+handoffLoC={spellID=2637,auraInstanceID=525,startTime=2661876.250,duration=10,timeRemaining=10}
+handoffEvent(2661876.116,'LOSS_OF_CONTROL_ADDED',2,2661876.116)
+handoffEvent(2661876.289,'LOSS_OF_CONTROL_UPDATE',2,2661876.250)
+advanceObserved(2661886.108); handoffLoC=nil
+handoffEvent(2661886.108,'LOSS_OF_CONTROL_UPDATE',2,2661876.250)
+advanceObserved(2661896.789)
+handoffEvent(2661896.789,'LOSS_OF_CONTROL_UPDATE',2,2661876.250)
+assert(ns.Observer.stats.handoffsPreserved==1 and ns.Observer.stats.handoffsInvalidated==0
+ and ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
+ 'the exact a521 refresh replay preserves its handoff, continuous polling and observed-only stages')
 
 -- Real settings callbacks must change one clock without silently changing the
 -- other, and rebuild tracking so old observations cannot keep stale settings.

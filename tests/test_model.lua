@@ -1558,6 +1558,153 @@ test("pending duration progress disappears once an unmeasured application is sup
     eq(row.durationCandidateStep,nil); eq(row.fullDurationBaseline,nil)
 end)
 
+test("live a519 through a525 learns through an exact-end same-ID successor", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},2661803.181,true)
+    local aura=durationEffect(2661812.161,20,nil); aura.applicationSource="aura"
+    m:Observe("a",{["a:519"]=aura},2661812.161,true)
+    local function read(key,start,duration,now)
+        local value=durationEffect(start,duration,start and duration or nil)
+        if not start then value.expires=now+duration end
+        m:Observe("a",{[key]=value},now,true)
+        return only(m:GetDR("a",now))
+    end
+    read("a:519",nil,20,2661812.161)
+    eq(read("a:519",2661812.250,20,2661812.334).durationCandidateStep,1)
+    m:Observe("a",{},2661831.139,true)
+    read("a:521",nil,10,2661831.598)
+    eq(read("a:521",2661831.750,10,2661831.934).durationCandidateStep,2)
+    read("a:521",nil,5,2661841.677)
+    local row=read("a:521",2661841.750,5,2661841.940)
+    eq(row.stage,3); eq(row.fullDurationBaseline,20)
+    eq(row.fullDurationBaselineSource,"observed-halving-chain"); eq(row.resetEvidence,nil)
+    m:Observe("a",{},2661846.575,true)
+    read("a:523",nil,20,2661863.386)
+    row=read("a:523",2661863.500,20,2661863.671)
+    eq(row.stage,1); eq(row.started,2661863.500)
+    eq(row.resetBaselineSource,"observed-halving-chain")
+    m:Observe("a",{},2661873.175,true)
+    read("a:525",nil,10,2661876.116)
+    row=read("a:525",2661876.250,10,2661876.289)
+    eq(row.stage,2); eq(row.resetEvidence,nil)
+end)
+
+local function replacementChain(key)
+    key=key or "a:2"
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},90,true)
+    m:Observe("a",{["a:1"]=durationEffect(100,20,20)},100,true)
+    m:Observe("a",{},119,true)
+    m:Observe("a",{[key]=durationEffect(120,10,10)},120,true)
+    eq(only(m:GetDR("a",120)).durationCandidateStep,2)
+    return m
+end
+
+test("both same-ID explicit successors can teach a chain without manufacturing quiet history", function()
+    local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+    m:Observe("a",{["a:1"]=durationEffect(100,20,20)},100,true)
+    m:Observe("a",{["a:1"]=effect("stun",100,129.9)},119.9,true)
+    m:Observe("a",{["a:1"]=durationEffect(120,10,10)},120,true)
+    eq(only(m:GetDR("a",120)).durationCandidateStep,2)
+    m:Observe("a",{["a:1"]=durationEffect(130,5,5)},130,true)
+    local row=only(m:GetDR("a",130))
+    eq(row.stage,3); eq(row.fullDurationBaseline,20); eq(row.resetEvidence,nil)
+    -- Continued visibility after the old expiry is not observed absence.
+    m:Observe("a",{["a:1"]=durationEffect(151,20,20)},151,true)
+    row=only(m:GetDR("a",151)); eq(row.stage,3); eq(row.resetEvidence,nil)
+end)
+
+test("same-ID chain proof survives late first raw duration but not a changed evidence epoch", function()
+    for _,partial in ipairs({false,true}) do
+        local m=replacementChain()
+        m:Observe("a",{["a:2"]=durationEffect(130,5,nil)},130,true)
+        eq(only(m:GetDR("a",130)).fullDurationBaseline,nil)
+        if partial then m:Observe("a",{},130.1,false) end
+        m:Observe("a",{["a:2"]=durationEffect(130,5,5)},130.2,true)
+        local row=only(m:GetDR("a",130.2))
+        if partial then eq(row.fullDurationBaseline,nil) else eq(row.fullDurationBaseline,20) end
+        eq(row.stage,3); eq(row.started,130)
+        m:Observe("a",{["a:2"]=durationEffect(130,5,5)},131,true)
+        row=only(m:GetDR("a",131)); eq(row.stage,3); eq(row.started,130)
+    end
+end)
+
+test("only a live real identity with coherent explicit predecessor timing can connect a chain", function()
+    for _,case in ipairs({"different-key","non-aura-key","fallback-old","fallback-new","retained-closed",
+        "incoherent-old-end","overlap-boundary","reset-gap","partial","partial-current","wrong-ratio"}) do
+        local m=replacementChain()
+        local key,start,received="a:2",130,nil
+        local value=durationEffect(start,5,5)
+        if case=="different-key" then key="a:3"
+        elseif case=="non-aura-key" then key="l:2"; m=replacementChain(key)
+        elseif case=="fallback-old" then
+            local prior=durationEffect(120,10,10); prior.fallbackIdentity=true
+            m:Observe("a",{[key]=prior},121,true)
+        elseif case=="fallback-new" then value.fallbackIdentity=true
+        elseif case=="retained-closed" then m:Observe("a",{},131,true); received=131.2
+        elseif case=="incoherent-old-end" then
+            -- The model retains accepted explicit boundaries across weak polls;
+            -- create the contradiction at the accepted first witness instead.
+            m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+            m:Observe("a",{["a:1"]=durationEffect(100,20,20)},100,true); m:Observe("a",{},119,true)
+            local prior=durationEffect(120,11,10)
+            m:Observe("a",{[key]=prior},120,true)
+            start=131; value=durationEffect(start,5,5)
+        elseif case=="overlap-boundary" then start=129.999; value=durationEffect(start,5,5)
+        elseif case=="reset-gap" then start=145; value=durationEffect(start,5,5)
+        elseif case=="partial" then m:Observe("a",{},129,false)
+        elseif case=="wrong-ratio" then value=durationEffect(start,6,6) end
+        m:Observe("a",{[key]=value},received or start,case~="partial-current")
+        local row=only(m:GetDR("a",received or start)); eq(row.fullDurationBaseline,nil,case)
+        eq(row.resetEvidence,nil,case)
+    end
+end)
+
+test("other prior or current category witnesses cannot establish a replacement-only chain", function()
+    for _,case in ipairs({"prior-known","prior-pending","current-known","current-pending"}) do
+        local m=replacementChain()
+        -- A late older witness cannot advance the current category or replace
+        -- candidate2; rejection must come from snapshot overlap evidence.
+        local other=effect("stun",101,140,119)
+        if case:find("pending") then other.expires=nil end
+        if case:find("prior") then
+            m:Observe("a",{["a:2"]=durationEffect(120,10,10),other=other},121,true)
+            eq(only(m:GetDR("a",121)).durationCandidateStep,2)
+        end
+        local effects={["a:2"]=durationEffect(130,5,5)}
+        if case:find("current") then effects.other=other end
+        m:Observe("a",effects,130,true)
+        local row=only(m:GetDR("a",130)); eq(row.fullDurationBaseline,nil,case)
+        eq(row.resetEvidence,nil,case)
+    end
+end)
+
+test("later or transient overlap invalidates an unfinished replacement proof", function()
+    for _,case in ipairs({"with-raw","before-raw","while-current-absent"}) do
+        local m=replacementChain()
+        m:Observe("a",{["a:2"]=durationEffect(130,5,nil)},130,true)
+        local other=effect("stun",101,140,119)
+        if case=="with-raw" then
+            m:Observe("a",{["a:2"]=durationEffect(130,5,5),other=other},130.2,true)
+        else
+            local effects={other=other}
+            if case=="before-raw" then effects["a:2"]=durationEffect(130,5,nil) end
+            m:Observe("a",effects,130.1,true)
+            m:Observe("a",{["a:2"]=durationEffect(130,5,5)},130.2,true)
+        end
+        local row=only(m:GetDR("a",130.2)); eq(row.fullDurationBaseline,nil,case)
+        eq(row.durationCandidateStep,nil,case)
+    end
+end)
+
+test("a replacement boundary cannot teach a quiet baseline after a configured early reset", function()
+    local m=ns.Model.New(20,1); m:Observe("a",{},0,true)
+    m:Observe("a",{["a:1"]=durationEffect(100,20,nil)},100,true)
+    m:Observe("a",{["a:1"]=durationEffect(122,10,10)},122,true)
+    local row=only(m:GetDR("a",122)); eq(row.stage,1)
+    eq(row.fullDurationBaseline,nil,"predicted nonoverlap is not twenty seconds of observed quiet")
+end)
+
 local function runModelTests()
     local failed=0
     for _, case in ipairs(cases) do
