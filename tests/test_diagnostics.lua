@@ -120,7 +120,7 @@ assert(failedReport:find('GetAuraDataByIndex',1,true)
  and failedReport:find('Access denied ?test?message',1,true),
  'the report identifies the API and sanitizes readable error text')
 assert(failedReport:find('Shared Controlled Stun: Bash, War Stomp, Iron Grenade',1,true)
- and failedReport:find('visibly marked ? (never confirmed hits)',1,true),
+ and failedReport:find('enabled; unconfirmed (check tooltip/status for source)',1,true),
  'status must distinguish AoE possible-victim guesses from observed stun applications')
 assert(#ns.model:GetDR('Player-1-TRACE',now)==0,'API failures cannot synthesize a hit')
 SlashCmdList.BJARKICC('clear')
