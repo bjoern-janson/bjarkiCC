@@ -1,6 +1,16 @@
 # bjarkiCC known issues and validation status
 
-## Current report: lingering icons and full-duration red Hibernate in 0.4.7
+## Current report: full-duration red Hibernate after an immune attempt (0.4.7)
+
+**Report and evidence:** the user reproduced the problem by trying Hibernate while immune, then supplied a second 0.4.7 trace. The trace records a coherent 1/2/3 sequence ending with quarter-duration `a:403` at 2657965.000, followed by a full 20-second `a:405` starting at 2657980.500. That is 15.500 seconds after the model's accepted prior end, or 15.430 after the removal scan. The full application initially has an unknown start, then readable explicit timing. It is not an earlier duplicate-count case. The 152 API errors are counters without messages; their cause is not diagnosed.
+
+**Reproduced cause:** fixed 20-second and 18-second post-CC windows both retain stage three for this application. The report does not capture an immune attempt moving a deadline, and no own-cast estimates were recorded. Injected unconfirmed attempts at stage three are rejected and preserve both clocks. The new landed application, rather than an observed immune result, is the logged point where the application countdown restarts. The 0.4.8 reset adjustment is therefore insufficient for this second sequence.
+
+**Correction in 0.4.9:** retain the configured clocks and reconcile stale history only from matching, separately guarded full-duration LoC evidence. A per-victim, exact-spell baseline requires a preceding 20-second completely observed quiet interval; an eligible new application after at least 15 seconds of observed category absence following the prior end can reset to stage one when its first explicit duration matches. A late removal scan cannot backdate that absence. Missing/secret duration, remaining-only expiry, overlap, short gaps, other spells/victims, observation gaps and cast-only events cannot establish this correction. Corrected rows remain uncertain and identify their reason in tooltip/status. No half/quarter duration-ratio guessing or universal 15-second reset is added.
+
+**Validation scope:** model, adapter and event-to-UI regressions cover the reported sequence, first-readable calibration, subsequent progression, protected duration fields, baseline eligibility/invalidation, clock preservation and immune-attempt rejection. The old status did not report raw duration separately, so the regression supplies explicit LoC duration consistent with its recorded boundaries; the updated diagnostic field still needs live validation. 0.4.9 live retesting remains pending.
+
+## Previous report: lingering icons and full-duration red Hibernate in 0.4.7
 
 **Evidence:** the installed addon and supplied recipient status are 0.4.7-beta. The user reports icons remaining after the countdown and a full-duration Hibernate while the icon is red. The trace records no own-cast estimates or scan gaps. Its two complete full/half/quarter sequences each count once per application; first-readable timing corrections do not duplicate them.
 
@@ -8,9 +18,9 @@
 
 **Correction in 0.4.8:** separate the saved stage-reset setting from the application countdown and default it to a provisional 18 seconds. The same replay resets the earlier stage at 2657467.235 and displays the new application green. Existing application countdown preferences remain unchanged (default 20 seconds); either value is independently configurable. The UI hides expired countdown rows before layout/overflow counting while preserving model history for subsequent applications and status. A stage that resets before its countdown finishes also hides, avoiding a stale color.
 
-**Claim limit:** the 18-second setting fits the captured application by only 15 milliseconds. This one observation does not prove Forever has an exact fixed 18-second server reset. Predicted expiry and observed disappearance differ, and other categories or future beta builds may differ. No duration-derived stage guessing is added. Unknown ends, incomplete coverage, resisted cast estimates and unseen applications retain their documented uncertainty.
+**Claim limit:** the 18-second setting fits that captured application by only 15 milliseconds. That observation does not prove Forever has an exact fixed 18-second server reset. Predicted expiry and observed disappearance differ, and other categories or future beta builds may differ. Version 0.4.8 did not use duration to correct stage history; the later correction is described above. Unknown ends, incomplete coverage, resisted cast estimates and unseen applications retain their documented uncertainty.
 
-**Validation:** exact trace replay, independent reset boundaries/settings, legacy preference migration, quiet-observation confidence, hidden-history progression, shared player/target/focus display and icon overflow have offline regression coverage. Live validation of 0.4.8 remains pending.
+**Validation:** exact trace replay, independent reset boundaries/settings, legacy preference migration, quiet-observation confidence, hidden-history progression, shared player/target/focus display and icon overflow have offline regression coverage. The later 0.4.7 report above demonstrates a sequence that still fails with the 0.4.8 reset default; live validation of the revised correction remains pending.
 
 ## Previous report: immune-stage Hibernate still shows yellow in 0.4.6
 
@@ -157,4 +167,4 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Gray uncertainty border hid counted DR stage | Always show stage color; explain uncertainty in tooltip/status (on-icon `?` removed in 0.4.3) | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
 | Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
 
-All nine suites pass for 0.4.8: Model 92 cases, Observer 77, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
+All nine suites pass for 0.4.9: Model 112 cases, Observer 84, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. The new replay includes the full-duration return after 15.5 seconds, an injected rejected cast estimate at the cap, late explicit duration and shared player/target/focus displays. Guard cases cover backdated removal, insufficient observed absence, partial coverage, overlaps, different spells/victims and later duration-only edits. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.

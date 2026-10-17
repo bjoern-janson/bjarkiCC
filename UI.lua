@@ -109,9 +109,14 @@ local function tooltip(owner, row, key)
     else
         tip:AddLine('Next duration: '..(row.uncertain and 'unknown' or ({'50%','25%','immune'})[row.stage]),1,1,1)
         if row.uncertain then
-            tip:AddLine((row.estimated or row.stageEstimated)
+            tip:AddLine(row.resetEvidence=='matching-full-duration'
+                and ('Border shows stage '..row.stage..' after a full-duration match; reset remains inferred.')
+                or (row.estimated or row.stageEstimated)
                 and ('Border shows estimated stage '..row.stage..'; actual DR is unknown.')
                 or ('Border shows observed stage '..row.stage..'; earlier CC may be missing.'),1,.55,.25,true)
+        end
+        if row.resetEvidence=='matching-full-duration' then
+            tip:AddLine('Full-duration match: '..row.resetBaselineDuration..'s for this player and spell. Earlier stage history was corrected.',1,.55,.25,true)
         end
         tip:AddLine(row.remaining>0 and ('Application countdown: '..UI.FormatTime(row.remaining)..'s')
             or 'Application countdown finished; DR stage is still retained.',1,.85,.4,true)
@@ -132,7 +137,7 @@ local function tooltip(owner, row, key)
             end
             if row.timeEstimated then
                 tip:AddLine('Application observed; timing is estimated from your earlier cast.',1,.55,.25,true)
-            elseif row.uncertain and not row.stageEstimated then
+            elseif row.uncertain and not row.stageEstimated and not row.resetEvidence then
                 tip:AddLine('Observation started late or data was unavailable.',1,.55,.25,true)
             end
         end

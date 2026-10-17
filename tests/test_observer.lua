@@ -994,6 +994,109 @@ test("unknown LoC end waits for complete removal before stage reset", function()
     ns.Observer.Scan(146); equal(#ns.model:GetDR("Player-1-Self",146),0)
 end)
 
+test("player and ByUnit LoC retain only guarded explicit reported durations", function()
+    for _,unit in ipairs({"player","target","focus"}) do
+        for _,duration in ipairs({5,10,20,120}) do
+            reset(); byUnitLoC()
+            fixture.guid[unit]="Player-1-Duration"
+            fixture.auras[unit]={{spellId=secret,auraInstanceID=501}}
+            local record={spellID=2637,auraInstanceID=501,startTime=100,duration=duration,timeRemaining=1}
+            if unit=="player" then fixture.loc={record} else fixture.locByUnit[unit]={record} end
+            ns.Observer.Scan(103)
+            local current=effect(last("Player-1-Duration"))
+            equal(current.applicationSource,"loc"); equal(current.appliedAt,100)
+            equal(current.reportedDuration,duration,"raw duration is preserved rather than remaining time")
+        end
+    end
+end)
+
+test("missing secret nonfinite and out of range LoC durations are never reported evidence", function()
+    for _,unit in ipairs({"player","target"}) do
+        for _,case in ipairs({{}, {secret}, {0/0}, {math.huge}, {-math.huge}, {0}, {-1}, {121}, {"20"}}) do
+            reset(); byUnitLoC(); fixture.guid[unit]="Player-1-Duration"
+            fixture.auras[unit]={{spellId=secret,auraInstanceID=501}}
+            local record={spellID=2637,auraInstanceID=501,startTime=100,duration=case[1],timeRemaining=7}
+            if unit=="player" then fixture.loc={record} else fixture.locByUnit[unit]={record} end
+            ns.Observer.Scan(103)
+            local current=effect(last("Player-1-Duration"))
+            equal(current.appliedAt,100); equal(current.applicationSource,"loc")
+            equal(current.reportedDuration,nil,"invalid raw duration cannot become duration evidence")
+        end
+    end
+end)
+
+test("LoC duration waits for an admissible explicit start instead of using remaining time", function()
+    for _,case in ipairs({{}, {secret}, {0/0}, {-1}, {math.huge}, {101}}) do
+        reset(); C_UnitAuras=nil
+        fixture.loc={{spellID=2637,auraInstanceID=501,startTime=case[1],duration=20,timeRemaining=10}}
+        ns.Observer.Scan(100)
+        local current=effect(last("Player-1-Self"))
+        equal(current.appliedAt,nil); equal(current.applicationSource,nil)
+        equal(current.reportedDuration,nil); equal(current.expires,110)
+        fixture.loc[1].startTime=100.25
+        ns.Observer.Scan(100.3)
+        current=effect(last("Player-1-Self"))
+        equal(current.appliedAt,100.25); equal(current.reportedDuration,20)
+    end
+end)
+
+test("aura duration alone never becomes reported LoC evidence", function()
+    reset()
+    fixture.auras.target={{spellId=2637,auraInstanceID=501,expirationTime=120,duration=20}}
+    ns.Observer.Scan(100)
+    local current=effect(last("Player-1-A"))
+    equal(current.appliedAt,100); equal(current.applicationSource,"aura")
+    equal(current.reportedDuration,nil)
+end)
+
+test("exact aura merge copies current LoC duration and does not manufacture a missing one", function()
+    reset(); byUnitLoC()
+    fixture.auras.target={{spellId=2637,auraInstanceID=501,expirationTime=120,duration=20},
+        {spellId=secret,auraInstanceID=502}}
+    fixture.locByUnit.target={{spellID=2637,auraInstanceID=501,startTime=100,duration=10}}
+    ns.Observer.Scan(100)
+    local current=effect(last("Player-1-A"))
+    equal(current.applicationSource,"loc"); equal(current.reportedDuration,10)
+    fixture.locByUnit.target[1].duration=nil; fixture.locByUnit.target[1].timeRemaining=9
+    ns.Observer.Scan(101)
+    current=effect(last("Player-1-A"))
+    equal(current.applicationSource,"loc"); equal(current.reportedDuration,nil)
+end)
+
+test("canonical LoC handoff carries current duration without stale duration on a new start", function()
+    reset(); fixture.guid.target=nil
+    fixture.auras.player={{spellId=2637,auraInstanceID=501,expirationTime=120,duration=20}}
+    ns.Observer.Scan(100)
+    fixture.auras.player={{spellId=secret,auraInstanceID=501}}
+    fixture.loc={{spellID=2637,startTime=100,duration=20}}
+    ns.Observer.Scan(101)
+    local current=last("Player-1-Self").effects["a:501"]
+    truth(current); equal(current.applicationSource,"loc"); equal(current.reportedDuration,20)
+    fixture.loc={{spellID=2637,startTime=102,timeRemaining=10}}
+    ns.Observer.Scan(102)
+    current=last("Player-1-Self").effects["a:501"]
+    truth(current); equal(current.appliedAt,102); equal(current.reportedDuration,nil)
+    fixture.loc[1].duration=10
+    ns.Observer.Scan(102.1)
+    current=last("Player-1-Self").effects["a:501"]
+    equal(current.appliedAt,102); equal(current.reportedDuration,10)
+    fixture.loc[1].duration=secret
+    ns.Observer.Scan(102.2)
+    equal(last("Player-1-Self").effects["a:501"].reportedDuration,nil)
+end)
+
+test("a current aura handoff cannot reuse a prior LoC reported duration", function()
+    reset(); byUnitLoC()
+    fixture.auras.target={{spellId=secret,auraInstanceID=501}}
+    fixture.locByUnit.target={{spellID=2637,startTime=100,duration=20}}
+    ns.Observer.Scan(100)
+    equal(effect(last("Player-1-A")).reportedDuration,20)
+    fixture.auras.target={{spellId=2637,auraInstanceID=501,expirationTime=120,duration=20}}
+    -- A readable aura sensor takes over while identity retains the LoC key.
+    ns.Observer.Scan(101)
+    equal(effect(last("Player-1-A")).reportedDuration,nil)
+end)
+
 local failures={}
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2])

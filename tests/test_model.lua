@@ -1095,6 +1095,247 @@ test("timing becoming readable after a witness gap corrects the existing applica
     local row=only(m:GetDR("a",27)); eq(row.stage,1); eq(row.started,21); eq(row.remaining,14)
 end)
 
+-- A duration witness is deliberately distinct from expiration minus start:
+-- only the guarded LoC adapter can supply reportedDuration in production.
+local function durationEffect(start, duration, reported, spellID)
+    local value=effect("stun",spellID or 100,start and start+duration or nil,start)
+    value.applicationSource=start and "loc" or nil
+    value.reportedDuration=reported
+    return value
+end
+
+local function durationSequence(options)
+    options=options or {}
+    local m=options.model or ns.Model.New(20,18)
+    local guid=options.guid or "a"
+    m:Observe(guid,{},options.coverageStart or 0,true)
+    local first=durationEffect(100,20,options.noBaseline and nil or 20)
+    if options.noBaseline then first.reportedDuration=nil end
+    m:Observe(guid,{first=first},100,true)
+    if options.partial then
+        m:Observe(guid,{},105,false)
+        m:Observe(guid,{first=first},106,true)
+    end
+    m:Observe(guid,{},120,true)
+    m:Observe(guid,{second=durationEffect(130,10,10)},130,true)
+    m:Observe(guid,{},140,true)
+    m:Observe(guid,{third=durationEffect(141,5,5)},141,true)
+    if not options.noThirdRemoval then m:Observe(guid,{},options.thirdRemovalAt or 146,true) end
+    return m,guid
+end
+
+test("matching explicit full duration reconciles the retained immune stage after fifteen seconds", function()
+    local m=durationSequence()
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    local row=only(m:GetDR("a",161.5))
+    eq(row.stage,1); eq(row.observedStage,1)
+    eq(row.started,161.5); eq(row.remaining,20); eq(row.duration,20)
+    eq(row.resetEvidence,"matching-full-duration"); eq(row.resetBaselineDuration,20)
+    eq(row.uncertain,true,"duration evidence remains an estimate")
+    eq(row.stageResetAt,199.5,"the configured eighteen second end window is unchanged")
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},165,true)
+    row=only(m:GetDR("a",165)); eq(row.stage,1); eq(row.started,161.5)
+    m:Observe("a",{},166,true)
+    m:Observe("a",{fifth=durationEffect(168,10,10)},168,true)
+    row=only(m:GetDR("a",168)); eq(row.stage,2); eq(row.resetEvidence,nil)
+end)
+
+test("the a399 to a405 trace reconciles full duration without changing application timing", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},2657668.836,true)
+    local function read(key,start,duration,now)
+        local value=durationEffect(start,duration,start and duration or nil)
+        if not start then value.expires=now+duration end
+        m:Observe("a",{[key]=value},now,true)
+        return only(m:GetDR("a",now))
+    end
+    read("a:399",nil,20,2657932.655)
+    eq(read("a:399",2657932.750,20,2657932.926).stage,1)
+    m:Observe("a",{},2657943.623,true)
+    read("a:401",nil,10,2657949.595)
+    eq(read("a:401",2657949.750,10,2657949.823).stage,2)
+    m:Observe("a",{},2657959.608,true)
+    eq(read("a:403",2657960.000,5,2657960.064).stage,3)
+    m:Observe("a",{},2657965.070,true)
+    eq(read("a:405",nil,20,2657980.436).stage,3,"unknown timing alone is not evidence")
+    local row=read("a:405",2657980.500,20,2657980.571)
+    eq(row.stage,1); eq(row.started,2657980.500)
+    eq(row.resetEvidence,"matching-full-duration")
+end)
+
+test("first explicit duration can enrich an already timed application without restarting it", function()
+    local m=durationSequence()
+    m:Observe("a",{fourth=durationEffect(161.5,20,nil)},161.6,true)
+    eq(only(m:GetDR("a",161.6)).stage,3)
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},163,true)
+    local row=only(m:GetDR("a",163)); eq(row.stage,1); eq(row.started,161.5); eq(row.remaining,18.5)
+    m:Observe("a",{fourth=durationEffect(161.5,20,nil)},164,true)
+    row=only(m:GetDR("a",164)); eq(row.stage,1); eq(row.resetEvidence,"matching-full-duration")
+end)
+
+test("remaining-only aura and malformed duration evidence cannot reset a retained stage", function()
+    for _,case in ipairs({
+        {name="missing"}, {name="zero",duration=0}, {name="negative",duration=-20},
+        {name="infinity",duration=math.huge}, {name="nan",duration=0/0},
+        {name="too large",duration=121}, {name="string",duration="20"},
+        {name="opaque",duration={}}, {name="aura",duration=20,source="aura"},
+        {name="incoherent",duration=20,expiry=180},
+    }) do
+        local m=durationSequence()
+        local value=durationEffect(161.5,20,case.duration)
+        if case.source then value.applicationSource=case.source end
+        if case.expiry then value.expires=case.expiry end
+        m:Observe("a",{fourth=value},161.5,true)
+        local row=only(m:GetDR("a",161.5))
+        eq(row.stage,3,case.name); eq(row.resetEvidence,nil,case.name)
+    end
+end)
+
+test("a short quiet interval cannot teach a full duration baseline", function()
+    local m=durationSequence({coverageStart=85})
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    eq(only(m:GetDR("a",161.5)).stage,3)
+end)
+
+test("continuous coverage alone cannot teach a baseline while category history is recent", function()
+    local m=ns.Model.New(20,10)
+    m:Observe("a",{},0,true)
+    m:Observe("a",{one=durationEffect(100,5,nil)},100,true)
+    m:Observe("a",{},105,true)
+    m:Observe("a",{two=durationEffect(116,20,20)},116,true)
+    eq(only(m:GetDR("a",116)).stage,1,"configured stage timeout alone does not prove full duration")
+    m:Observe("a",{},117,true)
+    m.stageResetSeconds=18
+    m:Observe("a",{three=durationEffect(132.5,20,20)},132.5,true)
+    eq(only(m:GetDR("a",132.5)).stage,2,"eleven quiet seconds must not establish the baseline")
+end)
+
+test("duration baselines are isolated by exact spell and unit identity", function()
+    local m=durationSequence()
+    m:Observe("a",{fourth=durationEffect(161.5,20,20,101)},161.5,true)
+    eq(only(m:GetDR("a",161.5)).stage,3,"another rank cannot borrow the baseline")
+    durationSequence({model=m,guid="b",noBaseline=true})
+    m:Observe("b",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    eq(only(m:GetDR("b",161.5)).stage,3,"another unit cannot borrow the baseline")
+end)
+
+test("partial observation clears duration baseline eligibility", function()
+    local m=durationSequence({partial=true})
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    eq(only(m:GetDR("a",161.5)).stage,3)
+end)
+
+test("a gap before late duration arrives prevents repairing from old quiet evidence", function()
+    local m=durationSequence()
+    m:Observe("a",{fourth=durationEffect(161.5,20,nil)},161.5,true)
+    m:Observe("a",{},162,false)
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},163,true)
+    eq(only(m:GetDR("a",163)).stage,3)
+end)
+
+test("duration matching before fifteen seconds cannot reset a retained stage", function()
+    local m=durationSequence()
+    m:Observe("a",{fourth=durationEffect(160.999,20,20)},160.999,true)
+    eq(only(m:GetDR("a",160.999)).stage,3)
+end)
+
+test("overlapping category effects cannot trigger duration reset correction", function()
+    local m=durationSequence()
+    m:Observe("a",{fourth=durationEffect(161.5,20,20),overlap=durationEffect(161.5,10,10,101)},161.5,true)
+    local row=only(m:GetDR("a",161.5)); eq(row.stage,3); eq(row.resetEvidence,nil)
+end)
+
+test("a known duration changing at a stable application time is not reset evidence", function()
+    local m=durationSequence()
+    m:Observe("a",{fourth=durationEffect(161.5,10,10)},161.5,true)
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},162,true)
+    local row=only(m:GetDR("a",162)); eq(row.stage,3); eq(row.resetEvidence,nil)
+end)
+
+test("own cast attempts at immunity cannot synthesize duration reset evidence", function()
+    local m=durationSequence()
+    eq(m:EstimateDR("a",100,"stun",161.5,"immune",160),false)
+    local row=only(m:GetDR("a",161.5))
+    eq(row.stage,3); eq(row.started,141); eq(row.stageResetAt,164); eq(row.resetEvidence,nil)
+end)
+
+test("a newly discovered old disappearance cannot create duration reset evidence", function()
+    local m=durationSequence({noThirdRemoval=true})
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    eq(only(m:GetDR("a",161.5)).stage,3,"the preceding end was only predicted until this snapshot")
+end)
+
+test("baseline learning requires previously observed quiet category history", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},0,true)
+    m:Observe("a",{one=durationEffect(100,5,nil)},100,true)
+    -- The expired old effect was not observed absent before this new spell.
+    m:Observe("a",{two=durationEffect(126,20,20)},126,true)
+    eq(only(m:GetDR("a",126)).stage,1)
+    m:Observe("a",{},127,true)
+    m:Observe("a",{three=durationEffect(142.5,20,20)},142.5,true)
+    eq(only(m:GetDR("a",142.5)).stage,2,"predicted quiet alone must not teach a duration baseline")
+end)
+
+test("late disappearance cannot backdate the quiet evidence for duration correction", function()
+    local m=durationSequence({thirdRemovalAt=148})
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    eq(only(m:GetDR("a",161.5)).stage,3,"only thirteen and a half seconds of observed absence")
+end)
+
+test("late disappearance cannot backdate twenty seconds of quiet baseline learning", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},0,true)
+    m:Observe("a",{one=durationEffect(100,5,nil)},100,true)
+    m:Observe("a",{},115,true)
+    m:Observe("a",{two=durationEffect(126,20,20)},126,true)
+    eq(only(m:GetDR("a",126)).stage,1)
+    m:Observe("a",{},127,true)
+    m:Observe("a",{three=durationEffect(142.5,20,20)},142.5,true)
+    eq(only(m:GetDR("a",142.5)).stage,2,"eleven observed quiet seconds cannot establish a full baseline")
+end)
+
+test("late baseline duration survives timing calibration but not another application's timestamp", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},0,true)
+    m:Observe("a",{first=durationEffect(100,20,nil)},100,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},102,true)
+    m:Observe("a",{},120,true)
+    m:Observe("a",{second=durationEffect(130,10,10)},130,true)
+    m:Observe("a",{},140,true)
+    m:Observe("a",{third=durationEffect(141,5,5)},141,true)
+    m:Observe("a",{},146,true)
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    eq(only(m:GetDR("a",161.5)).stage,1)
+    -- An older sample cannot rewrite the corrected application or its evidence.
+    m:Observe("a",{fourth=durationEffect(141,5,5)},162,true)
+    local row=only(m:GetDR("a",162)); eq(row.stage,1); eq(row.started,161.5)
+    eq(row.resetEvidence,"matching-full-duration")
+end)
+
+test("forgetting a unit removes its learned duration evidence", function()
+    local m=durationSequence()
+    m:Forget("a")
+    durationSequence({model=m,noBaseline=true})
+    m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+    eq(only(m:GetDR("a",161.5)).stage,3)
+end)
+
+test("learning many exact spell durations keeps per unit evidence bounded", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},0,true)
+    for spellID=1,160 do
+        local start=spellID*100
+        m:Observe("a",{current=durationEffect(start,20,20,spellID)},start,true)
+        m:Observe("a",{},start+20,true)
+    end
+    local count=0
+    for _ in pairs(m.units.a.durationBaselines) do count=count+1 end
+    assert(count<=64,"duration baselines grew without a bound")
+    eq(m.units.a.durationBaselines[1],nil,"oldest evidence must be evictable")
+    eq(m.units.a.durationBaselines[160].duration,20,"recent usable evidence survives churn")
+end)
+
 local function runModelTests()
     local failed=0
     for _, case in ipairs(cases) do

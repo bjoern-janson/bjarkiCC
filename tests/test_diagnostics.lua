@@ -66,4 +66,13 @@ for _,time in ipairs({204.2,204.4,204.6,204.8}) do
  now=time; frame.scripts.OnEvent(frame,'LOSS_OF_CONTROL_UPDATE')
 end
 assert(#ns.drTrace==beforePolls,'coarse remaining-time updates cannot evict useful transitions with derived-expiry noise')
+assert(ns.BuildStatus():find('reportedDuration=unknown',1,true), 'remaining-time expiry is not logged as a reported duration')
+C_LossOfControl.GetActiveLossOfControlData=function()
+ return {spellID=2637,auraInstanceID=999,startTime=204,duration=20,timeRemaining=18}
+end
+now=205; frame.scripts.OnEvent(frame,'LOSS_OF_CONTROL_UPDATE')
+assert(#ns.drTrace==beforePolls+1 and ns.BuildStatus():find('reportedDuration=20.000',1,true),
+ 'new explicit reported duration is a diagnostic transition even with unchanged identity/start')
+now=205.2; frame.scripts.OnEvent(frame,'LOSS_OF_CONTROL_UPDATE')
+assert(#ns.drTrace==beforePolls+1,'stable reported duration does not fill diagnostic history')
 print('diagnostics: real observation transitions, deduplication, bounded history and reset passed')

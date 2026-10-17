@@ -15,13 +15,14 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor)
     for i=1,math.min(6,#keys) do
         local key, effect = keys[i], effects[keys[i]]
         local identity=key..' spell='..effect.spellID..' start='..stamp(effect.appliedAt)
-        identities[#identities+1]=identity
-        witnesses[#witnesses+1]=identity..' end='..stamp(effect.expires)
+        identities[#identities+1]=identity..' reportedDuration='..stamp(effect.reportedDuration)
+        witnesses[#witnesses+1]=identity..' end='..stamp(effect.expires)..' reportedDuration='..stamp(effect.reportedDuration)
     end
     if #keys>6 then witnesses[#witnesses+1]='+'..(#keys-6)..' witnesses' end
     for _,row in ipairs(ns.model:GetDR(guid,now,true)) do
         stages[#stages+1]=row.category..' observed='..(row.observedStage or row.stage)..' shown='..row.stage
             ..' start='..stamp(row.started)..(row.estimated and ' cast-estimate' or (row.stageEstimated and ' inferred-history' or ' observed'))
+            ..(row.resetEvidence and (' correction='..row.resetEvidence..' baseline='..stamp(row.resetBaselineDuration)) or '')
         stageDetails[#stageDetails+1]=stages[#stages]..' stageReset='..stamp(row.stageResetAt)
             ..(row.stageResetSource and (' '..row.stageResetSource) or '')
     end
@@ -29,7 +30,7 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor)
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
     -- A fallback end computed as now + timeRemaining can drift on every poll.
-    -- Include it as context, but only identity/start/stage/coverage changes log.
+    -- Include it as context, but only identity/start/reported-duration/stage/coverage changes log.
     local signature=sensor..':'..tostring(complete)..':'..#keys..':'..table.concat(identities,';')..'|'..table.concat(stages,';')
     for i=#ns.drTrace,1,-1 do
         if ns.drTrace[i].guid==guid then
@@ -95,6 +96,10 @@ function ns.BuildStatus()
                     lines[#lines+1]=string.format('    Observed stage %d; displayed stage %d includes earlier inferred applications.',row.observedStage,row.stage)
                 end
                 if row.timeEstimated then lines[#lines+1]='    Application observed; timing retained from own-cast estimate.' end
+                if row.resetEvidence=='matching-full-duration' then
+                    lines[#lines+1]=string.format('    Stage correction: matching full duration (%.3fs); reset inferred, server timing unknown.',row.resetBaselineDuration)
+                    if row.resetPreviousStage then lines[#lines+1]='    Count before correction: '..row.resetPreviousStage..'.' end
+                end
                 if not row.estimated then
                     lines[#lines+1]=row.stageResetAt and string.format('    Stage reset: %.3f; remaining %.3f (%s; provisional estimate).',
                         row.stageResetAt,row.stageRemaining or 0,row.stageResetSource or 'unknown end')

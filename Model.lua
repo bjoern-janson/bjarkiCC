@@ -12,6 +12,9 @@ local MAX_CAST_IDS = 128
 local CAST_ID_TTL = 120
 local FALLBACK_DEDUP_SECONDS = 0.15
 local APPLICATION_EPSILON = 0.001 -- Ignore sub-millisecond API rounding changes.
+local MAX_DURATION_BASELINES = 64
+local DURATION_QUIET_SECONDS = 20 -- Conservative Classic maximum; not a fixed server rule.
+local DURATION_RESET_MINIMUM = 15 -- Only reconcile within/after the documented uncertainty range.
 
 local function trimOldest(records, maximum)
     local count = 0
@@ -103,6 +106,10 @@ local function predecessor(state)
         lastEndedAt = state.lastEndedAt, stageEndAt = state.stageEndAt,
         stageResetAt = state.stageResetAt, stageResetPending = state.stageResetPending,
         stageResetSource = state.stageResetSource,
+        observedQuietSince = state.observedQuietSince,
+        durationContext = state.durationContext, reportedDurationWitness = state.reportedDurationWitness,
+        resetEvidence = state.resetEvidence, resetBaselineDuration = state.resetBaselineDuration,
+        resetPreviousStage = state.resetPreviousStage,
     }
 end
 
@@ -132,11 +139,67 @@ local function refreshedApplication(previous, effect, start)
         and math.abs(effect.expires - previous.expires) > APPLICATION_EPSILON
 end
 
+local function durationContext(unit, state, effects, key, category)
+    local overlap = false
+    for otherKey, other in pairs(effects or {}) do
+        if otherKey ~= key and other.category == category then overlap = true; break end
+    end
+    -- This is the state BEFORE this application. Late timing/duration must not
+    -- compare against the new application's own end or quiet history.
+    return {
+        coverageEpoch = unit.durationEpoch, completeSince = unit.completeSince,
+        priorEnd = state and state.stageEndAt,
+        priorEndObserved = state and state.stageResetSource == "observed-end" or false,
+        quietSince = state and state.observedQuietSince,
+        pending = state and state.stageResetPending or false,
+        overlap = overlap or (state and state.activeCount > 0) or false,
+        noPriorCategory = state == nil,
+    }
+end
+
+local function reconcileDuration(unit, state, effect, preciseStart, now, complete)
+    if not state or state.reportedDurationWitness or not complete
+        or effect.applicationSource ~= "loc" or not preciseStart
+        or math.abs(state.appliedAt - preciseStart) > APPLICATION_EPSILON then return end
+    local duration, expires = effect.reportedDuration, effect.expires
+    if type(duration) ~= "number" or duration ~= duration or duration <= 0 or duration > 120
+        or type(expires) ~= "number" or expires ~= expires
+        or math.abs(expires - preciseStart - duration) > APPLICATION_EPSILON then return end
+    -- Only the first coherent, explicitly reported duration belongs to this
+    -- decision. A later duration-only edit must never masquerade as a reset.
+    state.reportedDurationWitness = duration
+    local context = state.durationContext
+    if not context or context.coverageEpoch ~= unit.durationEpoch
+        or not context.completeSince or preciseStart < context.completeSince
+        or context.pending or context.overlap then return end
+    local observedQuiet = context.noPriorCategory
+        or (context.priorEndObserved and context.priorEnd
+            and preciseStart - context.priorEnd >= DURATION_QUIET_SECONDS
+            and context.quietSince and preciseStart - context.quietSince >= DURATION_QUIET_SECONDS)
+    if state.stage == 1 and not state.inferredStage
+        and preciseStart - context.completeSince >= DURATION_QUIET_SECONDS and observedQuiet then
+        unit.durationBaselines[effect.spellID] = {duration = duration, seen = now}
+        trimOldest(unit.durationBaselines, MAX_DURATION_BASELINES)
+        return
+    end
+    local baseline = unit.durationBaselines[effect.spellID]
+    if state.stage > 1 and baseline and context.priorEndObserved and context.priorEnd
+        and preciseStart - context.priorEnd >= DURATION_RESET_MINIMUM
+        and context.quietSince and preciseStart - context.quietSince >= DURATION_RESET_MINIMUM
+        and math.abs(duration - baseline.duration) <= APPLICATION_EPSILON then
+        state.resetPreviousStage = state.stage
+        state.stage, state.inferredStage = 1, nil
+        state.confirmationStage, state.confirmationSentAt, state.confirmationAppliedAt = nil, nil, nil
+        state.resetEvidence, state.resetBaselineDuration = "matching-full-duration", baseline.duration
+        state.uncertain = true
+    end
+end
+
 function Model:Observe(guid, effects, now, complete)
     if not guid then return end
     local unit = self.units[guid]
     if not unit then
-        unit = {seen = now, effects = {}, categories = {}}
+        unit = {seen = now, effects = {}, categories = {}, durationBaselines = {}, durationEpoch = 0}
         self.units[guid] = unit
     end
     unit.seen = now
@@ -151,9 +214,24 @@ function Model:Observe(guid, effects, now, complete)
         -- An unreadable/partial snapshot cannot establish a removal or preserve
         -- the earlier history proof. It also cannot change an observed timer.
         unit.completeSince = nil
+        unit.durationBaselines = {}
+        unit.durationEpoch = unit.durationEpoch + 1
         for _, state in pairs(unit.categories) do
             state.uncertain = true
+            state.observedQuietSince = nil
         end
+    end
+
+    -- Preserve evidence from the previous complete snapshot. Current removal
+    -- discovery may backdate a predicted end, but cannot create prior observed
+    -- quiet time for this new application.
+    local priorDurationHistory = {}
+    for category, state in pairs(unit.categories) do
+        priorDurationHistory[category] = {
+            stageEndAt = state.stageEndAt, stageResetSource = state.stageResetSource,
+            stageResetPending = state.stageResetPending, activeCount = state.activeCount,
+            observedQuietSince = state.observedQuietSince,
+        }
     end
 
     -- Only complete absence establishes a removal. A readable expiration can
@@ -232,6 +310,7 @@ function Model:Observe(guid, effects, now, complete)
                     updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
                 end
                 local prior = predecessor(state)
+                local context = durationContext(unit, priorDurationHistory[category], effects, key, category)
                 if not stageInWindow(state, appliedAt) then
                     state = {
                         stage = 0,
@@ -251,6 +330,8 @@ function Model:Observe(guid, effects, now, complete)
                 state.applicationKey = key
                 state.timeEstimated = estimatedTime ~= nil
                 state.previousApplication = prior
+                state.durationContext, state.reportedDurationWitness = context, nil
+                state.resetEvidence, state.resetBaselineDuration, state.resetPreviousStage = nil, nil, nil
                 state.confirmationStage = matchedPrediction and candidate.stage or nil
                 state.confirmationSentAt = matchedPrediction and (candidate.sentAt or candidate.appliedAt) or nil
                 state.confirmationAppliedAt = matchedPrediction and candidate.appliedAt or nil
@@ -325,12 +406,24 @@ function Model:Observe(guid, effects, now, complete)
             fallbackIdentity = effect.fallbackIdentity == true,
             firstSeenAt = same and not refreshed and previous.firstSeenAt or now}
         local current = unit.categories[category]
-        if current and current.applicationKey == key then current.witness = nextEffects[key] end
+        if current and current.applicationKey == key then
+            current.witness = nextEffects[key]
+            reconcileDuration(unit, current, effect, preciseStart, now, complete)
+        end
         stageEffects[key] = nextEffects[key]
         updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
     end
 
     updateStageClocks(unit, nextEffects, now, self.stageResetSeconds)
+    local presentCategories = {}
+    for _, effect in pairs(nextEffects) do presentCategories[effect.category] = true end
+    for category, state in pairs(unit.categories) do
+        if complete and not presentCategories[category] then
+            state.observedQuietSince = state.observedQuietSince or now
+        else
+            state.observedQuietSince = nil
+        end
+    end
     unit.effects = nextEffects
     trimOldest(self.units, MAX_UNITS)
 end
@@ -425,6 +518,9 @@ function Model:GetDR(guid, now, includeEstimates)
             stageRemaining = not estimated and state.stageResetAt and math.max(0, state.stageResetAt - now) or nil,
             stageResetPending = not estimated and state.stageResetPending or false,
             stageResetSource = not estimated and state.stageResetSource or nil,
+            resetEvidence = not estimated and state.resetEvidence or nil,
+            resetBaselineDuration = not estimated and state.resetBaselineDuration or nil,
+            resetPreviousStage = not estimated and state.resetPreviousStage or nil,
             active = active,
             uncertain = estimated or stageEstimated or state.uncertain
                 or (not active and state.stageResetSource == "predicted-end"),

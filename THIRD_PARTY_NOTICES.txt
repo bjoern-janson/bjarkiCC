@@ -139,6 +139,13 @@ defaults stage reset to a provisional 18s after CC ends. This value comes from
 the supplied live trace's full Hibernate at 18.015s after observed removal,
 not an upstream claim that Forever has a fixed 18s reset. Both settings are
 independently configurable; see architecture.md for evidence and limitations.
+Version 0.4.9 adds an original, bounded full-duration evidence correction after
+another trace shows a full Hibernate only 15.5s after the prior accepted end.
+It learns a same-victim/exact-spell baseline only after a 20s observed quiet
+interval and considers a matching explicit LoC duration after a 15s end gap.
+Those bounds follow the provisional Classic range, not verified Forever rules.
+It does not copy Diminish's remaining-time ratio heuristic; correction remains
+uncertain and is documented in architecture.md.
 The referenced Classic profile does not contain a separate Fear stage rule.
 
 Most selected beta spell pages identify client build 1.60.1.70374. That is older

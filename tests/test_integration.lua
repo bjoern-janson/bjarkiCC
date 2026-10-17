@@ -522,6 +522,57 @@ local refreshedIcon=ns.UI.bars.player.icons[1]
 refreshedIcon.scripts.OnEnter(refreshedIcon)
 local stageTooltip=table.concat(ns.UI.tip.lines,'\n')
 
+-- Full Hibernate returns before the configured 18-second reset in the next
+-- live report. Only an explicitly reported duration can correct this history.
+SlashCmdList.BJARKICC('clear')
+handoffLoC=nil
+handoffEvent(2657900,'LOSS_OF_CONTROL_UPDATE')
+local function advanceObserved(to)
+ while now+.5<to do
+  now=now+.5
+  ns.eventFrame.scripts.OnEvent(ns.eventFrame,'LOSS_OF_CONTROL_UPDATE','player')
+ end
+end
+advanceObserved(2657932.655)
+handoffLoC={spellID=2637,auraInstanceID=399,startTime=2657932.750,duration=20,timeRemaining=19.999}
+handoffEvent(2657932.655,'LOSS_OF_CONTROL_ADDED',1,2657932.655)
+handoffEvent(2657932.926,'LOSS_OF_CONTROL_UPDATE',1,2657932.750)
+advanceObserved(2657943.623); handoffLoC=nil
+handoffEvent(2657943.623,'LOSS_OF_CONTROL_UPDATE',1,2657932.750)
+advanceObserved(2657949.595)
+handoffLoC={spellID=2637,auraInstanceID=401,startTime=2657949.750,duration=10,timeRemaining=10}
+handoffEvent(2657949.595,'LOSS_OF_CONTROL_ADDED',2,2657949.595)
+handoffEvent(2657949.823,'LOSS_OF_CONTROL_UPDATE',2,2657949.750)
+advanceObserved(2657959.608); handoffLoC=nil
+handoffEvent(2657959.608,'LOSS_OF_CONTROL_UPDATE',2,2657949.750)
+handoffLoC={spellID=2637,auraInstanceID=403,startTime=2657960,duration=5,timeRemaining=4.936}
+handoffEvent(2657960.064,'LOSS_OF_CONTROL_ADDED',3,2657960)
+advanceObserved(2657965.070); handoffLoC=nil
+handoffEvent(2657965.070,'LOSS_OF_CONTROL_UPDATE',3,2657960)
+advanceObserved(2657970)
+local beforeAttempt=ns.model:GetDR(units.player,now)[1]
+assert(not ns.model:EstimateDR(units.player,2637,'incapacitate',now,'immune-regression',now),
+ 'an unconfirmed cast at the observed cap cannot extend either clock')
+local afterAttempt=ns.model:GetDR(units.player,now)[1]
+assert(afterAttempt.started==beforeAttempt.started and afterAttempt.stageResetAt==beforeAttempt.stageResetAt,
+ 'an immune-stage attempt without an aura preserves both deadlines')
+advanceObserved(2657980.436)
+handoffLoC={spellID=2637,auraInstanceID=405,startTime=2657980.500,duration=20,timeRemaining=20}
+handoffEvent(2657980.436,'LOSS_OF_CONTROL_ADDED',3,2657980.436)
+handoffEvent(2657980.571,'LOSS_OF_CONTROL_UPDATE',1,2657980.500)
+local corrected=ns.UI.bars.player.icons[1]
+assert(corrected.row.uncertain and corrected.row.resetEvidence=='matching-full-duration'
+ and corrected.row.resetBaselineDuration==20,'duration correction exposes its bounded inference')
+corrected.scripts.OnEnter(corrected)
+assert(table.concat(ns.UI.tip.lines,'\n'):find('Full-duration match',1,true),
+ 'tooltip explains why the stage was corrected without claiming exact reset timing')
+local correctedStatus=ns.BuildStatus()
+assert(correctedStatus:find('Stage correction: matching full duration (20.000s)',1,true),
+ 'status records the duration-supported correction')
+assert(correctedStatus:find('reportedDuration=20.000',1,true),
+ 'trace distinguishes raw reported duration from remaining-time expiry')
+handoffEvent(2657980.800,'LOSS_OF_CONTROL_UPDATE',1,2657980.500)
+
 -- Real settings callbacks must change one clock without silently changing the
 -- other, and rebuild tracking so old observations cannot keep stale settings.
 local applicationSlider,stageSlider

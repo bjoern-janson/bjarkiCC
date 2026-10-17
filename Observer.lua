@@ -194,6 +194,10 @@ local function lossOfControlSnapshot(now, unit)
                     else
                         local rawDuration = field(data, "duration")
                         local duration = number(rawDuration)
+                        -- Keep raw LoC duration separate from the expiry fallback.
+                        -- A remaining-time estimate cannot establish full duration.
+                        local reportedDuration = start and duration and duration > 0
+                            and duration <= 120 and duration or nil
                         local expires
                         if start and duration and duration > 0 then
                             expires = start + duration
@@ -204,6 +208,7 @@ local function lossOfControlSnapshot(now, unit)
                         end
                         effects[key] = {category = category, spellID = spellID, expires = expires,
                             appliedAt = start, applicationSource = start and "loc" or nil,
+                            reportedDuration = reportedDuration,
                             fallbackIdentity = not instanceID}
                     end
                 else
@@ -224,6 +229,7 @@ local function mergeEffects(effects, additional)
         elseif effect.applicationSource == "loc" and effect.appliedAt then
             existing.appliedAt, existing.applicationSource = effect.appliedAt, effect.applicationSource
             existing.expires = effect.expires or existing.expires
+            existing.reportedDuration = effect.reportedDuration
         end
     end
 end
@@ -267,7 +273,11 @@ local function reconcileWitnesses(effects, previous)
                 ambiguous = true
                 if count == 1 then canonical = next(candidates) end
                 if canonical then
-                    local witness = candidates[canonical]
+                    local witness = {}
+                    for field, value in pairs(candidates[canonical]) do witness[field] = value end
+                    -- Identity may survive a sensor handoff, but raw duration is
+                    -- evidence only from this observation's accepted LoC start.
+                    witness.reportedDuration = nil
                     if effect.applicationSource == "loc" and effect.appliedAt then
                         -- Identity ambiguity does not erase a readable start.
                         -- Keep the canonical key/fallback policy so repeated
@@ -280,6 +290,7 @@ local function reconcileWitnesses(effects, previous)
                         timed.appliedAt = sameFallbackTime(witness, effect) and witness.appliedAt or effect.appliedAt
                         timed.applicationSource = "loc"
                         timed.expires = effect.expires or witness.expires
+                        timed.reportedDuration = effect.reportedDuration
                         witness = timed
                     end
                     add(canonical, witness)
