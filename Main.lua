@@ -7,7 +7,7 @@ ns.drTrace = {}
 
 -- Observer calls this only with guarded, normalized application evidence.
 -- Keep changes rather than polling noise; no raw API values enter this log.
-function ns.RecordDRObservation(guid, effects, now, complete, sensor)
+function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostics)
     local function stamp(value) return value and string.format('%.3f',value) or 'unknown' end
     local keys, witnesses, identities, stages, stageDetails = {}, {}, {}, {}, {}
     for key in pairs(effects) do keys[#keys+1]=key end
@@ -28,12 +28,19 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor)
         stageDetails[#stageDetails+1]=stages[#stages]..' stageReset='..stamp(row.stageResetAt)
             ..(row.stageResetSource and (' '..row.stageResetSource) or '')
     end
-    local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')
+    local probe=''
+    if diagnostics and diagnostics.stompLookup then
+        local loc=diagnostics.byUnitComplete
+        probe=' | lookup20549='..diagnostics.stompLookup..'; ByUnit='
+            ..(loc==nil and 'not-sampled' or (loc and 'complete' or 'restricted'))
+            ..'; records='..(diagnostics.byUnitCount or 'unknown')
+    end
+    local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')..probe
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
     -- A fallback end computed as now + timeRemaining can drift on every poll.
     -- Include it as context, but only identity/start/reported-duration/stage/coverage changes log.
-    local signature=sensor..':'..tostring(complete)..':'..#keys..':'..table.concat(identities,';')..'|'..table.concat(stages,';')
+    local signature=sensor..':'..tostring(complete)..':'..#keys..':'..table.concat(identities,';')..'|'..table.concat(stages,';')..probe
     for i=#ns.drTrace,1,-1 do
         if ns.drTrace[i].guid==guid then
             if ns.drTrace[i].signature==signature then return end
@@ -84,6 +91,8 @@ function ns.BuildStatus()
         end
         lines[#lines+1]='  Auras: '..coverage(state.auraComplete)..'; mapped '..(state.mappedAuras or 0)
         lines[#lines+1]='  Unit LoC: '..(state.byUnitAvailable and coverage(state.byUnitComplete) or 'unavailable')..'; mapped '..(state.mappedLoC or 0)
+            ..(state.byUnitCount and ('; records '..state.byUnitCount) or '')
+        if state.stompLookup then lines[#lines+1]='  Exact War Stomp lookup: '..state.stompLookup end
         if state.unmappedSpellIDs and #state.unmappedSpellIDs>0 then
             local ids={}; for _,id in ipairs(state.unmappedSpellIDs) do ids[#ids+1]=tostring(id) end
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')

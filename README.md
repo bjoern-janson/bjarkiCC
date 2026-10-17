@@ -2,7 +2,15 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.14-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.15-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Exact War Stomp confirmation in 0.4.15
+
+The new caster report identifies the failed source: `GetAuraDataByIndex` raises an aura-access restriction. The existing per-unit Loss of Control fallback adds no mapped hit in the captured trace. This explains why a recipient can track its own stun while the caster has no confirmed application; the report does not establish whether another documented source is readable during War Stomp.
+
+When target/focus aura enumeration is incomplete, the addon now also queries the documented `GetUnitAuraBySpellID(unit, 20549)` non-secret-aura endpoint. A positive must contain readable matching War Stomp and aura-instance IDs. It then advances stun DR with the normal aura path. Hidden, mismatched, expired, failed or empty results cannot invent a hit; empty results cannot prove removal or complete coverage. This is one bounded lookup per tracked victim per scan, with target/focus aliases shared. War Stomp cast events still do not estimate a victim.
+
+`/bcc status` retains lookup outcomes and per-unit LoC counts in the recent observation history, including after the stun ends. No `/run` probes are required. After installing and reloading, test Bash then War Stomp and copy the casting client's status. The fallback and rejection paths pass offline tests; live readability of this endpoint for War Stomp remains unverified.
 
 ## Confirmed War Stomp and API diagnostics in 0.4.14
 

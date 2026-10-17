@@ -1382,6 +1382,72 @@ test("confirmed War Stomp advances Bash DR through aura and ByUnit observations"
     ns.Data=fixtureData
 end)
 
+test("non-secret exact War Stomp aura confirms a hit when enumeration is blocked", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); byUnitLoC(); fixture.guid.player=nil; fixture.guid.focus="Player-1-A"
+    fixture.auras.target={{spellId=5211,auraInstanceID=899,expirationTime=11,duration=3}}
+    ns.Observer.Scan(8)
+    fixture.auras.target={}; ns.Observer.Scan(9)
+    fixture.auraError=true
+    local current={spellId=20549,auraInstanceID=900,startTime=10,expirationTime=12,duration=2}
+    local calls=0
+    C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
+        equal(unit,"target"); equal(id,20549); calls=calls+1; return current
+    end
+    ns.Observer.Scan(10)
+    local row=ns.model:GetDR("Player-1-A",10)[1]
+    truth(row,"an exact readable positive must reach the real model")
+    equal(row.category,"stun"); equal(row.observedStage,2); equal(row.started,10)
+    equal(ns.Observer.GetUnitState("target").stompLookup,"confirmed")
+    equal(ns.Observer.GetUnitState("target").auraComplete,false,"one hit cannot prove full aura coverage")
+    equal(ns.Observer.GetUnitState("target").byUnitCount,0)
+    ns.Observer.Scan(10.2); equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,2)
+    equal(calls,2,"shared target/focus identity queries only once per scan")
+    fixture.locByUnit.target={{spellID=20549,auraInstanceID=900,startTime=10,duration=2}}
+    ns.Observer.Scan(10.3)
+    equal(ns.model:GetDR("Player-1-A",10.3)[1].stage,2,"matching LoC cannot count the exact aura twice")
+    fixture.locByUnit.target={}
+    current=nil; ns.Observer.Scan(11)
+    equal(ns.Observer.GetUnitState("target").stompLookup,"none")
+    row=ns.model:GetDR("Player-1-A",11)[1]
+    equal(row.stage,2); equal(row.started,10)
+    truth(row.stageResetSource~="observed-end","nil exact lookup is not proof of removal")
+    ns.Data=fixtureData
+end)
+
+test("exact War Stomp lookup rejects hidden mismatched expired and failed records", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    local cases={
+        {value=nil,status="none"}, {value=secret,status="blocked"},
+        {value={spellId=secret,auraInstanceID=901},status="identity-unavailable"},
+        {value={spellId=20549,auraInstanceID=secret},status="identity-unavailable"},
+        {value={spellId=5211,auraInstanceID=901},status="mismatch"},
+        {value={spellId=20549,auraInstanceID=901,expirationTime=9},status="expired"},
+        {fail=true,status="blocked"},
+    }
+    for _,case in ipairs(cases) do
+        reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+        C_UnitAuras.GetUnitAuraBySpellID=function()
+            if case.fail then error("exact lookup denied",0) end
+            return case.value
+        end
+        ns.Observer.Scan(10)
+        equal(#ns.model:GetDR("Player-1-A",10),0,"no hit without a readable matching instance")
+        equal(ns.Observer.GetUnitState("target").stompLookup,case.status)
+        if case.fail then equal(ns.Observer.apiFailures["C_UnitAuras.GetUnitAuraBySpellID"].count,1) end
+    end
+    ns.Data=fixtureData
+end)
+
+test("complete aura enumeration does not add an exact War Stomp query", function()
+    reset(); local calls=0
+    C_UnitAuras.GetUnitAuraBySpellID=function() calls=calls+1; error("must not query") end
+    ns.Observer.Scan(10)
+    equal(calls,0); equal(ns.Observer.GetUnitState("target").stompLookup,nil)
+end)
+
 local failures={}
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2])

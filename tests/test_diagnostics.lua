@@ -131,4 +131,25 @@ C_UnitAuras.GetAuraDataByIndex=function() end
 SlashCmdList.BJARKICC('clear')
 assert(not ns.BuildStatus():find('API failures (guarded details):',1,true),
  'clearing tracking removes stale error details')
+-- Retain the two-second offensive probe in history after it ends, so no /run
+-- macro or perfectly timed status capture is required to see its outcome.
+UnitGUID=function(unit) if unit=='focus' then return 'Player-1-Enemy' end end
+UnitIsPlayer=function() return true end
+C_UnitAuras={GetAuraDataByIndex=function() error('restricted enumeration',0) end,
+ GetUnitAuraBySpellID=function() return {spellId=20549,auraInstanceID=1300,expirationTime=1202,duration=2} end}
+C_LossOfControl={GetActiveLossOfControlDataCountByUnit=function() return 0 end,
+ GetActiveLossOfControlDataByUnit=function() end}
+now=1200; frame.scripts.OnEvent(frame,'UNIT_AURA','focus')
+assert(ns.BuildStatus():find('lookup20549=confirmed; ByUnit=complete; records=0',1,true),
+ 'trace must retain exact positive and empty ByUnit evidence together')
+local probeCount=#ns.drTrace
+now=1200.2; frame.scripts.OnEvent(frame,'UNIT_AURA','focus')
+assert(#ns.drTrace==probeCount,'stable probe outcomes cannot fill the trace')
+C_UnitAuras.GetAuraDataByIndex=function() end
+C_UnitAuras.GetUnitAuraBySpellID=function() return nil end
+now=1203; frame.scripts.OnEvent(frame,'UNIT_AURA','focus')
+assert(ns.BuildStatus():find('lookup20549=confirmed; ByUnit=complete; records=0',1,true),
+ 'completed stun probe remains available after the latest scan becomes empty')
+SlashCmdList.BJARKICC('clear')
+assert(not ns.BuildStatus():find('lookup20549=',1,true),'clear resets the probe history')
 print('diagnostics: real observation transitions, deduplication, bounded history and reset passed')

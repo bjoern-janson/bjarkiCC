@@ -162,6 +162,45 @@ local function auraSnapshot(unit, now)
     return auraResult(effects, false, unmapped)
 end
 
+-- The index scan requires blanket aura access. This documented getter instead
+-- requires a non-secret aura: only a readable positive matching this exact
+-- spell/instance is evidence. Nil, errors and hidden values never prove absence.
+-- One reviewed spell keeps this fallback bounded; it is not an AoE cast guess.
+local function exactWarStomp(unit, now)
+    local api = C_UnitAuras
+    if type(api) ~= "table" or type(api.GetUnitAuraBySpellID) ~= "function" then
+        return nil, "unavailable"
+    end
+    local aura, readable = call("C_UnitAuras.GetUnitAuraBySpellID", unit,
+        api.GetUnitAuraBySpellID, unit, 20549)
+    if not readable then return nil, "blocked" end
+    if aura == nil then return nil, "none" end
+    if type(aura) ~= "table" then return nil, "identity-unavailable" end
+    local rawSpell = field(aura, "spellId", "AuraData.spellId", unit)
+    local spellID = identifier(rawSpell)
+    if not spellID then return nil, "identity-unavailable" end
+    if spellID ~= 20549 then return nil, "mismatch" end
+    local rawInstance = field(aura, "auraInstanceID", "AuraData.auraInstanceID", unit)
+    local instanceID = identifier(rawInstance)
+    if not instanceID then return nil, "identity-unavailable" end
+    local category = ns.Data.auraCategory[spellID]
+    if not category then return nil, "unmapped" end
+    local rawExpiry = field(aura, "expirationTime", "AuraData.expirationTime", unit)
+    local expires = number(rawExpiry)
+    if expires and expires > 0 and expires <= now then return nil, "expired" end
+    if expires and expires <= 0 then expires = nil end
+    local rawDuration = field(aura, "duration", "AuraData.duration", unit)
+    local duration = number(rawDuration)
+    local appliedAt
+    if expires and duration and duration > 0 then
+        appliedAt = applicationTime(expires - duration, now)
+    end
+    return {["a:" .. tostring(instanceID)] = {
+        category = category, spellID = spellID, expires = expires,
+        appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
+    }}, "confirmed"
+end
+
 local function byUnitAvailable()
     return type(C_LossOfControl) == "table"
         and type(C_LossOfControl.GetActiveLossOfControlDataCountByUnit) == "function"
@@ -250,7 +289,7 @@ local function lossOfControlSnapshot(now, unit)
             end
         end
     end
-    return effects, complete, boundedIDs(unmapped)
+    return effects, complete, boundedIDs(unmapped), count
 end
 
 local function mergeEffects(effects, additional)
@@ -424,13 +463,19 @@ local function scanGuid(unit, guid, previous, now)
             if complete then Observer.playerLoCSelected = true end
         elseif unit ~= "player" and not complete then
             limited = true
+            local exactEffects
+            exactEffects, diagnostics.stompLookup = exactWarStomp(unit, now)
+            if exactEffects then mergeEffects(effects, exactEffects); sensor = "aura+exact" end
             if diagnostics.byUnitAvailable then
-                local locEffects, locComplete, locUnmapped = lossOfControlSnapshot(now, unit)
+                local locEffects, locComplete, locUnmapped, locCount = lossOfControlSnapshot(now, unit)
                 diagnostics.byUnitComplete = locComplete
+                diagnostics.byUnitCount = locCount
                 diagnostics.mappedLoC = countEffects(locEffects)
                 diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, locUnmapped)
                 mergeEffects(effects, locEffects)
-                if diagnostics.mappedLoC > 0 then sensor = "aura+loc" end
+                if diagnostics.mappedLoC > 0 then
+                    sensor = exactEffects and "aura+exact+loc" or "aura+loc"
+                end
             end
             -- LoC does not enumerate every debuff. Even a complete/empty LoC
             -- list must not turn this restricted aura scan into absence proof.
@@ -460,6 +505,8 @@ local function scanGuid(unit, guid, previous, now)
     elseif diagnostics.auraComplete then
         diagnostics.reason = diagnostics.mappedAuras > 0 and "Readable mapped crowd-control aura observed."
             or "Complete harmful aura scan has no mapped crowd-control witness."
+    elseif diagnostics.stompLookup == "confirmed" then
+        diagnostics.reason = "Restricted harmful aura scan; exact readable War Stomp aura added."
     elseif diagnostics.mappedLoC > 0 then
         diagnostics.reason = "Restricted harmful aura scan; readable ByUnit Loss of Control witness added."
     elseif not diagnostics.byUnitAvailable then
@@ -479,7 +526,7 @@ local function scanGuid(unit, guid, previous, now)
     }
     for key, value in pairs(diagnostics) do state[key] = value end
     ns.model:Observe(guid, effects, now, complete)
-    if ns.RecordDRObservation then ns.RecordDRObservation(guid, effects, now, complete, sensor) end
+    if ns.RecordDRObservation then ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostics) end
     return state
 end
 
