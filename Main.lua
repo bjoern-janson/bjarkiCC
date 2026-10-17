@@ -258,8 +258,12 @@ function ns.Command(message)
             ns.UI.ApplyLayout()
             ns.Print(option=='on' and 'Enemy cooldown HUD ON (experimental; only readable enemy successes or manual marks).' or 'Enemy cooldown HUD OFF. DR trackers unchanged.')
         elseif option=='status' then
-            ns.Print('Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'on (experimental)' or 'off')..
-                '; check /bcc status for castSuccessOther and acceptedCasts.')
+            local stats=ns.Observer.stats or {}
+            ns.Print('Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'on (experimental)' or 'off')..'.')
+            ns.Print('Event counts since tracking reset: other-unit cast START='..(stats.castStartsOther or 0)
+                ..', SUCCEEDED='..(stats.castSuccessOther or 0)
+                ..', accepted automatic cooldowns='..(stats.acceptedCasts or 0)
+                ..'. These counts do not establish complete enemy cast coverage.')
         else
             ns.Print('Usage: /bcc cooldowns on|off|status')
         end
