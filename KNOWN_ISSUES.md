@@ -1,5 +1,12 @@
 # bjarkiCC known issues and validation status
 
+## 0.4.17.8: AoE guess indicator hidden by user request
+
+The 0.4.17.7 War Stomp/Grenade candidate-DR estimate path was confirmed working in a first live test. The user requested removal of the extra `?` glyph, retaining the inferred DR state. 0.4.17.8 restores clean DR icon presentation while keeping `estimateKind=aoe`, possible-recipient uncertainty, shared-stun stages, separate observed evidence, tooltip qualification, and `/bcc aoe on|off`.
+
+**Important:** A green/yellow/red border produced by an AoE estimate is still **not a confirmed hit or immunity**. Range, misses, AoE victim selection and server reset behavior remain unknown. The visual badge was removed for consistency, not because confidence improved. No extra native STUN AURA widget is necessary for these estimates.
+
+
 ## 0.4.17.7: User-chosen ? estimates for otherwise unobservable AoE stun hits
 
 Following the live-confirmed common DR category for Bash, War Stomp and Iron Grenade, the user explicitly chose clearly marked guesses in the caster-side DR grid. The client still denies actual hostile aura/LoC evidence, so this does **not** fix automatic hit confirmation. `OwnCasts` now handles War Stomp (20549) and Iron Grenade (4068) success events as uncertain, deduplicated possible-target/focus applications. Exact positive aura evidence, when ever readable, remains authoritative.
