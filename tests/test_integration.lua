@@ -955,11 +955,14 @@ local guessedF=ns.model:GetDR('Player-1-AoE-F',now)[1]
 assert(guessedT and guessedF and guessedT.estimateKind=='aoe' and guessedF.estimateKind=='aoe'
  and guessedT.uncertain and guessedT.estimated
  and guessedT.stage==1 and guessedF.stage==1,'successful AoE creates only optional possible-victim stages')
-assert(ns.UI.bars.target.icons[1].state.shown
- and ns.UI.bars.target.icons[1].state.text=='?'
- and ns.UI.bars.focus.icons[1].state.shown
- and ns.UI.bars.focus.icons[1].state.text=='?',
- 'both opponent icons must visibly mark the speculative stage with a question mark')
+assert(not ns.UI.bars.target.icons[1].state.shown
+ and ns.UI.bars.target.icons[1].state.text==''
+ and not ns.UI.bars.focus.icons[1].state.shown
+ and ns.UI.bars.focus.icons[1].state.text=='',
+ 'unconfirmed AoE stage keeps original clean icon without any question mark')
+assert(ns.UI.bars.target.icons[1].row.estimated
+ and ns.UI.bars.target.icons[1].row.estimateKind=='aoe',
+ 'visual cleanup must not change estimate provenance or stage')
 ns.UI.bars.target.icons[1].scripts.OnEnter(ns.UI.bars.target.icons[1])
 assert(table.concat(ns.UI.tip.lines,'\n'):find('POSSIBLE victims only',1,true),
  'AoE tooltip must explicitly reject hit/stage certainty')
@@ -973,8 +976,10 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED',
 ns.UI.Update(now)
 guessedT=ns.model:GetDR('Player-1-AoE-T',now)[1]
 assert(guessedT.estimated and guessedT.spellID==4068 and guessedT.stage==2
- and ns.UI.bars.target.icons[1].state.text=='?',
- 'grenade guesses share Bash/War Stomp stun DR and keep the visible ?')
+ and guessedT.estimateKind=='aoe'
+ and ns.UI.bars.target.icons[1].state.text==''
+ and not ns.UI.bars.target.icons[1].state.shown,
+ 'grenade still advances an unconfirmed shared-stun estimate with no badge')
 assert(ns.BuildStatus():find('Last AoE guess: spell=4068',1,true)
  and ns.BuildStatus():find('candidatePlayers=2',1,true),
  'diagnostics show the candidate count without claiming a landed grenade')
