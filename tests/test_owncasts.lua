@@ -99,6 +99,72 @@ test('War Stomp and grenade create unconfirmed shared-stun guesses',function()
     eq(r.stage,3); eq(r.started,12.1,'immune target cannot have its existing timer prolonged')
 end)
 
+test('Goblin Mortar 13237 shares the Bash/Grenade stun estimate without claiming a hit',function()
+    reset(); fixture.focus=nil
+    eq(ns.Data.auraCategory[13237],'stun','Forever mortar shares Classic controlled stun category')
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-bash',5211,10),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-bash',5211,10.1),true)
+    eq(rows(nil,10.1)[1].stage,1)
+    eq(ns.OwnCasts.Sent('player','', 'Cast-mortar',13237,11),true)
+    eq(rows(nil,11)[1].stage,1,'mortar activation alone must not advance DR')
+    eq(ns.OwnCasts.Succeeded('player','Cast-mortar',13237,11.5),true)
+    local mortar=rows(nil,11.5)[1]
+    eq(mortar.spellID,13237)
+    eq(mortar.stage,2); eq(mortar.category,'stun')
+    eq(mortar.estimateKind,'aoe'); eq(mortar.estimated,true); eq(mortar.uncertain,true)
+    eq(ns.model.units['Player-1-A'],nil,'no observed hit is invented')
+    eq(ns.OwnCasts.stats.aoeEstimated,1)
+    eq(ns.OwnCasts.lastAoE.spellID,13237)
+    eq(ns.OwnCasts.lastAoE.source,'sent')
+    eq(ns.OwnCasts.Sent('player','', 'Cast-grenade',4068,12),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-grenade',4068,12.1),true)
+    local row=rows(nil,12.1)[1]
+    eq(row.stage,3); eq(row.estimateKind,'aoe')
+end)
+
+test('Goblin Mortar START snapshot resists target switch and shared GUID duplicate',function()
+    reset(); fixture.focus={guid=fixture.target.guid,name='Enemy',realm='RealmOne'}
+    eq(ns.OwnCasts.Started('player','Cast-mortar-start',13237,10),true)
+    fixture.target={guid='Player-1-New',name='New',realm='RealmNew'}
+    eq(ns.OwnCasts.Succeeded('player','Cast-mortar-start',13237,11),true)
+    local previous=rows('Player-1-A',11)[1]
+    eq(previous.spellID,13237); eq(previous.stage,1)
+    eq(#rows('Player-1-New',11),0,'no redirect to newly targeted player')
+    eq(ns.OwnCasts.stats.aoeEstimated,1,'target and focus shared GUID counted once')
+    eq(ns.OwnCasts.Succeeded('player','Cast-mortar-start',13237,11.1),false)
+    eq(rows('Player-1-A',11.1)[1].stage,1)
+end)
+
+test('Goblin Mortar handles missing/private item cast GUID and ignores duplicate success',function()
+    reset(); fixture.focus=nil
+    eq(ns.OwnCasts.Succeeded('player',nil,13237,10),true)
+    local row=rows(nil,10)[1]
+    eq(row.spellID,13237); eq(row.stage,1); eq(row.estimateKind,'aoe')
+    eq(ns.OwnCasts.lastAoE.source,'success-only')
+    eq(ns.OwnCasts.stats.aoeNoCastGUID,1)
+    eq(ns.OwnCasts.Succeeded('player',nil,13237,10.1),false)
+    eq(rows(nil,10.1)[1].started,10)
+    eq(ns.OwnCasts.Succeeded('player',secret,13237,11),true)
+    eq(rows(nil,11)[1].stage,2)
+    eq(ns.OwnCasts.stats.aoeNoCastGUID,2)
+    eq(ns.OwnCasts.Succeeded('target','Cast-unowned',13237,12),false)
+end)
+
+test('Goblin Mortar cancellation and off toggle cannot fabricate target stun',function()
+    reset(); fixture.focus=nil
+    eq(ns.OwnCasts.Sent('player','', 'Cast-mortar-cancel',13237,10),true)
+    eq(ns.OwnCasts.Failed('player','Cast-mortar-cancel',13237,10.2),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-mortar-cancel',13237,10.3),false)
+    eq(#rows(nil,10.3),0)
+    reset(); ns.db.aoeCastEstimates=false
+    eq(ns.OwnCasts.Sent('player','', 'Cast-mortar-off',13237,10),false)
+    eq(ns.OwnCasts.Succeeded('player','Cast-mortar-off',13237,10.1),false)
+    eq(#rows(nil,10.1),0)
+    reset(); fixture.target.isPlayer=false; fixture.focus=nil
+    eq(ns.OwnCasts.Succeeded('player','Cast-mortar-not-player',13237,10),false)
+    eq(#rows(nil,10),0)
+end)
+
 test('same target/focus GUID receives one area estimate, not a double stage',function()
     reset(); fixture.focus.guid=fixture.target.guid
     eq(ns.OwnCasts.Sent('player','', 'Cast-stomp',20549,10),true)
