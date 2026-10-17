@@ -1,5 +1,17 @@
 # bjarkiCC known issues and validation status
 
+## 0.4.17.2 evidence-first candidate: live verification required
+
+This branch adds guarded Target/Focus alias scanning, positive-only exact verification for outstanding direct-cast estimates, and more truthful enemy-cast delivery diagnostics. These are **proposed source remedies**, not reported in-client fixes.
+
+- A restricted target may still have a restricted focus alias; an exact aura getter may return nil/secret for every queried effect. Neither proves absence or a hit.
+- The first successful name-independent enemy-cooldown observation may show a GUID until a later readable caster name is observed.
+- Enemy cooldowns still require `UNIT_SPELLCAST_SUCCEEDED` with readable spell/identity/hostility. `UNIT_SPELLCAST_START` is now counted only; it does not predict an actual successful use.
+- Repeated restricted scans still invalidate full-duration learning. The 18s stage reset is a provisional policy, not a confirmed server rule.
+- The application timer, historical unconfirmed estimates, colors and 2×2 placement remain as in 0.4.17. No direct hit is inferred from a cast alone.
+- Offline tests and Actions packaging must pass before distribution; real restricted beta execution, combat transitions, and CPU cost still need measurement.
+
+
 ## Nature's Grasp arrives late on the caster (0.4.17)
 
 **Reported:** Nature's Grasp does not trigger caster-side root DR promptly.
