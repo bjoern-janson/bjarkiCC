@@ -1,6 +1,27 @@
 # bjarkiCC known issues and validation status
 
-## Current report: Hibernate stays out of sync on the next attempt
+## Current report: half-duration Hibernate shows final-stage red in 0.4.5
+
+The user supplied a screenshot and recipient status from installed 0.4.5-beta: half-duration Hibernate displays red, with observed stage three shared by player, target and focus. There are no own-cast estimates or scan gaps. The same aura instance `a:325` appears throughout:
+
+| Observation time | Timing source | Start | Observed stage in 0.4.5 |
+| --- | --- | --- | --- |
+| 2655626.973 | aura | 2655626.973 | 1 |
+| 2655626.973 | LoC | unknown | 1 |
+| 2655627.270 | LoC | 2655627.250 | 2, duplicate |
+| 2655637.512 | LoC | unknown | 2 |
+| 2655637.765 | LoC | 2655637.750 | 3, should be 2 |
+| 2655647.495 | removal | no effect | 3 retained until the application deadline |
+
+**Diagnosed cause:** 0.4.5 handled untimed-to-timed observations but still treated a first explicit LoC start later than an aura-derived start/first-seen time as another CC. The first Hibernate was therefore counted twice before the real second application arrived. This is an observed-source bookkeeping error, independent of the cast-estimate fallback and the user's application-based timer choice.
+
+**Source correction in 0.4.6:** calibrate the same application's first explicit LoC clock across the source handoff, then compare subsequent explicit timestamps against that baseline. Retain known LoC timing through lower-quality aura samples or stale explicit timestamps so source reversals cannot poison the comparison. The sequence now stays stage one at 2655627.250 and advances once to stage two at 2655637.750. No latency threshold is introduced. A genuinely new identity still counts; known LoC-to-LoC and pre-LoC aura-to-aura refreshes remain supported.
+
+**Evidence limit:** a same-ID reapplication hidden before the first explicit LoC timestamp cannot be distinguished from calibration using these snapshots alone. After explicit LoC timing is known, an aura-only timing change on the same identity is conservatively withheld until a newer LoC start or new identity is observed. Ambiguous data remains uncertain.
+
+**Validation:** the exact trace fails against 0.4.5 through real Main events, Observer, Model and UI. The correction is checked against the same sequence, including green/yellow borders, timer/sweep alignment, shared player/target/focus state and removal without a timer restart. Additional regressions cover reverse handoffs and stale timestamps. Live retesting of 0.4.6 is pending.
+
+## Previous report: Hibernate stays out of sync on the next attempt
 
 The user reports a possibly resisted Hibernate followed by a full application showing yellow, then supplies a 0.4.4 recipient trace from the next attempt that remained out of sync. The trace has no own-cast estimates and identifies a concrete duplicate count of each same-instance application:
 
@@ -16,7 +37,7 @@ The user reports a possibly resisted Hibernate followed by a full application sh
 
 **Source correction in 0.4.5:** first readable timing for the same untimed identity calibrates the existing application. A same-identity refresh requires an already known earlier application timestamp. No arbitrary grace period is added. The recorded `a:315` stays stage one, `a:319` stays stage two, and genuine later applications can still advance. The application-only 20-second policy and removal behavior remain unchanged.
 
-**Validation:** exact normalized traces fail against 0.4.4 and pass against the correction, including retained witnesses after an empty snapshot. A real Observer-to-Model fixture also reproduces the trace across all three shared views by providing a briefly future LoC timestamp; the future-time guard stays intact. The raw reason for the live timestamp's initial unavailability was not captured. Live retesting of 0.4.5 is pending. The earlier outgoing green-on-reduced report remains separate and unresolved.
+**Validation:** exact normalized traces fail against 0.4.4 and pass against the correction, including retained witnesses after an empty snapshot. A real Observer-to-Model fixture also reproduces the trace across all three shared views by providing a briefly future LoC timestamp; the future-time guard stays intact. The raw reason for the live timestamp's initial unavailability was not captured. The subsequent 0.4.5 live report above exposes a separate aura-to-LoC timing path that the untimed-only fix did not cover. The earlier outgoing green-on-reduced report remains separate and unresolved.
 
 ## Previous report: final-stage timer restarts on further casts
 
@@ -112,4 +133,4 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Gray uncertainty border hid counted DR stage | Always show stage color; explain uncertainty in tooltip/status (on-icon `?` removed in 0.4.3) | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
 | Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
 
-All nine suites pass for 0.4.5: Model 73 cases, Observer 73, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
+All nine suites pass for 0.4.6: Model 78 cases, Observer 73, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.

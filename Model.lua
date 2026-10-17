@@ -73,10 +73,10 @@ local function refreshedApplication(previous, effect, start)
     if not previous or not previous.appliedAt or not start then return false end
     if start <= previous.appliedAt + APPLICATION_EPSILON then return false end
     if effect.applicationSource == "loc" then
-        if previous.applicationSource == "loc" then return true end
-        -- A start after the previous application was already observed cannot
-        -- merely correct that application's duration-derived timestamp.
-        return previous.firstSeenAt and start > previous.firstSeenAt + APPLICATION_EPSILON
+        -- Aura expiration-duration and explicit LoC starts are different
+        -- clocks. The first LoC start calibrates this identity; only another
+        -- explicit start can establish a same-identity LoC refresh.
+        return previous.applicationSource == "loc"
     end
     -- A duration correction can move expiration-duration without another CC.
     -- A derived refresh needs both boundaries to change, from the same sensor.
@@ -184,8 +184,8 @@ function Model:Observe(guid, effects, now, complete)
                 prediction.categories[category] = nil
             end
         elseif same and preciseStart
-            and (not previous.appliedAt or (preciseStart <= previous.firstSeenAt
-                and previous.applicationSource == "aura" and effect.applicationSource == "loc"))
+            and (not previous.appliedAt or (previous.applicationSource ~= "loc"
+                and effect.applicationSource == "loc"))
             and state and state.applicationKey == key then
             -- The identity was observed before timing became readable. Correct
             -- that application in place; its arrival is not another CC.
@@ -210,7 +210,10 @@ function Model:Observe(guid, effects, now, complete)
                 -- correcting its clock cannot discard its already known count.
                 state.appliedAt, state.timeEstimated = preciseStart, false
                 if (continuing and prior.uncertain) or not unit.completeSince
-                    or preciseStart < unit.completeSince + self.resetSeconds then state.uncertain = true end
+                    or preciseStart < unit.completeSince + self.resetSeconds
+                    or (previous.appliedAt and math.abs(preciseStart - previous.appliedAt) > APPLICATION_EPSILON) then
+                    state.uncertain = true
+                end
             end
         elseif state and previous.expires and effect.expires and effect.expires > previous.expires then
             -- A stable key with an extended expiry may be a refreshed CC. It
@@ -218,10 +221,23 @@ function Model:Observe(guid, effects, now, complete)
             -- or invent a stage. An expired timer stays expired.
             state.uncertain = true
         end
+        -- Explicit timing stays authoritative for this application. A weaker
+        -- aura clock, missing timing, or stale LoC sample must not replace the
+        -- baseline used to recognize its next refresh. A new identity or a
+        -- newer explicit start creates a new witness normally. Same-ID aura
+        -- changes after LoC are ambiguous until stronger evidence arrives.
+        local retainTiming = same and not refreshed and previous.applicationSource == "loc"
+        if retainTiming and state and effect.applicationSource == "aura"
+            and ((preciseStart and math.abs(preciseStart - previous.appliedAt) > APPLICATION_EPSILON)
+                or (effect.expires and previous.expires
+                    and math.abs(effect.expires - previous.expires) > APPLICATION_EPSILON)) then
+            state.uncertain = true
+        end
         nextEffects[key] = {category = category, spellID = effect.spellID,
-            expires = effect.expires or (same and previous.expires or nil),
-            appliedAt = preciseStart or (same and previous.appliedAt or nil),
-            applicationSource = preciseStart and effect.applicationSource or (same and previous.applicationSource or nil),
+            expires = retainTiming and previous.expires or effect.expires or (same and previous.expires or nil),
+            appliedAt = retainTiming and previous.appliedAt or preciseStart or (same and previous.appliedAt or nil),
+            applicationSource = retainTiming and previous.applicationSource
+                or (preciseStart and effect.applicationSource) or (same and previous.applicationSource or nil),
             fallbackIdentity = effect.fallbackIdentity == true,
             firstSeenAt = same and not refreshed and previous.firstSeenAt or now}
         local current = unit.categories[category]

@@ -775,14 +775,96 @@ test("a shorter diminished refresh advances the same aura identity once", functi
     r=only(m:GetDR("a",106)); eq(r.stage,2); eq(r.started,105); eq(r.remaining,19)
 end)
 
-test("a new explicit LoC start after aura observation is a reapplication", function()
+test("first explicit LoC timing after aura observation calibrates the same identity", function()
     local m = new(); baseline(m,"a")
     local a=effect("stun",100,41,21); a.applicationSource="aura"
     m:Observe("a",{a=a},21,true)
     local b=effect("stun",100,35,25); b.applicationSource="loc"
     m:Observe("a",{a=b},25,true)
-    local r=only(m:GetDR("a",25)); eq(r.stage,2); eq(r.started,25)
-    m:Observe("a",{a=b},26,true); eq(only(m:GetDR("a",26)).stage,2)
+    -- A changed sensor clock does not prove another application. The live
+    -- a:325 trace has this transition while its first Hibernate is still active.
+    local r=only(m:GetDR("a",25)); eq(r.stage,1); eq(r.started,25); eq(r.uncertain,true)
+    m:Observe("a",{a=b},26,true); eq(only(m:GetDR("a",26)).stage,1)
+end)
+
+test("live a325 source handoff calibrates once then its real LoC refresh advances once", function()
+    local m=new()
+    m:Observe("a",{},2655614.460,true)
+    local initial=effect("incapacitate",2637,2655646.973,2655626.973); initial.applicationSource="aura"
+    m:Observe("a",{["a:325"]=initial},2655626.973,true)
+    local untimed=effect("incapacitate",2637,2655646.973); untimed.applicationSource="loc"
+    m:Observe("a",{["a:325"]=untimed},2655626.973,true)
+    eq(only(m:GetDR("a",2655626.973)).stage,1)
+    local first=effect("incapacitate",2637,2655647.250,2655627.250); first.applicationSource="loc"
+    m:Observe("a",{["a:325"]=first},2655627.270,true)
+    local row=only(m:GetDR("a",2655627.270))
+    eq(row.stage,1,"first explicit clock must not manufacture the second application")
+    eq(row.observedStage,1); eq(row.started,2655627.250)
+    untimed=effect("incapacitate",2637,2655647.511); untimed.applicationSource="loc"
+    m:Observe("a",{["a:325"]=untimed},2655637.512,true)
+    row=only(m:GetDR("a",2655637.512)); eq(row.stage,1); eq(row.started,2655627.250)
+    local second=effect("incapacitate",2637,2655647.750,2655637.750); second.applicationSource="loc"
+    m:Observe("a",{["a:325"]=second},2655637.765,true)
+    row=only(m:GetDR("a",2655637.765)); eq(row.stage,2); eq(row.observedStage,2); eq(row.started,2655637.750)
+    m:Observe("a",{},2655647.495,true)
+    row=only(m:GetDR("a",2655652.750)); eq(row.stage,2); eq(row.remaining,5); eq(row.active,false)
+    eq(#m:GetDR("a",2655657.750),0)
+end)
+
+test("aura samples cannot replace an established LoC refresh baseline", function()
+    local m=new()
+    local explicit=effect("stun",100,120,100); explicit.applicationSource="loc"
+    m:Observe("a",{same=explicit},100,true)
+    local derived=effect("stun",100,120.3,100.3); derived.applicationSource="aura"
+    m:Observe("a",{same=derived},100.3,true)
+    local row=only(m:GetDR("a",100.3)); eq(row.stage,1); eq(row.started,100)
+    -- Even another changed pair of derived boundaries cannot supersede an
+    -- explicit clock for this identity. Wait for LoC or a new identity.
+    derived=effect("stun",100,120.6,100.6); derived.applicationSource="aura"
+    m:Observe("a",{same=derived},100.6,true)
+    row=only(m:GetDR("a",100.6)); eq(row.stage,1); eq(row.started,100)
+    m:Observe("a",{same=explicit},101,true)
+    row=only(m:GetDR("a",101)); eq(row.stage,1); eq(row.started,100)
+    derived=effect("stun",100,125.3,105.3); derived.applicationSource="aura"
+    m:Observe("a",{same=derived},105.3,true)
+    explicit=effect("stun",100,115,105); explicit.applicationSource="loc"
+    m:Observe("a",{same=explicit},105.4,true)
+    row=only(m:GetDR("a",105.4)); eq(row.stage,2); eq(row.started,105)
+end)
+
+test("an older LoC sample cannot replace the accepted refresh baseline", function()
+    local m=new()
+    local explicit=effect("stun",100,120,100); explicit.applicationSource="loc"
+    m:Observe("a",{same=explicit},100,true)
+    local stale=effect("stun",100,119,99); stale.applicationSource="loc"
+    m:Observe("a",{same=stale},101,true)
+    local row=only(m:GetDR("a",101)); eq(row.stage,1); eq(row.started,100)
+    m:Observe("a",{same=explicit},102,true)
+    row=only(m:GetDR("a",102)); eq(row.stage,1); eq(row.started,100)
+end)
+
+test("conflicting diminished aura timing after LoC remains uncertain without inventing a stage", function()
+    local m=new()
+    m:Observe("a",{},80,true)
+    local explicit=effect("stun",100,120,100); explicit.applicationSource="loc"
+    m:Observe("a",{same=explicit},100,true)
+    eq(only(m:GetDR("a",100)).uncertain,false)
+    local derived=effect("stun",100,111,101); derived.applicationSource="aura"
+    m:Observe("a",{same=derived},101,true)
+    local row=only(m:GetDR("a",101))
+    eq(row.stage,1); eq(row.started,100); eq(row.uncertain,true)
+end)
+
+test("a distinct aura identity advances despite a prior explicit LoC clock", function()
+    local m=new()
+    local explicit=effect("stun",100,120,100); explicit.applicationSource="loc"
+    m:Observe("a",{["a:1"]=explicit},100,true)
+    local derived=effect("stun",100,115.3,105.3); derived.applicationSource="aura"
+    m:Observe("a",{["a:2"]=derived},105.3,true)
+    local row=only(m:GetDR("a",105.3)); eq(row.stage,2); eq(row.started,105.3)
+    explicit=effect("stun",100,115.5,105.5); explicit.applicationSource="loc"
+    m:Observe("a",{["a:2"]=explicit},105.6,true)
+    row=only(m:GetDR("a",105.6)); eq(row.stage,2); eq(row.started,105.5)
 end)
 
 test("explicit timing can correct a later refresh without counting it again", function()

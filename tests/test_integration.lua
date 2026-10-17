@@ -372,4 +372,59 @@ hovered.row.remaining=125
 hovered.scripts.OnEnter(hovered)
 assert(ns.UI.tip.lines[3]=='Estimated remaining: 125s','long tooltip timers keep correct seconds unit')
 ns.model=realModel
+-- Replay the recipient's 0.4.5 Hibernate trace through events, observation,
+-- shared GUID state and rendered colors. The first clock comes from aura data;
+-- LoC supplies a different explicit start before a real same-ID reapplication.
+SlashCmdList.BJARKICC('clear')
+units.target=units.player; units.focus=units.player
+local handoffAura, handoffLoC
+local handoffSecret={}
+issecretvalue=function(value) return rawequal(value,handoffSecret) end
+canaccessvalue=function(value) return not rawequal(value,handoffSecret) end
+C_UnitAuras={GetAuraDataByIndex=function(unit,index)
+ if unit=='player' and index==1 then return handoffAura end
+end}
+C_LossOfControl={GetActiveLossOfControlDataCount=function() return handoffLoC and 1 or 0 end,
+ GetActiveLossOfControlData=function() return handoffLoC end}
+local function handoffEvent(at,event,stage,start)
+ now=at
+ ns.eventFrame.scripts.OnEvent(ns.eventFrame,event,'player')
+ ns.UI.Update(now)
+ for _,unit in ipairs({'player','target','focus'}) do
+  local bar=ns.UI.bars[unit]
+  if stage then
+   local icon=bar.icons[1]
+   assert(bar.shown and icon.row.stage==stage and icon.row.observedStage==stage,
+    'Hibernate source handoff must not invent a stage on '..unit)
+   assert(icon.row.started==start and icon.swipe.cooldown[1]==start,
+    'numeric countdown and sweep share the calibrated application time')
+   assert(icon.time.text==ns.UI.FormatTime(start+20-now),'countdown retains the application policy')
+   local color=({{.25,1,.3},{1,.8,.15},{1,.2,.15}})[stage]
+   for _,edge in ipairs(icon.borderTextures) do
+    assert(edge.color[1]==color[1] and edge.color[2]==color[2] and edge.color[3]==color[3],
+     'rendered Hibernate border follows the corrected observed cycle')
+   end
+   assert(not icon.state.shown,'no DR question mark is reintroduced')
+  else
+   assert(not bar.shown,'application timer expires without being restarted by removal')
+  end
+ end
+end
+handoffEvent(2655614.460,'UNIT_AURA')
+handoffAura={spellId=2637,auraInstanceID=325,expirationTime=2655646.973,duration=20}
+handoffEvent(2655626.973,'UNIT_AURA',1,2655626.973)
+handoffAura={spellId=handoffSecret,auraInstanceID=325}
+handoffLoC={spellID=2637,auraInstanceID=325,startTime=2655627.250,duration=20,timeRemaining=20}
+handoffEvent(2655626.973,'LOSS_OF_CONTROL_ADDED',1,2655626.973)
+handoffEvent(2655627.270,'LOSS_OF_CONTROL_UPDATE',1,2655627.250)
+handoffLoC={spellID=2637,auraInstanceID=325,startTime=2655637.750,duration=10,timeRemaining=9.999}
+handoffEvent(2655637.512,'LOSS_OF_CONTROL_UPDATE',1,2655627.250)
+handoffEvent(2655637.765,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
+handoffEvent(2655642.750,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
+assert(ns.UI.bars.player.icons[1].time.text=='15','half-duration CC now has the yellow second cycle at 15s')
+handoffLoC=nil
+handoffEvent(2655647.495,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
+handoffEvent(2655652.402,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
+assert(ns.OwnCasts.stats.estimated==0,'recipient regression is entirely observed history')
+handoffEvent(2655657.750,'LOSS_OF_CONTROL_UPDATE')
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')
