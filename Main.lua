@@ -38,6 +38,13 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
     if diagnostics and diagnostics.graspLookup then
         probe=probe..'; graspLookup='..diagnostics.graspLookup
     end
+    if diagnostics and diagnostics.grenadeLookup then
+        probe=probe..'; grenadeLookup='..diagnostics.grenadeLookup
+    end
+    if diagnostics and diagnostics.eventWitnesses then
+        probe=probe..'; auraEventAoE='..diagnostics.eventWitnesses
+            ..'; conflict='..tostring(diagnostics.eventConflict == true)
+    end
     if diagnostics and diagnostics.aliasCoverage then
         probe=probe..'; alias='..diagnostics.aliasUnit..':'..diagnostics.aliasCoverage
             ..'; aliasMapped='..(diagnostics.aliasMapped or 0)
@@ -106,6 +113,9 @@ function ns.BuildStatus()
             ..(state.byUnitCount and ('; records '..state.byUnitCount) or '')
         if state.stompLookup then lines[#lines+1]='  Exact War Stomp lookup: '..state.stompLookup end
         if state.graspLookup then lines[#lines+1]="  Exact Nature's Grasp lookup: "..state.graspLookup end
+        if state.grenadeLookup then lines[#lines+1]='  Exact Iron Grenade lookup: '..state.grenadeLookup end
+        if state.eventWitnesses then lines[#lines+1]='  Readable AoE event: '..state.eventWitnesses
+            ..'; conflicting scan '..tostring(state.eventConflict == true) end
         if state.aliasCoverage then lines[#lines+1]='  Shared-GUID alias: '..state.aliasUnit
             ..'; coverage '..state.aliasCoverage..'; mapped '..(state.aliasMapped or 0) end
         if state.castLookup then lines[#lines+1]='  Cast-guided exact lookup: '..state.castLookup
@@ -284,13 +294,21 @@ frame:SetScript('OnEvent',function(_,event,...)
         elseif event=='UNIT_SPELLCAST_FAILED' or event=='UNIT_SPELLCAST_INTERRUPTED' then
             local unit,castGUID,spellID=...
             ns.OwnCasts.Failed(unit,castGUID,spellID,GetTime())
-        elseif event=='UNIT_AURA' or event=='LOSS_OF_CONTROL_ADDED' or event=='LOSS_OF_CONTROL_UPDATE' then
+        elseif event=='UNIT_AURA' then
+            local unit, updateInfo=...
+            local token=S.String(unit)
+            if not token or token=='player' or token=='target' or token=='focus' then
+                -- A readable positive event can capture short-lived AoE CC even
+                -- when the following indexed scan has already become secret.
+                ns.Observer.OnAuraEvent(unit,updateInfo,GetTime())
+            end
+        elseif event=='LOSS_OF_CONTROL_ADDED' or event=='LOSS_OF_CONTROL_UPDATE' then
             local unit=S.String(...)
             if not unit or unit=='player' or unit=='target' or unit=='focus' then
-                -- Sample synchronously: a short CC can start and end between
-                -- render ticks. Render remains throttled independently.
                 ns.Observer.Scan(GetTime())
             end
+        elseif event=='UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED' then
+            ns.Observer.OnNativeDR(...)
         elseif event=='PLAYER_ENTERING_WORLD' then resetTracking()
         elseif event=='PLAYER_REGEN_ENABLED' then ns.UI.ApplyLayout(); dirty=true
         elseif event=='PLAYER_REGEN_DISABLED' then
@@ -314,9 +332,10 @@ frame:SetScript('OnUpdate',function(_,elapsed)
     if drawElapsed>=.1 then drawElapsed=0; ns.UI.Update(GetTime()) end
 end)
 
--- No combat-log or secret native SpellDiminish event registration.
+-- Native DR event is diagnostics-only. Its secret payload never enters the model.
 for _,event in ipairs({'ADDON_LOADED','PLAYER_ENTERING_WORLD','PLAYER_TARGET_CHANGED','PLAYER_FOCUS_CHANGED',
     'PLAYER_REGEN_ENABLED','PLAYER_REGEN_DISABLED','UNIT_AURA',
+    'UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED',
     'LOSS_OF_CONTROL_ADDED','LOSS_OF_CONTROL_UPDATE','UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_START',
     'UNIT_SPELLCAST_CHANNEL_START','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','PLAYER_DEAD','PLAYER_ALIVE'}) do register(event) end
 SLASH_BJARKICC1='/bcc'
