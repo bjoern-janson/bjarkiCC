@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.17.3-aoe-test'
+ns.name, ns.version = addonName, '0.4.17.4-cooldown-optin-test'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -46,7 +46,7 @@ function S.Field(value, key)
     if ok and S.Readable(result) then return result end
 end
 
-local placements = { player={-230,-165}, target={230,-165}, focus={230,-230}, cooldown={0,-280} }
+local placements = { player={-230,-165}, target={230,-165}, focus={230,-230}, cooldown={0,-170} }
 local portraitOffsets = { player={0,8}, target={10,0}, focus={10,0} }
 local healthOffsets = { player={24,24}, target={-24,24}, focus={-24,24} }
 local function defaultUnitPlacement(bar, key)
@@ -69,6 +69,7 @@ function ns.InitializeDB()
     local savedSchema = S.Number(db.schema) or 0
     local migrateVisualDefaults = savedSchema < 2
     local migrateUnitOffsets = savedSchema < 7
+    local migrateCooldownDefault = savedSchema < 8
     db.locked = bool(db.locked, true)
     db.targetOnly = bool(db.targetOnly, false)
     db.interrupts = bool(db.interrupts, false)
@@ -91,6 +92,27 @@ function ns.InitializeDB()
     db.bars = type(db.bars) == 'table' and db.bars or {}
     for key, position in pairs(placements) do
         local bar = type(db.bars[key]) == 'table' and db.bars[key] or {}
+        if key == 'cooldown' and migrateCooldownDefault then
+            -- The old free bar default (0,-280) sat over the native cast bar.
+            -- Move only the untouched legacy anchor, never a dragged position.
+            local legacyPosition = (bar.x == nil or S.Number(bar.x) == 0)
+                and (bar.y == nil or S.Number(bar.y) == -280)
+            if legacyPosition then
+                -- An unchanged default-on bar is not an explicit choice to use
+                -- an unverified combat feed. Leave customized/explicitly
+                -- positioned bars enabled, and keep user-disabled bars off.
+                local untouchedAppearance =
+                    (bar.size == nil or S.Number(bar.size) == 32
+                        or (migrateVisualDefaults and S.Number(bar.size) == 40))
+                    and (bar.gap == nil or S.Number(bar.gap) == 3
+                        or (migrateVisualDefaults and S.Number(bar.gap) == 8))
+                    and (bar.vertical == nil or bar.vertical == false)
+                    and (bar.reverse == nil or bar.reverse == false)
+                    and (bar.maxIcons == nil or S.Number(bar.maxIcons) == 12)
+                bar.x, bar.y = 0, -170
+                if untouchedAppearance and bar.enabled ~= false then bar.enabled = false end
+            end
+        end
         if migrateVisualDefaults then
             if S.Number(bar.size) == (key == 'cooldown' and 40 or 36) then
                 bar.size = key == 'cooldown' and 32 or 28
@@ -98,7 +120,7 @@ function ns.InitializeDB()
             if S.Number(bar.gap) == 8 then bar.gap = 3 end
             bar.label = false
         end
-        bar.enabled = bool(bar.enabled, true)
+        bar.enabled = bool(bar.enabled, key ~= 'cooldown')
         bar.label = bool(bar.label, false)
         bar.vertical = bool(bar.vertical, key ~= 'cooldown')
         bar.reverse = bool(bar.reverse, key ~= 'cooldown')
@@ -125,7 +147,7 @@ function ns.InitializeDB()
         end
         db.bars[key] = bar
     end
-    db.schema = 7
+    db.schema = 8
     bjarkiCCDB, ns.db = db, db
 end
 
