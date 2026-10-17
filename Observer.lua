@@ -201,6 +201,9 @@ local function exactAura(unit, wantedSpellID, now)
     }}, "confirmed"
 end
 
+-- AoE stuns have no provable victim from the cast event. Independently
+-- identify only actual harmful effects, never the item/racial activation.
+local aoeStunEffects = {[20549] = true, [4068] = true}
 local graspEffects = {19975, 19974, 19973, 19972, 19971, 19970}
 local graspEffectIDs = {}
 for _, id in ipairs(graspEffects) do graspEffectIDs[id] = true end
@@ -218,6 +221,53 @@ local function exactGrasp(unit, now)
         end
     end
     return next(effects) and effects or nil, status
+end
+
+-- UNIT_AURA addedAuras is fully secret on restricted Forever clients. Still
+-- consume rare readable positive records before they disappear between scans.
+-- Never infer an absence from this delta or attempt to interpret secret data.
+-- Restrict this extra path to the two confirmed AoE effect IDs.
+local function addedAoEEvent(unit, updateInfo, now)
+    if not Safe.Readable(updateInfo) or type(updateInfo) ~= "table" then
+        return nil, "restricted"
+    end
+    local added, readable = field(updateInfo, "addedAuras", "UNIT_AURA.addedAuras", unit)
+    if not readable then return nil, "restricted" end
+    if added == nil then return nil, "no-added" end
+    if not Safe.Readable(added) or type(added) ~= "table" then return nil, "restricted" end
+    local length = number(Safe.Call(function() return #added end))
+    if not length or length < 0 or length ~= math.floor(length) then return nil, "restricted" end
+    local results, accepted = {}, 0
+    for i = 1, math.min(length, 64) do
+        local aura, ok = field(added, i, "UNIT_AURA.addedAuras.item", unit)
+        if ok and type(aura) == "table" then
+            local rawID = field(aura, "spellId", "AuraData.spellId", unit)
+            local id = identifier(rawID)
+            if id and aoeStunEffects[id] and ns.Data.auraCategory[id] == "stun" then
+                local rawHarmful = field(aura, "isHarmful", "AuraData.isHarmful", unit)
+                local harmful = Safe.Boolean(rawHarmful)
+                local rawInstance = field(aura, "auraInstanceID", "AuraData.auraInstanceID", unit)
+                local instance = identifier(rawInstance)
+                if harmful == true and instance then
+                    local rawExpiry = field(aura, "expirationTime", "AuraData.expirationTime", unit)
+                    local expires = number(rawExpiry)
+                    if not expires or expires <= 0 or expires > now then
+                        if expires and expires <= 0 then expires = nil end
+                        local rawDuration = field(aura, "duration", "AuraData.duration", unit)
+                        local duration = number(rawDuration)
+                        local appliedAt = expires and duration and duration > 0
+                            and applicationTime(expires - duration, now) or nil
+                        local key = "a:" .. tostring(instance)
+                        results[key] = {category = "stun", spellID = id,
+                            expires = expires, appliedAt = appliedAt,
+                            applicationSource = appliedAt and "aura" or nil}
+                        accepted = accepted + 1
+                    end
+                end
+            end
+        end
+    end
+    return next(results) and results or nil, length > 64 and "capped" or "readable", accepted
 end
 
 local function byUnitAvailable()
@@ -456,7 +506,7 @@ local function exactPlayerHandoff(unit, previous, effects, complete, sensor, amb
     return true
 end
 
-local function scanGuid(unit, guid, previous, now, aliases)
+local function scanGuid(unit, guid, previous, now, aliases, eventProof)
     local effects, complete, sensor, limited
     local diagnostics = {mappedAuras = 0, unmappedSpellIDs = {}, mappedLoC = 0,
         byUnitAvailable = unit ~= "player" and byUnitAvailable() or false}
@@ -488,6 +538,11 @@ local function scanGuid(unit, guid, previous, now, aliases)
             local exactEffects
             exactEffects, diagnostics.stompLookup = exactAura(unit, 20549, now)
             if exactEffects then mergeEffects(effects, exactEffects); sensor = "aura+exact" end
+            -- Iron Grenade's effect 4068 is a real stun aura, not a reliable
+            -- target from the player's thrown-item cast. Require a positive.
+            local grenade
+            grenade, diagnostics.grenadeLookup = exactAura(unit, 4068, now)
+            if grenade then mergeEffects(effects, grenade); sensor = "aura+exact" end
             local roots
             roots, diagnostics.graspLookup = exactGrasp(unit, now)
             if roots then mergeEffects(effects, roots); sensor = "aura+exact" end
@@ -498,7 +553,7 @@ local function scanGuid(unit, guid, previous, now, aliases)
                 and ns.model:GetPendingExactSpellIDs(guid, now) or {}
             local lookup, queryCount, positiveCount = "none", 0, 0
             for _, spellID in ipairs(pending) do
-                if spellID ~= 20549 and not graspEffectIDs[spellID] then
+                if not aoeStunEffects[spellID] and not graspEffectIDs[spellID] then
                     local additional, result = exactAura(unit, spellID, now)
                     queryCount = queryCount + 1
                     if exactStatusPriority[result] > exactStatusPriority[lookup] then lookup = result end
@@ -522,7 +577,7 @@ local function scanGuid(unit, guid, previous, now, aliases)
                 diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, locUnmapped)
                 mergeEffects(effects, locEffects)
                 if diagnostics.mappedLoC > 0 then
-                    sensor = (exactEffects or roots) and "aura+exact+loc" or "aura+loc"
+                    sensor = (exactEffects or grenade or roots) and "aura+exact+loc" or "aura+loc"
                 end
             end
             -- LoC does not enumerate every debuff. Even a complete/empty LoC
@@ -572,6 +627,22 @@ local function scanGuid(unit, guid, previous, now, aliases)
         end
     end
 
+    if eventProof and eventProof.guid == guid and eventProof.effects then
+        local conflict = false
+        if complete then
+            for key in pairs(eventProof.effects) do
+                if not effects[key] then conflict = true; break end
+            end
+        end
+        if conflict then
+            complete, limited = false, true
+            diagnostics.eventConflict = true
+            Observer.stats.auraEventConflicts = Observer.stats.auraEventConflicts + 1
+        end
+        mergeEffects(effects, eventProof.effects)
+        diagnostics.eventWitnesses = countEffects(eventProof.effects)
+        sensor = sensor .. "+event"
+    end
     local ambiguous
     effects, ambiguous = reconcileWitnesses(effects, previous)
     if ambiguous then complete, limited = false, true end
@@ -598,6 +669,8 @@ local function scanGuid(unit, guid, previous, now, aliases)
             or "Complete harmful aura scan has no mapped crowd-control witness."
     elseif diagnostics.stompLookup == "confirmed" then
         diagnostics.reason = "Restricted harmful aura scan; exact readable War Stomp aura added."
+    elseif diagnostics.grenadeLookup == "confirmed" then
+        diagnostics.reason = "Restricted harmful aura scan; exact readable Iron Grenade stun added."
     elseif diagnostics.graspLookup == "confirmed" then
         diagnostics.reason = "Restricted harmful aura scan; exact readable Nature's Grasp root added."
     elseif diagnostics.mappedLoC > 0 then
@@ -608,6 +681,9 @@ local function scanGuid(unit, guid, previous, now, aliases)
         diagnostics.reason = "Restricted harmful aura scan; ByUnit Loss of Control has no mapped witness."
     else
         diagnostics.reason = "Harmful aura and ByUnit Loss of Control data are unavailable or restricted."
+    end
+    if diagnostics.eventConflict then
+        diagnostics.reason = "Readable AoE aura event conflicts with indexed absence; retaining positive, incomplete coverage."
     end
     if ambiguous then diagnostics.reason = "Ambiguous aura/LoC application identity; canonical witness retained." end
     if capped then diagnostics.reason = "Observation capacity reached while removal data remains restricted." end
@@ -634,7 +710,10 @@ function Observer.Init()
         scanCaps = 0, scanGaps = 0, handoffsPreserved = 0, handoffsInvalidated = 0,
         aliasRecoveries = 0, castStartsPlayer = 0, castStartsOther = 0, castStartsUnknown = 0,
         castSuccessPlayer = 0, castSuccessOther = 0, castSuccessUnknown = 0,
-        castNameUnavailable = 0, castPlayerGuidFallback = 0}
+        castNameUnavailable = 0, castPlayerGuidFallback = 0,
+        auraEventCalls = 0, auraEventRestricted = 0, auraEventPositives = 0,
+        auraEventConflicts = 0, nativeDREvents = 0, nativeDRRestricted = 0,
+        nativeDRReadable = 0}
     Observer.castRejects = {}
 end
 
@@ -643,7 +722,7 @@ function Observer.GetUnitState(unit)
     if token == "player" or token == "target" or token == "focus" then return Observer.units[token] end
 end
 
-function Observer.Scan(now)
+function Observer.Scan(now, eventProof)
     now = number(now)
     if not now or now < 0 then return end
     Observer.stats.scans = Observer.stats.scans + 1
@@ -683,7 +762,8 @@ function Observer.Scan(now)
         local guid = identities[unit]
         if guid then
             if not scanned[guid] then
-                scanned[guid] = scanGuid(owners[guid], guid, previous[guid], now, aliases[guid])
+                scanned[guid] = scanGuid(owners[guid], guid, previous[guid], now, aliases[guid],
+                    eventProof and eventProof.guid == guid and eventProof or nil)
             end
             units[unit] = scanned[guid]
         else
@@ -691,6 +771,44 @@ function Observer.Scan(now)
         end
     end
     Observer.units = units
+end
+
+-- The public unit token can be informative even when Blizzard's native DR
+-- tracker payload is secret. Count delivery without ever treating it as a
+-- spell, category, application, or hit.
+function Observer.OnNativeDR(unit, trackerInfo)
+    Observer.stats.nativeDREvents = Observer.stats.nativeDREvents + 1
+    if not unitToken(unit) or not Safe.Readable(trackerInfo) or type(trackerInfo) ~= "table" then
+        Observer.stats.nativeDRRestricted = Observer.stats.nativeDRRestricted + 1
+        return
+    end
+    local category, readable = field(trackerInfo, "category", "NativeDR.category", unit)
+    if not readable or not identifier(category) then
+        Observer.stats.nativeDRRestricted = Observer.stats.nativeDRRestricted + 1
+    else
+        Observer.stats.nativeDRReadable = Observer.stats.nativeDRReadable + 1
+    end
+end
+
+-- Retain only exact positive AoE observations from readable UNIT_AURA deltas.
+-- The event calls Scan once; later secret snapshots cannot erase the witness.
+function Observer.OnAuraEvent(unit, updateInfo, now)
+    Observer.stats.auraEventCalls = Observer.stats.auraEventCalls + 1
+    local token = unitToken(unit)
+    now = number(now)
+    if not now or not token then return end
+    local guid = (token == "player" or token == "target" or token == "focus")
+        and readIdentity(token) or nil
+    local effects, status, positive = addedAoEEvent(token, updateInfo, now)
+    if status == "restricted" then
+        Observer.stats.auraEventRestricted = Observer.stats.auraEventRestricted + 1
+    end
+    if effects and guid then
+        Observer.stats.auraEventPositives = Observer.stats.auraEventPositives + (positive or 0)
+        Observer.Scan(now, {guid = guid, effects = effects, unit = token})
+    else
+        Observer.Scan(now)
+    end
 end
 
 -- START is telemetry only: it must NEVER start an enemy cooldown or DR.
