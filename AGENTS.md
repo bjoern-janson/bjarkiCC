@@ -17,8 +17,10 @@ These rules preserve the 0.4.17 baseline while improving correctness on the WoW 
 
 - `resetSeconds` is the visible application-based countdown, default 20s. CC ending/removal does not restart it.
 - `stageResetSeconds` is a *separate provisional* DR stage retention after CC ends, default 18s. Never claim it is a verified Forever server constant.
-- An inferred stage never silently becomes an observed one. Keep default 0.4.17 side-grid geometry, green/yellow/red stage borders, compact text rule and SavedVariables schema unless expressly requested.
+- An inferred stage never silently becomes an observed one. Preserve the accepted 0.4.17 DR 2×2 geometry, stage colors and countdown policy. Schema 8 is a narrow migration for the experimental enemy-cooldown HUD; do not reset other saved settings.
 - Let native Cooldown frames advance unchanged countdowns; avoid resetting clocks, fonts, icon geometry and anchor points every 0.1 seconds.
+- Enemy cooldown tracking is unverified on this Forever build. Keep its HUD opt-in and separate its synthetic /bcc test icons from observed successful hostile casts and manually marked uses. Do not display a fake preview as if it were live combat evidence, or infer unseen enemy uses from cast START, a blank bar or talent assumptions.
+- The old cooldown screen anchor (0,-280) overlapped the cast bar. Schema 8 moves only the untouched default to (0,-170); user-customized positions and explicit opt-in after migration must remain stable.
 
 ## Verification and change control
 
