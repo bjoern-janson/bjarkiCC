@@ -1,5 +1,9 @@
 # bjarkiCC architecture and DR research
 
+## Current runtime baseline and persistent settings (2026-10-17)
+
+Runtime and tests are restored to original 0.4.17. SavedVariables are a separate persistence layer: replacing addon files leaves valid saved booleans and numbers intact. The verified recovery restores this version's defaults (`ownCastEstimates=true`, application countdown 20 seconds, stage retention 18 seconds after CC ends); only the first and third values needed changing in the inspected profiles. See [RECOVERY.md](RECOVERY.md) for evidence, instructions and unresolved live limitations. No later tracking or visual changes are included in this baseline.
+
 Research checked 2026-10-17. This document separates source evidence, addon policy, reported behavior and offline validation.
 
 ## Findings that matter for this bug
@@ -68,7 +72,7 @@ Record build, spell rank/ID, victim, application time, early-break/removal time,
 
 No implementation code from these projects was copied into bjarkiCC by this research task.
 
-## Implemented architecture in 0.4.19-beta
+## Implemented architecture in 0.4.17-beta
 
 Target client: **WoW Forever beta 1.60.1.70425**, interface **16001**. The user explicitly chose to keep the **application-based display timer** after the Classic distinction above was explained. A new application starts or refreshes the configured timer, default 20 seconds; breaking/removing CC does not restart it. Starting with 0.4.7, the user also explicitly chose to retain stage history separately until the configured interval after CC ends. Version 0.4.8 separates the settings: `resetSeconds` keeps the application countdown (default 20), while `stageResetSeconds` defaults to 18. Missing legacy stage settings receive 18 without changing existing display preferences; explicit overrides survive reload. Both settings are guarded and bounded to 10–30 seconds. Stage coverage/confidence uses the stage interval; cast predictions and confirmations keep the application interval. These are addon estimates, not a verified Forever server-reset rule.
 
@@ -184,9 +188,7 @@ Status and tooltip expose the correction. Trace signatures include newly reporte
 
 ### Own-cast estimates
 
-Since 0.4.19, cast predictions are disabled by default; schema 8 also turns the earlier automatic setting off once without moving the grids. A later deliberate opt-in persists across reload and the settings label warns about dodges/resists. Successful casting does not imply a landed hit, and the source could reproduce a stage-one tracker with SENT/SUCCEEDED but no application. No reliable dodge event is inferred to repair a prediction after the fact. Confirmed aura/LoC observations remain independent; unavailable outgoing evidence can leave no tracker under this policy.
-
-When explicitly enabled, only an allowlist of targeted CC can predict DR; area spells, traps and procs are excluded. `UNIT_SPELLCAST_SENT` matches the intended name against readable player target/focus candidates, rejecting ambiguity between those candidates. Readable `UnitName`/`UnitFullName` fields generate exact bare, hyphen-qualified and space-qualified aliases; realm whitespace is normalized for hyphen-qualified names, without stripping or guessing character spelling. Aliases of one GUID share names before checking for missing data. Unknown distinct identities or ambiguous same-name GUIDs still reject the estimate. It supplies a name, not a victim GUID: a same-name destination outside target/focus (for example a mouseover) cannot be ruled out. `UNIT_SPELLCAST_SUCCEEDED` must match the cast identity and spell. Failed/interrupted casts and expired pending records are discarded. Target changes after send cannot redirect the stored candidate. The estimate starts at success, which approximates rather than proves application time. Dodged, resisted or immune hits can still produce a prediction when this optional setting is enabled.
+The option is enabled by default and can be disabled in DR settings. Only an explicit allowlist of targeted CC is eligible; area spells, traps and procs are excluded. `UNIT_SPELLCAST_SENT` matches the intended name against readable player target/focus candidates, rejecting ambiguity between those candidates. Readable `UnitName`/`UnitFullName` fields generate exact bare, hyphen-qualified and space-qualified aliases; realm whitespace is normalized for hyphen-qualified names, without stripping or guessing character spelling. Aliases of one GUID share names before checking for missing data. Unknown distinct identities or ambiguous same-name GUIDs still reject the estimate. It supplies a name, not a victim GUID: a same-name destination outside target/focus (for example a mouseover) cannot be ruled out. `UNIT_SPELLCAST_SUCCEEDED` must match the cast identity and spell. Failed/interrupted casts and expired pending records are discarded. Target changes after send cannot redirect the stored candidate. The estimate starts at success, which approximates rather than proves application time.
 
 Pending cast estimates live outside the observed effect/category tables and carry `estimated=true` and `uncertain=true`, with a stage-colored border and an explanatory tooltip. Since 0.4.3, DR uncertainty has no on-icon question mark; it remains explicit in the tooltip and diagnostics. Readable applications take precedence without advancing observed stages twice. When only the second of two inferred applications becomes readable, the current application is confirmed (`estimated=false`) but its earlier inferred stage is retained separately as `inferredStage`. Output rows expose the observed count as `observedStage` and the optional displayed count as `stage`; `stageEstimated=true` and `uncertain=true` identify any elevation from inferred history. This does not promote the first cast to an observed hit. If a same-spell application becomes readable without timing, its earlier cast clock is retained as `timeEstimated`; confirmed application evidence does not silently make that clock exact. Disabling the option restores the observed count and hides pending predictions. A successful cast can still be resisted or immune; a generic miss event cannot reliably identify a particular cast to undo. Pending records, predictions and duplicate identities are bounded.
 
@@ -201,8 +203,6 @@ Hostile readable successful casts feed an independent GUID-keyed cooldown model.
 `Data.lua` explicitly selects the Classic-derived profile instead of trusting an unknown project-ID fallback. Cast and aura/effect IDs have separate mappings. There are 120 aura/effect IDs, 85 cooldown cast IDs and 27 cooldown families. Spammable CC can contribute to DR without receiving a fabricated cooldown. War Stomp's 90-second cooldown already reflects the cited beta note. [Data attribution and assumptions](THIRD_PARTY_NOTICES.txt)
 
 ### UI placement and migration
-
-Version 0.4.18 removes the two-pixel artwork inset and opaque icon matte. Spell textures use `SetAllPoints(icon)` under the existing tinted native bevel; both native-artwork and plain-outline branches use alpha-zero backing. The cooldown sweep follows the artwork's bounds. This changes presentation only and adds no geometry reads, masks or backdrop callbacks. Native bevel shading and dark pixels within spell art remain part of those textures.
 
 Bars remain addon-owned UIParent children. Since 0.4.17, DR grids attach beside the visible portrait edge: player `TOPRIGHT` to portrait `TOPLEFT` with `(-18,0)` offsets, and target/focus `TOPLEFT` to portrait `TOPRIGHT` with `(18,0)`. This mirrors grids outside paired unit frames and leaves a badge gap. Icons remain 28px with 3px gaps.
 

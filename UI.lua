@@ -163,7 +163,7 @@ end
 local function makeIcon(bar)
     local icon = CreateFrame('Frame',nil,bar)
     icon.texture = icon:CreateTexture(nil,'ARTWORK')
-    icon.texture:SetAllPoints(icon)
+    icon.texture:SetPoint('TOPLEFT',2,-2); icon.texture:SetPoint('BOTTOMRIGHT',-2,2)
     icon.texture:SetTexCoord(.07,.93,.07,.93)
     icon.swipe = CreateFrame('Cooldown',nil,icon,'CooldownFrameTemplate')
     icon.swipe:SetAllPoints(icon.texture)
@@ -175,14 +175,14 @@ local function makeIcon(bar)
     icon.textLayer:SetFrameLevel(icon.swipe:GetFrameLevel()+1)
     local atlas='UI-HUD-ActionBar-IconFrame'
     if ns.Safe.Call(C_Texture and C_Texture.GetAtlasInfo,atlas) then
-        panelBackground(icon,0)
+        panelBackground(icon,1)
         icon.actionBorder=icon.textLayer:CreateTexture(nil,'OVERLAY')
         icon.actionBorder:SetAtlas(atlas,false)
         icon.actionBorder:SetPoint('TOPLEFT',icon,'TOPLEFT',0,0)
         icon.borderTextures={icon.actionBorder}
     else
         -- Keep an outline on clients without the new artwork, without geometry reads.
-        solidPanel(icon,0,icon.textLayer)
+        solidPanel(icon,1,icon.textLayer)
     end
     icon.time=font(icon.textLayer,nil,16); icon.time:SetPoint('CENTER',0,0)
     icon.state=font(icon.textLayer,nil,10); icon.state:SetPoint('TOPRIGHT',-1,-1)
@@ -420,7 +420,7 @@ function UI.OpenOptions()
         check(page,category.name,6+((i-1)%2)*240,-28-math.floor((i-1)/2)*30,
             function() return ns.db.categories[key] end,function(v) ns.db.categories[key]=v end)
     end
-    check(page,'Predict casts (may count dodges/resists)',6,-183,
+    check(page,'Estimate my CC casts when auras are hidden',6,-183,
         function() return ns.db.ownCastEstimates end,function(v) ns.db.ownCastEstimates=v; ns.OwnCasts.Init() end)
     slider(page,'Application countdown (s)',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
         if v~=ns.db.resetSeconds then
