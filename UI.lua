@@ -47,7 +47,7 @@ function UI.GetRows(key, now)
     else
         local state = ns.Observer.GetUnitState(key)
         if not state.guid then return out end
-        rows = ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates)
+        rows = ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates, ns.db.aoeCastEstimates)
         for _, row in ipairs(rows) do
             -- Retained stage history belongs to the model; expired application
             -- countdowns must not occupy icon slots or inflate the overflow.
@@ -498,7 +498,7 @@ function UI.OpenOptions()
     label(page,'Green / yellow / red: stages 1 / 2 / 3. ? = AoE guess, never a confirmed hit.',6,-266,450)
     check(page,'Mark Stomp / Grenade as ? estimates',6,-288,
         function() return ns.db.aoeCastEstimates end
-        ,function(v) ns.db.aoeCastEstimates=v; ns.OwnCasts.Init() end)
+        ,function(v) ns.db.aoeCastEstimates=v; ns.OwnCasts.Init(); UI.Update(GetTime()) end)
 
     page=pages[3]
     check(page,'Only current target',0,0,function() return ns.db.targetOnly end,function(v) ns.db.targetOnly=v end)
