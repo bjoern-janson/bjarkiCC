@@ -1,5 +1,13 @@
 # bjarkiCC architecture and DR research
 
+## Visual correction: native frame and deterministic Hibernate art (0.4.21)
+
+Use the requested action-bar atlas with `SetBlendMode("ADD")`, transparent panel backing, stage tint above the sweep and 46:45 sizing derived only from saved icon size. This restores the native frame shape without multiplying its black border pixels over icon artwork. The plain four-texture outline remains a compatibility fallback only. No protected dimensions, backdrop templates, new frame callbacks or tracking-policy changes are introduced.
+
+`Data.auraIcons` supplies Hibernate's `Spell_Nature_Sleep` texture for spell IDs2637/18657/18658 independently of the cooldown catalog. `textureFor` checks this explicit mapping first, so caster/recipient views cannot disagree due to spell-texture API availability. The previous API-first path could substitute category Polymorph art when Hibernate's texture was unavailable, since Hibernate was absent from `Data.spells` by design (no cooldown). Tests exercise real UI rendering across all three ranks/views and five API outcomes. This reproduces and closes that fallback path; it does not prove the supplied screenshot used that path.
+
+All tracking modules and timing settings remain unchanged from0.4.20. The reported delayed/restricted observations remain unresolved. Atlas selection and blending are verified offline; final in-game appearance is not.
+
 ## Shipping policy: application deadline and post-CC visibility (0.4.20)
 
 Main constructs `Model.New(20,20,true)`. The third argument selects the requested application policy: every confirmed application sets `stageResetAt = appliedAt + 20`, and both displayed countdown and stage history expire at that deadline. CC duration, spell rank, early removal and immunity/rejection attempts do not add a post-end interval. Duration-based baseline reconciliation is disabled in this policy. Earlier research and release sections below describe alternative/legacy policies, not proof of Forever's server implementation.

@@ -2,9 +2,17 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.20-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.21-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
 
-## Current policy in 0.4.20
+## Visual correction in 0.4.21
+
+Restore the requested `UI-HUD-ActionBar-IconFrame` artwork instead of the flat four-line outline introduced in 0.4.20. The border uses additive blending over transparent backing: black border pixels do not paint an opaque edge across the spell art. Native 46:45 proportions and stage tint remain. The thin outline is only a compatibility fallback when the atlas is unavailable. Live appearance still needs checking; cooldown sweep shading and dark pixels inside spell artwork are separate from border backing.
+
+Hibernate now has an explicit `Spell_Nature_Sleep` texture for all three ranks, shared by player, target and focus. Previously this DR-only spell had no static icon entry, so an unavailable spell-texture API could fall through to the category's Polymorph art. This is a reproduced fallback bug; the screenshots alone do not identify which texture API result occurred on that client. The new icon mapping does not add an invented Hibernate cooldown.
+
+This release changes presentation only. The 0.4.20 live detection failures remain unresolved. All nine offline suites pass, including matching Hibernate textures across three views/ranks with nil, secret, zero, throwing and readable texture APIs; atlas blending, stage tint and protected-geometry checks also pass. These checks do not establish live DR correctness or visually validate WoW's renderer.
+
+## Tracking policy since0.4.20
 
 DR stage and countdown now share **20 seconds from the last confirmed application**, as requested. There is no separate 18-second post-CC stage clock and no duration-based early reset correction in live tracking. This is the selected Forever policy based on the user's testing, not a verified universal Classic rule. The older release notes below describe prior behavior.
 
@@ -12,7 +20,7 @@ The icon stays hidden while any observed CC in its category remains active. When
 
 Rejected, dodged, resisted or immune casts cannot create a confirmed application. In particular, the reported “A more powerful spell is already active” recast leaves the stage and deadline unchanged when there is no new aura/LoC application. Cast predictions remain off by default; optional prediction records are diagnostic/inferred history and cannot create standalone visible DR icons.
 
-The action-button bevel is removed entirely. Icons use full-bleed cropped art, transparent backing and four thin stage-colored edges. Existing side grids, saved offsets, four-icon limit and final-five-second numbers remain. Spell artwork itself can contain dark pixels.
+Version0.4.20 removed the action-button bevel entirely (superseded by0.4.21 above). Icons use full-bleed cropped art, transparent backing and four thin stage-colored edges. Existing side grids, saved offsets, four-icon limit and final-five-second numbers remain. Spell artwork itself can contain dark pixels.
 
 All nine offline suites pass, including application-clock boundaries, rejected recasts, early breaks, overlap, next-frame presentation and protected-geometry checks. Earlier end-based sequence regressions run explicitly under the legacy constructor policy, separately from the shipping policy tests. Live appearance and server timing remain to be checked. Offensive War Stomp and enemy cooldown coverage remain unresolved where the beta supplies no readable evidence.
 

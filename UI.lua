@@ -166,9 +166,19 @@ local function makeIcon(bar)
     icon.textLayer=CreateFrame('Frame',nil,icon)
     icon.textLayer:SetAllPoints(icon)
     icon.textLayer:SetFrameLevel(icon.swipe:GetFrameLevel()+1)
-    -- The native bevel contains baked-in dark edges. Plain one-pixel textures
-    -- retain stage tint without that artwork or any geometry-dependent template.
-    solidPanel(icon,0,icon.textLayer)
+    local atlas='UI-HUD-ActionBar-IconFrame'
+    if ns.Safe.Call(C_Texture and C_Texture.GetAtlasInfo,atlas) then
+        panelBackground(icon,0)
+        icon.actionBorder=icon.textLayer:CreateTexture(nil,'OVERLAY')
+        icon.actionBorder:SetAtlas(atlas,false)
+        -- Preserve the requested bevel's highlights without painting its dark
+        -- pixels over the spell art. No opaque matte or geometry reads.
+        icon.actionBorder:SetBlendMode('ADD')
+        icon.actionBorder:SetPoint('TOPLEFT',icon,'TOPLEFT',0,0)
+        icon.borderTextures={icon.actionBorder}
+    else
+        solidPanel(icon,0,icon.textLayer)
+    end
     icon.time=font(icon.textLayer,nil,16); icon.time:SetPoint('CENTER',0,0)
     icon.state=font(icon.textLayer,nil,10); icon.state:SetPoint('TOPRIGHT',-1,-1)
     icon.caption=font(icon.textLayer,nil,10); icon.caption:SetPoint('TOP',icon,'BOTTOM',0,-3)
@@ -214,6 +224,8 @@ function UI.ApplyLayout()
 end
 
 local function textureFor(row)
+    local auraIcon = ns.Data.auraIcons and ns.Data.auraIcons[row.spellID]
+    if auraIcon then return auraIcon end
     local spell = ns.Data.spells[row.spellID]
     if C_Spell and C_Spell.GetSpellTexture then
         local texture = ns.Safe.Call(C_Spell.GetSpellTexture,row.spellID)
@@ -264,6 +276,8 @@ function UI.Update(now)
                     if not bar.icons[i] then bar.icons[i]=makeIcon(bar) end
                     local icon=bar.icons[i]
                     icon.row=row; icon:Show(); icon:SetSize(settings.size,settings.size); icon:ClearAllPoints()
+                    -- Match the native 46x45 artwork using ordinary saved size.
+                    if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
                     local offset=(i-1)*step
                     if grid then
                         local point=key=='player' and 'TOPRIGHT' or 'TOPLEFT'

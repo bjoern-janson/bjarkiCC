@@ -14,6 +14,7 @@ function frameMethods:SetBackdropBorderColor(...) self.border={...} end
 function frameMethods:SetColorTexture(...) self.color={...} end
 function frameMethods:SetVertexColor(...) self.color={...} end
 function frameMethods:SetAtlas(atlas) self.atlas=atlas end
+function frameMethods:SetBlendMode(mode) self.blendMode=mode end
 function frameMethods:AddLine(text) self.lines=self.lines or {}; self.lines[#self.lines+1]=text end
 function frameMethods:SetScript(event, fn) self.scripts[event]=fn end
 function frameMethods:RegisterEvent(event) self.events[event]=true end
@@ -124,8 +125,8 @@ local icon=ns.UI.bars.player.icons[1]
 assert(ns.UI.bars.player.shown and icon.row.started==101 and icon.row.duration==20 and icon.row.remaining==19,
  'early break reveals the application countdown on the next rendered frame')
 assert(icon.swipe.cooldown[1]==101 and icon.swipe.cooldown[2]==20 and icon.time.text=='','sweep and text use the original application window')
-assert(not icon.actionBorder and #icon.borderTextures==4 and icon.panelBackground.color[4]==0,
- 'icons have only four thin colored edges over transparent backing, with no dark bevel atlas')
+assert(icon.actionBorder and #icon.borderTextures==1 and icon.actionBorder.blendMode=='ADD' and icon.panelBackground.color[4]==0,
+ 'icons have only the requested native artwork uses additive blending over transparent backing')
 for _,edge in ipairs(icon.borderTextures) do
  assert(edge.color[1]==.25 and edge.color[2]==1 and edge.parent.frameLevel>icon.swipe:GetFrameLevel(),'stage edges remain colored above the sweep')
 end
@@ -178,7 +179,7 @@ ns.UI.Update(410); assert(not ns.UI.bars.player.shown,'unknown active CC end nev
 -- Focus visibility, settings and synthetic preview remain independent of hits.
 units.focus=units.player; ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_FOCUS_CHANGED')
 ns.demo=true; ns.UI.Update(now); ns.UI.OpenOptions()
-assert(#ns.UI.bars.player.icons[1].borderTextures==4 and not ns.UI.bars.player.icons[1].actionBorder,'preview uses the same thin outline')
+assert(ns.UI.bars.player.icons[1].actionBorder.blendMode=='ADD','preview uses the requested native artwork')
 ns.demo=false; ns.db.showNames=false; ns.db.showDRText=false
 local refreshedIcon=ns.UI.bars.player.icons[1]
 -- Historical traces below still verify application identity/stage evidence
@@ -219,7 +220,7 @@ local function handoffEvent(at,event,stage,start)
     and icon.swipe.cooldown[1]==icon.row.started,'display number and sweep share the application boundary')
    assert(icon.time.text==(remaining<=5 and ns.UI.FormatTime(remaining) or ''),'application countdown obeys final-five-second text policy')
    local color=({{.25,1,.3},{1,.8,.15},{1,.2,.15}})[raw.stage]
-   assert(not icon.actionBorder and #icon.borderTextures==4,'historical renders use thin edges without native bevel shading')
+   assert(icon.actionBorder and #icon.borderTextures==1 and icon.actionBorder.blendMode=='ADD','historical renders use additive native artwork')
    for _,edge in ipairs(icon.borderTextures) do
     assert(edge.color[1]==color[1] and edge.color[2]==color[2] and edge.color[3]==color[3],'faded icon retains the actual DR stage color')
    end
@@ -559,4 +560,33 @@ for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
  assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
 end
 ns.UI.GetRows=originalRows
+
+-- DR-only spells need deterministic art when the caster's spell texture is
+-- unavailable. All Hibernate ranks must agree across player/target/focus.
+function frameMethods:SetTexture(texture) self.textureAsset=texture end
+local savedRows=ns.UI.GetRows
+local textureSecret={}
+issecretvalue=function(v) return rawequal(v,textureSecret) end
+canaccessvalue=function(v) return not rawequal(v,textureSecret) end
+for _,id in ipairs({2637,18657,18658}) do
+ ns.UI.GetRows=function(key)
+  if key=='cooldown' then return {} end
+  return {{spellID=id,category='incapacitate',stage=1,started=100,duration=20,remaining=8}}
+ end
+ for _,mode in ipairs({'nil','secret','zero','error','readable'}) do
+  C_Spell={GetSpellTexture=function()
+   if mode=='secret' then return textureSecret end
+   if mode=='zero' then return 0 end
+   if mode=='error' then error('restricted texture') end
+   if mode=='readable' then return 136090 end
+  end}
+  ns.UI.Update(112)
+  for _,key in ipairs({'player','target','focus'}) do
+   assert(ns.UI.bars[key].icons[1].texture.textureAsset==table.concat({'Interface','Icons','Spell_Nature_Sleep'},string.char(92)),
+    'Hibernate must retain its own icon on every POV and rank when texture access is '..mode)
+  end
+ end
+end
+ns.UI.GetRows=savedRows
+
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')

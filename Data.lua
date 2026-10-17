@@ -10,6 +10,13 @@ ns.Data = {
     resetSeconds = 20,
     -- Next application after one, two, three successful observed applications.
     nextDuration = { 0.50, 0.25, 0 },
+    -- DR-only spells also need art when spell texture APIs are unavailable.
+    -- Keep these separate from the cooldown registry: Hibernate has no CD.
+    auraIcons = {
+        [2637] = "Interface\\Icons\\Spell_Nature_Sleep",
+        [18657] = "Interface\\Icons\\Spell_Nature_Sleep",
+        [18658] = "Interface\\Icons\\Spell_Nature_Sleep",
+    },
     categories = {
         { key = "stun", name = "Controlled Stun", short = "Stun", icon = "Interface\\Icons\\Spell_Holy_SealOfMight" },
         { key = "randomStun", name = "Random Stun", short = "Proc stun", icon = "Interface\\Icons\\Spell_Shadow_BlackPlague" },

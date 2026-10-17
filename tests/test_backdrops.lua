@@ -57,6 +57,7 @@ function methods:SetText(value) self.text = value end
 function methods:SetColorTexture(...) self.color = {...} end
 function methods:SetVertexColor(...) self.color = {...} end
 function methods:SetAtlas(atlas) self.atlas = atlas end
+function methods:SetBlendMode(mode) self.blendMode=mode end
 for _, name in ipairs({'SetFont','SetTextColor','SetTexture','SetTexCoord',
     'SetFrameStrata','SetMovable','SetClampedToScreen','RegisterForDrag','EnableMouse',
     'SetDrawEdge','SetHideCountdownNumbers','SetReverse','SetFrameLevel',
@@ -102,8 +103,8 @@ ns.OwnCasts.Init()
 ns.Observer.Scan(now)
 ns.UI.Init()
 ns.demo=true; ns.UI.Update(now)
-assert(not ns.UI.bars.player.icons[1].actionBorder and #ns.UI.bars.player.icons[1].borderTextures==4,
-    'plain stage-colored edges must replace the dark native bevel artwork')
+assert(ns.UI.bars.player.icons[1].actionBorder and ns.UI.bars.player.icons[1].actionBorder.blendMode=='ADD',
+    'native artwork must use additive blending instead of opaque dark edges')
 ns.demo=false; ns.UI.Update(now)
 
 -- Calibrate the fixture against the exact unsafe pattern before the regression.
@@ -151,12 +152,13 @@ now = 153
 ns.Observer.Scan(now)
 ns.UI.Update(now)
 assert(not ns.UI.bars.player.shown, 'expired DR hides normally')
+local nativeIcon=ns.UI.bars.player.icons[1]
 C_Texture=nil
+ns.UI.Init()
 ns.demo=true
 ns.UI.Update(now)
-local nativeIcon=ns.UI.bars.player.icons[1]
 local fallbackIcon=ns.UI.bars.player.icons[2]
-assert(not nativeIcon.actionBorder and #nativeIcon.borderTextures==4, 'all icons use plain thin edges without bevel artwork')
+assert(nativeIcon.actionBorder and nativeIcon.actionBorder.blendMode=='ADD', 'native border keeps the requested artwork with transparent dark pixels')
 assert(#fallbackIcon.borderTextures==4 and not fallbackIcon.actionBorder, 'new icons also avoid native bevel artwork')
 assert(fallbackIcon.borderTextures[1].color[1]==1 and fallbackIcon.borderTextures[1].color[2]==.8,
     'fallback preserves second-stage yellow')
