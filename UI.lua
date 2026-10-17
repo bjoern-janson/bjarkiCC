@@ -173,7 +173,7 @@ local function tooltip(owner, row, key)
         if row.estimated then
             if row.estimateKind == 'aoe' then
                 tip:AddLine('Unconfirmed AoE cast. Target/focus are POSSIBLE victims only.',1,.55,.25,true)
-                tip:AddLine('War Stomp/Grenade may miss, be immune, or affect another player. This is not observed DR.',1,.55,.25,true)
+                tip:AddLine('War Stomp/Grenade/Mortar may miss, be immune, or affect another player. This is not observed DR.',1,.55,.25,true)
             else
                 tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
             end
@@ -489,7 +489,7 @@ function UI.OpenOptions()
         end
     end,210)
     label(page,'Green / yellow / red: stages 1 / 2 / 3. Hover for estimate uncertainty.',6,-266,450)
-    check(page,'Estimate Stomp / Grenade casts',6,-288,
+    check(page,'Estimate Stomp / Grenade / Mortar',6,-288,
         function() return ns.db.aoeCastEstimates end
         ,function(v) ns.db.aoeCastEstimates=v; ns.OwnCasts.Init(); UI.Update(GetTime()) end)
 
