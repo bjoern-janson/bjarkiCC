@@ -13,6 +13,10 @@ These rules preserve the 0.4.17 baseline while improving correctness on the WoW 
 - Exact-spell lookups must be selected from explicit, narrow known IDs or a bounded outstanding direct-cast estimate. Do NOT poll all 120+ DR spells, guess victims from area casts or declare a nil lookup a hit.
 - Native secure aura icons may display while ordinary addon Lua cannot inspect the spell or instance. Do not promote their visible artwork to historical DR proof. Follow the distinction learned in bjarkiPortraits between native presentation and readable identity.
 
+- When caster-side Bash/Grenade are absent, inspect actual available evidence before adding another guessed cast stage: recipient player-LoC may be confirmed while hostile target/focus indexed aura, exact lookups, ByUnit LoC, and event addedAuras all provide zero positives. These cannot be equated.
+- The native `C_SpellDiminish` feed is a separate **explicit client-CVar opt-in experiment** via `/bcc native on|off|status`. Native events have secret payloads; preserve readable/unknown distinction and do not turn their mere arrival or own cast delivery into a confirmed DR application. Do not set the global CVar automatically.
+
+
 ## Timer and HUD invariants
 
 - `resetSeconds` is the visible application-based countdown, default 20s. CC ending/removal does not restart it.
