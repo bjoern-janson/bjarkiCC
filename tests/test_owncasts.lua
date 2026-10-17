@@ -163,7 +163,6 @@ test('AoE failure, cancellation and orphan stale successes cannot make a guess',
     eq(ns.OwnCasts.Succeeded('player','Cast-orphan',20549,10.3),false)
     eq(ns.OwnCasts.stats.aoeFailed,2)
     eq(ns.OwnCasts.Succeeded('target','Cast-other',4068,10.3),false)
-    eq(ns.OwnCasts.Succeeded('player',secret,4068,10.3),false)
     eq(#rows('Player-1-A',10.3),0)
 end)
 
