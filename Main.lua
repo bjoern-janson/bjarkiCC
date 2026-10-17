@@ -149,7 +149,7 @@ function ns.BuildStatus()
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')
         end
         if now and state.guid then
-            for _, row in ipairs(ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates)) do
+            for _, row in ipairs(ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates, ns.db.aoeCastEstimates)) do
                 lines[#lines+1]=string.format('  DR %s: stage %d; started %.3f; remaining %.3f; %s%s',
                     row.category, row.stage, row.started, row.remaining,
                     row.estimated and 'own-cast estimate' or 'observed application',
@@ -304,6 +304,7 @@ function ns.Command(message)
         if option=='on' or option=='off' then
             ns.db.aoeCastEstimates=option=='on'
             ns.OwnCasts.Init()
+            ns.UI.Update(GetTime())
             ns.Print('War Stomp/Grenade candidate ? estimates '..(option=='on' and 'ON' or 'OFF')
                 ..'; actual hits remain unconfirmed by successful AoE casts.')
         elseif option=='status' or option=='' then
