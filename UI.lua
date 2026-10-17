@@ -130,8 +130,13 @@ local function tooltip(owner, row, key)
     local ability = ns.Data.spells[row.spellID]
     tip:SetText(ability and ability.name or (cat and cat.name or 'Crowd control'), gold[1],gold[2],gold[3])
     if key == 'cooldown' then
-        tip:AddLine(row.name or 'Observed enemy',1,1,1)
-        tip:AddLine(row.manual and 'Manually marked use' or 'Observed successful cast',.7,.7,.7)
+        if ns.demo then
+            tip:AddLine('SAMPLE ONLY: no enemy cast was observed.',1,.58,.34,true)
+        else
+            tip:AddLine(row.name or 'Observed enemy',1,1,1)
+            tip:AddLine(row.manual and 'Manually marked use' or 'Readable successful cast event',.7,.7,.7)
+            tip:AddLine('Automatic enemy cast events may be unavailable on Forever.',1,.65,.35,true)
+        end
         tip:AddLine('Estimated remaining: '..math.ceil(row.remaining)..'s',1,.85,.4)
         if row.earlyRemaining and row.earlyRemaining < row.remaining then
             tip:AddLine('May be ready in '..math.ceil(row.earlyRemaining)..'s with talents.',1,.65,.25,true)
@@ -275,7 +280,9 @@ function UI.Update(now)
                 local captions=key=='cooldown' and ns.db.showNames
                 local captionHeight=captions and 13 or 0
                 bar:SetShown(setup or (count>0 and ns.Anchors.Visible(bar)))
-                bar.title:SetText(titles[key]..(ns.demo and ' (test)' or ''))
+                bar.title:SetText(key == 'cooldown'
+                    and (ns.demo and 'Enemy cooldowns (SAMPLE)' or 'Enemy cooldowns (experimental)')
+                    or (titles[key]..(ns.demo and ' (test)' or '')))
                 bar.title:SetShown(setup)
                 local step=settings.size+settings.gap+(settings.vertical and captionHeight or 0)
                 local span=settings.size+math.max(count-1,0)*step
@@ -440,7 +447,8 @@ function UI.OpenOptions()
     for i,key in ipairs(order) do
         local settings=ns.db.bars[key]
         local y=-(i-1)*50
-        check(page,titles[key],0,y-7,function() return settings.enabled end,function(v) settings.enabled=v end)
+        check(page,key=='cooldown' and 'Enemy CDs (beta)' or titles[key],0,y-7,
+            function() return settings.enabled end,function(v) settings.enabled=v end)
         if key=='cooldown' then
             check(page,'Vertical',164,y-7,function() return settings.vertical end,function(v) settings.vertical=v end)
         else
@@ -488,6 +496,6 @@ function UI.OpenOptions()
             function() return not ns.db.disabledSpells[id] end,function(v) ns.db.disabledSpells[id]=not v end)
     end
     child:SetHeight(#abilities*29+10)
-    label(page,'Times are estimates. Use /bcc status for diagnostics.',6,-265,450)
+    label(page,'Experimental: automatic enemy casts are not verified on Forever.\nNo icon does not mean an ability is ready.',6,-265,450)
     panel:Show()
 end
