@@ -1,5 +1,19 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.2: evidence-first test candidate (not yet live verified)
+
+This build retains the original 0.4.17 side-grid artwork, colors, controls, application clock (20s), separate provisional stage retention (18s), own-cast setting default, and SavedVariables schema. It is **not** a demonstrated fix for every restricted combat event. A GitHub Actions Lua test workflow builds an installable candidate ZIP after tests pass.
+
+Changes informed by bjarkiPortraits' evidence discipline:
+- When a Target aura list is restricted and Focus is the **same readable player GUID**, probe Focus before declaring the observation incomplete. A complete alias becomes the authoritative snapshot; otherwise merge only positive aura-instance records. A missing or secret alias is not a removal.
+- Pending, reviewed **own direct casts** can select a bounded exact-aura lookup for that spell when enumeration is restricted. This is only a query selector: the cast still never advances observed DR without a readable matching positive aura instance. Area War Stomp and Nature's Grasp retain their preexisting, separate confirmation probes.
+- A readable Player GUID remains a valid identity witness if UnitIsPlayer is unavailable, while an explicit contradictory result vetoes it. A readable hostile GUID can begin an observed cooldown even if UnitName is temporarily unavailable (the display may initially use a GUID).
+- `/bcc status` now separates cast-start delivery, successful event delivery, validation rejections, **actually accepted** cooldown records, alias coverage and exact lookup outcomes. Cast START is diagnostic only and does not create a cooldown.
+- Native cooldown swipes keep their original start/duration between render ticks; stable HUD geometry is not needlessly reanchored and resized.
+
+**Live checks needed:** incoming/outgoing CC with Target and Focus on the same enemy; compare complete/partial alias coverage; cast Hibernate or Entangling Roots through an indexed-aura restriction and check `castLookup`; repeat War Stomp and Nature's Grasp; note whether enemy cast START and SUCCEEDED events actually arrive. Check `/bcc status` during an active effect. The direct lookup cannot bypass secret data, and enemy cooldown tracking remains conditional on readable events.
+
+
 ## 0.4.17.1: Nature's Grasp confirmation fallback
 
 This narrow patch keeps the 0.4.17 artwork, layout, timers and saved-setting policy. When target/focus indexed aura scanning is restricted, it also checks the six known Nature's Grasp root-effect IDs through the same guarded exact-spell API used for War Stomp. Only a readable matching spell and aura instance can add a root application; activating the self-buff never assigns a victim.
