@@ -135,13 +135,15 @@ local function tooltip(owner, row, key)
         else
             tip:AddLine(row.name or 'Observed enemy',1,1,1)
             tip:AddLine(row.manual and 'Manually marked use' or 'Readable successful cast event',.7,.7,.7)
-            tip:AddLine('Automatic enemy cast events may be unavailable on Forever.',1,.65,.35,true)
         end
         tip:AddLine('Estimated remaining: '..math.ceil(row.remaining)..'s',1,.85,.4)
         if row.earlyRemaining and row.earlyRemaining < row.remaining then
             tip:AddLine('May be ready in '..math.ceil(row.earlyRemaining)..'s with talents.',1,.65,.25,true)
         end
         tip:AddLine('Talents and unseen resets can change this timer.',.7,.7,.7,true)
+        if not ns.demo then
+            tip:AddLine('Automatic enemy cast events may be unavailable on Forever.',1,.65,.35,true)
+        end
     else
         tip:AddLine('Next duration: '..(row.uncertain and 'unknown' or ({'50%','25%','immune'})[row.stage]),1,1,1)
         if row.uncertain then
