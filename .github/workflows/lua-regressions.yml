@@ -20,12 +20,12 @@ jobs:
       - name: Package verified candidate
         run: |
           mkdir -p dist/bjarkiCC
-          cp Bootstrap.lua Data.lua Model.lua Observer.lua OwnCasts.lua Anchors.lua UI.lua Main.lua bjarkiCC.toc bjarkiCC_Camelot.toc dist/bjarkiCC/
+          cp Bootstrap.lua Data.lua Model.lua Observer.lua OwnCasts.lua Anchors.lua UI.lua NativeStuns.lua Main.lua bjarkiCC.toc bjarkiCC_Camelot.toc dist/bjarkiCC/
           cd dist
-          zip -qr ../bjarkiCC-0.4.17.5-native-probe.zip bjarkiCC
+          zip -qr ../bjarkiCC-0.4.17.6-secure-stun-experiment.zip bjarkiCC
       - name: Upload installable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: bjarkiCC-0.4.17.5-native-probe
-          path: bjarkiCC-0.4.17.5-native-probe.zip
+          name: bjarkiCC-0.4.17.6-secure-stun-experiment
+          path: bjarkiCC-0.4.17.6-secure-stun-experiment.zip
           if-no-files-found: error
