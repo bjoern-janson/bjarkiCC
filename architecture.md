@@ -1,5 +1,14 @@
 # bjarkiCC architecture and DR research
 
+## 0.4.17.8 visual consistency: no AoE question-mark badge
+
+This release removes only the HUD state glyph specific to `row.estimated and row.estimateKind=="aoe"`. UI now uses the original uncertain DR presentation for **all** inferred rows: colored stage border, shared countdown, no badge/percentage. The source metadata (`estimateKind`), per-GUID estimate history and strict separation from `Model:Observe` are unchanged.
+
+The hover tooltip still identifies `Unconfirmed AoE cast`, possible target/focus recipients, and the inability to verify immunity/range/hits. `/bcc status` reports the AoE estimate source and counters without claiming visual certainty. The user chose the clean appearance after confirming the previous marked-estimate build worked in-game; this is a visual preference, **not** evidence that guessed DR applications are confirmed.
+
+No changes to source authorization, timer logic, unit frame anchors, layout, SavedVariables schema or default AoE toggle. A regression now asserts that AoE predicted stages show no additional state text on both target and focus, while still advancing the same estimated category and remaining traceable through tooltip/status.
+
+
 ## 0.4.17.7 opt-in, visibly uncertain AoE estimates
 
 War Stomp 20549, Iron Grenade 4068 and Bash ranks are **one live-confirmed shared `stun` DR category** in the tested Forever beta. The API provides an own-player successful cast event, but not a trustworthy victim for ground/point-blank AoE.

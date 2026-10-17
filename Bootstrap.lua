@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.17.7-marked-aoe-test'
+ns.name, ns.version = addonName, '0.4.17.8-no-badge-test'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -74,7 +74,7 @@ function ns.InitializeDB()
     db.targetOnly = bool(db.targetOnly, false)
     db.interrupts = bool(db.interrupts, false)
     db.ownCastEstimates = bool(db.ownCastEstimates, true)
-    -- User-requested: show clearly marked ? guesses for candidates selected
+    -- Keep user-requested AoE estimates for candidates selected
     -- during own War Stomp/Iron Grenade casts. Independent of actual hits.
     db.aoeCastEstimates = bool(db.aoeCastEstimates, true)
     -- Off unless explicitly enabled. This native visual witness does not feed DR.

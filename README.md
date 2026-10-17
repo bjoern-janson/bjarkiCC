@@ -1,5 +1,16 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.8: Clean AoE estimate icons (no question mark)
+
+Following a successful live test of 0.4.17.7, the user requested **removing the visible `?` badge** from caster-side War Stomp and Iron Grenade DR estimates. This is a **presentation-only change**: the same target/focus possible-victim estimation, shared stun DR progression, 20-second application countdown, stage-reset policy, deduplication, optional on/off control, and color-coded borders are preserved.
+
+The DR icons now display **the same clean style as existing direct-cast estimates**: there is no extra `?` glyph, no percentage text for uncertain stages, and the normal countdown/colored border remains. The tooltip still explicitly says `Unconfirmed AoE cast` and `POSSIBLE victims only`, while `/bcc status` and `Model:GetDR` continue to distinguish `estimateKind=aoe` from confirmed applications.
+
+The AoE feature remains **enabled by default** in this test build. Use `/bcc aoe off` to hide speculative AoE applications if needed; independently observed CC stays visible. `/bcc aura off` disables the redundant native STUN AURA visual if still enabled.
+
+No protected combat state is inferred: cast success does not prove a War Stomp/Grenade hit, an AoE guess can be wrong, and observed stun history remains separate. All test cases from 0.4.17.7 continue to apply.
+
+
 ## 0.4.17.7: Marked, optional caster-side AoE stun DR estimates
 
 **Chosen live behavior:** The user prefers an explicit **`?` guess** over an empty caster-side DR bar for War Stomp and Iron Grenade, because WoW Forever 1.60.1.70425 restricts the opponent's actual stun aura and LoC data. The user also directly tested that **Bash, War Stomp and Iron Grenade share Controlled Stun DR**. This candidate deliberately does not claim a confirmed landed hit.

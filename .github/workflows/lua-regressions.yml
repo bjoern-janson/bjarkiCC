@@ -22,10 +22,10 @@ jobs:
           mkdir -p dist/bjarkiCC
           cp Bootstrap.lua Data.lua Model.lua Observer.lua OwnCasts.lua Anchors.lua UI.lua NativeStuns.lua Main.lua bjarkiCC.toc bjarkiCC_Camelot.toc dist/bjarkiCC/
           cd dist
-          zip -qr ../bjarkiCC-0.4.17.7-marked-aoe-test.zip bjarkiCC
+          zip -qr ../bjarkiCC-0.4.17.8-no-badge-test.zip bjarkiCC
       - name: Upload installable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: bjarkiCC-0.4.17.7-marked-aoe-test
-          path: bjarkiCC-0.4.17.7-marked-aoe-test.zip
+          name: bjarkiCC-0.4.17.8-no-badge-test
+          path: bjarkiCC-0.4.17.8-no-badge-test.zip
           if-no-files-found: error
