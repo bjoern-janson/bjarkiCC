@@ -8,6 +8,8 @@ These rules preserve the 0.4.17 baseline while improving correctness on the WoW 
 - A nil/secret/erroring indexed or exact aura query is **unknown**, not proof of absence. Only a complete readable harmful-aura enumeration can authorize removal. A complete LoC list does not enumerate every debuff.
 - A readable player GUID and a readable positive hostility result are useful independent witnesses. A readable contradictory identity must veto the association. Never unwrap or format protected values to manufacture evidence.
 - Target and Focus referring to the same GUID are aliases, not independent victims. Any alternate-unit probe must revalidate the GUID; reconcile positive witnesses and commit to the model only once.
+- The AoE stun effect IDs 20549 (War Stomp) and 4068 (Iron Grenade) have distinct victim-side positive lookups. A racial/item cast is never a verified hit. Only readable matching harmful aura instances may update observed DR.
+- UNIT_AURA updateInfo is fully secret when auras are restricted on modern clients. Readable AoE addedAuras may contribute a positive witness, never absence; a contradictory indexed complete scan must not erase it. Native DR tracker payloads are secret and are telemetry only, not category/history data.
 - Exact-spell lookups must be selected from explicit, narrow known IDs or a bounded outstanding direct-cast estimate. Do NOT poll all 120+ DR spells, guess victims from area casts or declare a nil lookup a hit.
 - Native secure aura icons may display while ordinary addon Lua cannot inspect the spell or instance. Do not promote their visible artwork to historical DR proof. Follow the distinction learned in bjarkiPortraits between native presentation and readable identity.
 
