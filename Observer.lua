@@ -713,8 +713,13 @@ function Observer.Init()
         castNameUnavailable = 0, castPlayerGuidFallback = 0,
         auraEventCalls = 0, auraEventRestricted = 0, auraEventPositives = 0,
         auraEventConflicts = 0, nativeDREvents = 0, nativeDRRestricted = 0,
-        nativeDRReadable = 0}
+        nativeDRReadable = 0,
+        ownBashSent = 0, ownBashSucceeded = 0,
+        ownGrenadeSent = 0, ownGrenadeSucceeded = 0,
+        ownStompSent = 0, ownStompSucceeded = 0}
     Observer.castRejects = {}
+    Observer.nativeLast = nil
+    Observer.ownCCLast = nil
 end
 
 function Observer.GetUnitState(unit)
@@ -773,22 +778,51 @@ function Observer.Scan(now, eventProof)
     Observer.units = units
 end
 
--- The public unit token can be informative even when Blizzard's native DR
--- tracker payload is secret. Count delivery without ever treating it as a
--- spell, category, application, or hit.
+-- Blizzard's own DR feed is a possible server-authoritative alternative.
+-- Observe *only* separately readable fields, never secret tracker data.
+-- This is diagnostic. A category event does not prove which spell landed.
 function Observer.OnNativeDR(unit, trackerInfo)
     Observer.stats.nativeDREvents = Observer.stats.nativeDREvents + 1
-    if not unitToken(unit) or not Safe.Readable(trackerInfo) or type(trackerInfo) ~= "table" then
+    local token = unitToken(unit)
+    if not token or not Safe.Readable(trackerInfo) or type(trackerInfo) ~= "table" then
         Observer.stats.nativeDRRestricted = Observer.stats.nativeDRRestricted + 1
+        Observer.nativeLast = {unit=token or "unknown", reason="restricted"}
         return
     end
-    local category, readable = field(trackerInfo, "category", "NativeDR.category", unit)
+    local category, readable = field(trackerInfo, "category", "NativeDR.category", token)
     local categoryID = number(category)
     if not readable or not categoryID or categoryID < 0 or categoryID ~= math.floor(categoryID) then
         Observer.stats.nativeDRRestricted = Observer.stats.nativeDRRestricted + 1
-    else
-        Observer.stats.nativeDRReadable = Observer.stats.nativeDRReadable + 1
+        Observer.nativeLast = {unit=token, reason="category-unreadable"}
+        return
     end
+    Observer.stats.nativeDRReadable = Observer.stats.nativeDRReadable + 1
+    local rawStart = field(trackerInfo, "startTime", "NativeDR.startTime", token)
+    local rawDuration = field(trackerInfo, "duration", "NativeDR.duration", token)
+    local rawCountdown = field(trackerInfo, "showCountdown", "NativeDR.showCountdown", token)
+    local rawImmune = field(trackerInfo, "isImmune", "NativeDR.isImmune", token)
+    local start, duration = number(rawStart), number(rawDuration)
+    Observer.nativeLast = {
+        unit=token, reason="category-readable", category=categoryID,
+        start=start and start >= 0 and start or nil,
+        duration=duration and duration >= 0 and duration or nil,
+        countdown=Safe.Boolean(rawCountdown), immune=Safe.Boolean(rawImmune),
+    }
+end
+
+local observedOwnCCSpell = {
+    [5211]="Bash", [6798]="Bash", [8983]="Bash",
+    [20549]="Stomp", [4068]="Grenade",
+}
+-- Cast events are not successful hits. This lets duel reports identify whether
+-- Bash or the thrown grenade even arrived as readable player spell events.
+function Observer.NoteOwnCCCast(phase, unit, spellID, now)
+    if Safe.String(unit) ~= "player" or (phase ~= "Sent" and phase ~= "Succeeded") then return end
+    local id = identifier(spellID)
+    local family = id and observedOwnCCSpell[id]
+    if not family then return end
+    Observer.stats["own"..family..phase] = Observer.stats["own"..family..phase] + 1
+    Observer.ownCCLast = {spellID=id, family=family, phase=phase, time=number(now)}
 end
 
 -- Retain only exact positive AoE observations from readable UNIT_AURA deltas.
