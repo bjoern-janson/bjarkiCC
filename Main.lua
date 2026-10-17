@@ -98,6 +98,8 @@ function ns.BuildStatus()
         'DR stage reset: '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate; separate from countdown)',
         'Mode: '..(ns.demo and 'TEST (synthetic display)' or 'live observation'),
         'Combat log: deliberately not registered (restricted on Forever)',
+        'Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'ENABLED (experimental)' or 'OFF by default (unverified enemy cast feed)'),
+        'Enemy cooldown icons require readable success events or manual marks; empty icons do not prove readiness.',
     }
     for _,unit in ipairs({'player','target','focus'}) do
         local state=ns.Observer.GetUnitState(unit)
@@ -233,7 +235,7 @@ function ns.ShowStatus()
 end
 
 local function help()
-    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; cooldown <spellID> <seconds|default>; used <spellID>.')
+    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
 end
 
 function ns.Command(message)
@@ -243,12 +245,24 @@ function ns.Command(message)
     command=command:lower()
     if command=='' or command=='options' then ns.UI.OpenOptions()
     elseif command=='test' then
-        ns.demo=not ns.demo; ns.UI.Update(GetTime()); ns.Print(ns.demo and 'Test mode ON: synthetic icons.' or 'Live observation restored.')
+        ns.demo=not ns.demo; ns.UI.Update(GetTime()); ns.Print(ns.demo and 'Test mode ON: SAMPLE icons, not observed enemy casts.' or 'Live observation restored.')
     elseif command=='lock' or command=='unlock' then
         ns.db.locked=command=='lock'; ns.UI.ApplyLayout(); ns.Print(ns.db.locked and 'Bars locked.' or 'Drag outside combat: DR offsets follow their unit frames.')
     elseif command=='reset' then ns.ResetPositions(); ns.UI.ApplyLayout(); ns.Print('Bar positions reset.')
     elseif command=='clear' then resetTracking(); ns.UI.Update(GetTime()); ns.Print('Tracking history cleared.')
     elseif command=='status' then ns.ShowStatus()
+    elseif command=='cooldowns' then
+        local option=rest:lower()
+        if option=='on' or option=='off' then
+            ns.db.bars.cooldown.enabled=(option=='on')
+            ns.UI.ApplyLayout()
+            ns.Print(option=='on' and 'Enemy cooldown HUD ON (experimental; only readable enemy successes or manual marks).' or 'Enemy cooldown HUD OFF. DR trackers unchanged.')
+        elseif option=='status' then
+            ns.Print('Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'on (experimental)' or 'off')..
+                '; check /bcc status for castSuccessOther and acceptedCasts.')
+        else
+            ns.Print('Usage: /bcc cooldowns on|off|status')
+        end
     elseif command=='cooldown' then
         local idText,value=rest:match('^(%d+)%s+(%S+)$')
         local id=tonumber(idText); local canonical=id and ns.Data.castToSpell[id]
