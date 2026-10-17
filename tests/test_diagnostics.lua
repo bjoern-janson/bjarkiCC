@@ -26,10 +26,10 @@ now=101
 aura={spellId=2637,auraInstanceID=10,expirationTime=121,duration=20}
 frame.scripts.OnEvent(frame,'UNIT_AURA','player')
 local report=ns.BuildStatus()
-assert(report:find('DR stage reset: 18s after CC ends',1,true),
- 'status distinguishes retained stage history from the application countdown')
-assert(report:find('DR timer: 20s from last observed application',1,true), 'status names the independent display countdown')
-assert(ns.model.resetSeconds == 20 and ns.model.stageResetSeconds == 18, 'Main passes both configured clocks into the model')
+assert(report:find('DR stage reset: 20s from last confirmed application',1,true),
+ 'status names the shared application deadline and fade visibility')
+assert(report:find('DR timer: 20s from last observed application',1,true), 'status names the application countdown')
+assert(ns.model.resetSeconds == 20 and ns.model.stageResetSeconds == 20, 'Main supplies the fixed twenty-second policy')
 assert(report:find('Recent DR observations',1,true),'status includes recent transition evidence')
 assert(report:find('a:10 spell=2637 start=101.000 end=121.000',1,true),'trace preserves the actual guarded witness identity and application timing')
 assert(report:find('incapacitate observed=1 shown=1 start=101.000',1,true),'trace records counted stage next to input evidence')
@@ -78,6 +78,7 @@ assert(#ns.drTrace==beforePolls+1,'stable reported duration does not fill diagno
 -- Feed normalized observations to the real model so status distinguishes an
 -- absent baseline, a pending sequence, and evidence learned on its third CC.
 SlashCmdList.BJARKICC('clear')
+ns.model=ns.Model.New(20,18,false) -- Legacy duration-provenance fixture.
 now=1000; aura=nil
 C_UnitAuras={GetAuraDataByIndex=function() end}
 C_LossOfControl={GetActiveLossOfControlDataCount=function() return 0 end}

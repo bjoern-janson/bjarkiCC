@@ -1,5 +1,17 @@
 # bjarkiCC architecture and DR research
 
+## Shipping policy: application deadline and post-CC visibility (0.4.20)
+
+Main constructs `Model.New(20,20,true)`. The third argument selects the requested application policy: every confirmed application sets `stageResetAt = appliedAt + 20`, and both displayed countdown and stage history expire at that deadline. CC duration, spell rank, early removal and immunity/rejection attempts do not add a post-end interval. Duration-based baseline reconciliation is disabled in this policy. Earlier research and release sections below describe alternative/legacy policies, not proof of Forever's server implementation.
+
+The model still tracks effect identity and activity independently. UI suppresses active categories and standalone cast estimates, then renders inactive categories only while their application countdown is positive. Partial omissions preserve activity; complete absence or readable expiry can end it. Relevant aura/LoC events scan synchronously and request a draw on the next OnUpdate, rather than waiting for the normal 0.1-second render interval. The 20-second window is not restarted by that draw or by subsequent empty scans.
+
+The two-argument Model constructor retains legacy end-based behavior for earlier recorded-trace regressions. Live Main always opts into application policy. New policy tests cover 2/3/4/20/30-second effects, early removal, stable rejected attempts, successive confirmed applications, exact expiry, ongoing effects after expiry, and prevention of duration-based early reset. Historical trace fixtures explicitly opt into legacy behavior so their evidence scope remains visible.
+
+Icons no longer use `UI-HUD-ActionBar-IconFrame`. Four one-pixel textures provide stage tint above the cooldown sweep, over transparent backing and full-bleed art. No backdrop template or protected geometry read is introduced. Schema 9 normalizes both saved timing fields to 20, preserving existing grid offsets and other appearance/filter settings; obsolete timing sliders are replaced by a fixed-policy explanation.
+
+This implementation follows the user's requested timing contract. The screenshot's “A more powerful spell is already active” proves that particular recast was rejected; it does not independently establish a universal reset formula. Confirmed enemy observations can still be unavailable.
+
 Research checked 2026-10-17. This document separates source evidence, addon policy, reported behavior and offline validation.
 
 ## Findings that matter for this bug

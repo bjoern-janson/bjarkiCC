@@ -31,11 +31,12 @@ local function trimOldest(records, maximum)
     end
 end
 
-function Model.New(applicationSeconds, stageResetSeconds)
+function Model.New(applicationSeconds, stageResetSeconds, resetOnApplication)
     local order = {}
     for index, category in ipairs(ns.Data.categories) do order[category.key] = index end
     return setmetatable({
         resetSeconds = applicationSeconds or 20,
+        resetOnApplication = resetOnApplication == true,
         stageResetSeconds = stageResetSeconds or 18,
         units = {},
         estimates = {}, -- Own casts are predictions, never observed applications.
@@ -59,7 +60,7 @@ local function recordEnd(state, effect, now)
     return endedAt
 end
 
-local function updateStageClocks(unit, effects, now, stageResetSeconds)
+local function updateStageClocks(unit, effects, now, stageResetSeconds, applicationSeconds)
     for _, state in pairs(unit.categories) do
         state.activeCount = 0
         state.stageResetPending = false
@@ -87,6 +88,11 @@ local function updateStageClocks(unit, effects, now, stageResetSeconds)
         state.stageResetAt = not state.stageResetPending and state.stageEndAt
             and state.stageEndAt + stageResetSeconds or nil
         if state.stageResetPending then state.stageResetSource = nil end
+        if applicationSeconds then
+            state.stageResetAt = state.appliedAt + applicationSeconds
+            state.stageResetPending = false
+            state.stageResetSource = "application"
+        end
     end
 end
 
@@ -401,7 +407,7 @@ function Model:Observe(guid, effects, now, complete)
             stageEffects[key] = previous
         end
     end
-    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
+    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
 
     local nextEffects = {}
     if not complete then
@@ -455,7 +461,7 @@ function Model:Observe(guid, effects, now, complete)
                     -- this identity. Its old predicted end must not outlive it.
                     recordEnd(state, previous, appliedAt)
                     stageEffects[key] = nil
-                    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
+                    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
                 end
                 local prior = predecessor(state)
                 local context = durationContext(unit, priorDurationHistory[category], effects, key, category)
@@ -558,13 +564,13 @@ function Model:Observe(guid, effects, now, complete)
         if current and current.applicationKey == key then
             current.witness = nextEffects[key]
             rememberAuraDuration(current, effect, preciseStart)
-            reconcileDuration(unit, current, effect, preciseStart, now, complete)
+            if not self.resetOnApplication then reconcileDuration(unit, current, effect, preciseStart, now, complete) end
         end
         stageEffects[key] = nextEffects[key]
-        updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
+        updateStageClocks(unit, stageEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
     end
 
-    updateStageClocks(unit, nextEffects, now, self.stageResetSeconds)
+    updateStageClocks(unit, nextEffects, now, self.stageResetSeconds, self.resetOnApplication and self.resetSeconds or nil)
     local presentCategories = {}
     for _, effect in pairs(nextEffects) do presentCategories[effect.category] = true end
     for category, state in pairs(unit.categories) do

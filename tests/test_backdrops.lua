@@ -101,6 +101,10 @@ ns.Observer.Init()
 ns.OwnCasts.Init()
 ns.Observer.Scan(now)
 ns.UI.Init()
+ns.demo=true; ns.UI.Update(now)
+assert(not ns.UI.bars.player.icons[1].actionBorder and #ns.UI.bars.player.icons[1].borderTextures==4,
+    'plain stage-colored edges must replace the dark native bevel artwork')
+ns.demo=false; ns.UI.Update(now)
 
 -- Calibrate the fixture against the exact unsafe pattern before the regression.
 local legacy = object('Frame', nil, PlayerFrame, 'BackdropTemplate')
@@ -118,7 +122,7 @@ aura = {spellId=853, auraInstanceID=1, expirationTime=127}
 ns.Observer.Scan(now)
 ns.UI.Update(now)
 for _, unit in ipairs({'player','target','focus'}) do
-    assert(ns.UI.bars[unit].shown and ns.UI.bars[unit].icons[1].shown, 'CC must still render on every aliased frame')
+    assert(not ns.UI.bars[unit].shown, 'active CC stays hidden on every aliased frame')
 end
 restrictedGeometry = true
 now, aura = 127, nil
@@ -128,7 +132,7 @@ now = 130
 aura = {spellId=853, auraInstanceID=2, expirationTime=133}
 ns.Observer.Scan(now)
 ns.UI.Update(now)
-assert(ns.UI.bars.player.icons[1].row.stage == 2, 'the next CC remains renderable after removal')
+assert(not ns.UI.bars.player.shown and ns.model:GetDR('Player-1-A',now)[1].stage==2, 'next active CC hides while its stage still advances')
 now, aura = 133, nil
 ns.Observer.Scan(now)
 ns.UI.Update(now)
@@ -139,8 +143,8 @@ ns.UI.ApplyLayout()
 now = 151
 ns.Observer.Scan(now)
 ns.UI.Update(now)
-assert(not ns.UI.bars.player.shown and not ns.UI.bars.player.icons[1].shown,
-    'expired application icons hide without reading protected geometry')
+assert(not ns.UI.bars.player.shown,
+    'application expiry hides the icon without protected reads')
 assert(ns.model:GetDR('Player-1-A',now)[1].stage==2,
     'hidden presentation leaves the retained stage intact')
 now = 153
@@ -152,11 +156,8 @@ ns.demo=true
 ns.UI.Update(now)
 local nativeIcon=ns.UI.bars.player.icons[1]
 local fallbackIcon=ns.UI.bars.player.icons[2]
-assert(nativeIcon.actionBorder.atlas=='UI-HUD-ActionBar-IconFrame'
-    and nativeIcon.actionBorder.width==ns.db.bars.player.size*46/45,
-    'native bevel scales from configured size while geometry is restricted')
-assert(#fallbackIcon.borderTextures==4 and not fallbackIcon.actionBorder,
-    'missing atlas API retains an outline for newly created icons')
+assert(not nativeIcon.actionBorder and #nativeIcon.borderTextures==4, 'all icons use plain thin edges without bevel artwork')
+assert(#fallbackIcon.borderTextures==4 and not fallbackIcon.actionBorder, 'new icons also avoid native bevel artwork')
 assert(fallbackIcon.borderTextures[1].color[1]==1 and fallbackIcon.borderTextures[1].color[2]==.8,
     'fallback preserves second-stage yellow')
 ns.demo=false

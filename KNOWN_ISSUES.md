@@ -1,5 +1,15 @@
 # bjarkiCC known issues and validation status
 
+## Current changes: lingering black edges and delayed visibility (0.4.20)
+
+**Report:** dark edges persisted after the matte was removed. The user requests icons only after CC fades, while preserving 20 seconds from application, and rejects the separate 18-second post-end stage rule. A screenshot shows a Hibernate recast rejected with “A more powerful spell is already active.” That screenshot establishes rejection, not a new landed application or a universal server timing law.
+
+**Cause/change:** the native action-button atlas contains baked-in dark bevel pixels. Remove that atlas and use four thin tinted edges with transparent backing. Live tracking now uses one application+20 deadline for stage and countdown, without duration-based early reset correction. Keep icons hidden during active category effects, reveal only the remaining application time on the next frame after a readable fade, and discard expired display rows. An unchanged aura after a rejected attempt cannot advance or refresh DR. Default cast prediction remains disabled, and standalone prediction rows stay hidden even if opted in.
+
+**Offline validation:** all nine suites pass. New shipping-policy cases cover variable ranks/durations, early break, overlap, restricted omissions, next-frame event rendering, final-five-second text, fixed timing migration, unchanged rejected-cast witnesses and exact application expiry. The native-bevel assertion failed before removal and passes after; protection fixtures continue to reject geometry reads. Historical end-based trace/calibration regressions remain explicitly legacy fixtures. Passing them is not evidence for the new server timing policy.
+
+**Live status:** appearance, fade latency and stage alignment need in-game confirmation. The confirmed-hit boundary can still miss outgoing effects when beta APIs hide them, including the reported War Stomp case. Enemy cooldown observations are still unvalidated live. Dark pixels within the original spell art are not removed by this change.
+
 ## Current report: a dodged CC creates a DR tracker (0.4.18)
 
 **Report:** the user reports a tracker after a dodge. The screenshot does not contain status history, so it cannot distinguish a new prediction from an earlier retained timer. The default-enabled own-cast path reproduces this symptom: correlated SENT/SUCCEEDED with no aura creates a stage-one DR estimate. It never checks a landed hit. This is a diagnosed false-positive path, not proof of the screenshot's complete sequence.
