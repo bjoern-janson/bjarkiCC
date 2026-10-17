@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.17.4-cooldown-optin-test'
+ns.name, ns.version = addonName, '0.4.17.5-native-probe'
 ns.Safe = {}
 local S = ns.Safe
 
