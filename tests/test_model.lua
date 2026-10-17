@@ -1705,6 +1705,20 @@ test("a replacement boundary cannot teach a quiet baseline after a configured ea
     eq(row.fullDurationBaseline,nil,"predicted nonoverlap is not twenty seconds of observed quiet")
 end)
 
+test("only unconfirmed live direct casts authorize bounded exact-spell probes", function()
+    local m=ns.Model.New(20,18)
+    eq(#m:GetPendingExactSpellIDs("a",10),0)
+    eq(m:EstimateDR("a",400,"root",10,"cast-root",9.9),true)
+    eq(m:EstimateDR("a",100,"stun",10.1,"cast-stun",10),true)
+    local queries=m:GetPendingExactSpellIDs("a",10.2)
+    eq(#queries,2); eq(queries[1],100); eq(queries[2],400)
+    m:Observe("a",{["a:10"]=effect("stun",100,15,10.1)},10.2,true)
+    queries=m:GetPendingExactSpellIDs("a",10.3)
+    eq(#queries,1); eq(queries[1],400,"confirmed cast ceases exact probing")
+    eq(#m:GetPendingExactSpellIDs("a",30),0,"expired guess cannot trigger another query")
+    eq(#m:GetPendingExactSpellIDs("b",10.1),0,"another GUID cannot borrow this query")
+end)
+
 local function runModelTests()
     local failed=0
     for _, case in ipairs(cases) do
