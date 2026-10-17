@@ -629,6 +629,26 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     return true
 end
 
+-- Only currently pending, reviewed own-cast estimates can authorize targeted
+-- positive exact-aura probes. This is query selection, NEVER application proof.
+-- Keep the observer out of the model's private estimate tables.
+function Model:GetPendingExactSpellIDs(guid, now)
+    local result, seen = {}, {}
+    if not guid or type(now) ~= "number" then return result end
+    local prediction = self.estimates[guid]
+    if not prediction then return result end
+    for _, state in pairs(prediction.categories) do
+        local id = state.spellID
+        if id and not seen[id] and now >= state.appliedAt
+            and inWindow(state, now, self.resetSeconds) then
+            seen[id] = true
+            result[#result + 1] = id
+        end
+    end
+    table.sort(result)
+    return result
+end
+
 function Model:GetDR(guid, now, includeEstimates)
     local rows = {}
     local unit = guid and self.units[guid]

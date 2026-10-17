@@ -1,5 +1,51 @@
 # bjarkiCC architecture and DR research
 
+## 0.4.17.5 native Blizzard DR availability experiment
+
+Blizzard's `C_SpellDiminish` API is a potential native server DR source, not interchangeable with the addon-owned observed-aura state machine. The `UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED` event declares secret payloads. Never assume event delivery means an observable hit, a category, or a count. The native feed has to be tested under a supported `IsSystemSupported()` result and explicit player `spellDiminishPVPEnemiesEnabled=1` opt-in.
+
+`/bcc native status` reads guarded support/CVar/event-valid flags and reports diagnostic counters. `/bcc native on` requests the client-global CVar only if supported and out of combat; `off` requests 0, both with read-back confirmation. No login/autoload CVar writes occur. `Observer.OnNativeDR` records only individually readable, validated primitive fields in a last-event diagnostic snapshot, never executes private category-dependent state transitions. `Observer.NoteOwnCCCast` observes only explicitly recognized readable player SENT/SUCCEEDED spell IDs (Bash ranks 5211/6798/8983, War Stomp 20549, Iron Grenade 4068). These are delivery statistics, not landed effects. All existing observed and estimated DR paths, clocks, GUI, settings schema, and data mappings remain unchanged.
+
+
+## 0.4.17.4 enemy cooldown HUD ownership and migration
+
+The cooldown model and its curated 27 ability families are unchanged; no observation mechanism has become more reliable simply by improving the display. The original three sample icons in `/bcc test` come from `UI.demoRows('cooldown')`, not `Model:GetCooldowns`. The earlier (0,-280) free anchor physically overlapped the user's cast bar. Real enemy cast coverage is unverified (`acceptedCasts=0` in supplied reports).
+
+The cooldown bar is now **opt-in**: a new SavedVariables profile sets `bars.cooldown.enabled=false`. Schema 8 migrates an untouched schema-7 cooldown bar at (0,-280) to (0,-170), disables only an unchanged default-on bar, and preserves deliberate custom positions and nondefault appearances. After schema 8, explicit opt-in and drag coordinates survive reload; `/bcc reset` resets coordinates only, not enabled state. Player/target/focus DR presentation and all timing settings are invariant.
+
+The opt-in control is `/bcc cooldowns on|off|status`, separate from the existing per-spell `/bcc cooldown <id> <seconds|default>` and `/bcc used <id>`. `/bcc test` still allows placement preview only for enabled bars, but synthetic enemy icons are labeled SAMPLE with an explicit preview tooltip. Live cooldown rows require actual readable, accepted successful enemy spellcasts or manual marks. No icon must never be interpreted as cooldown-ready proof.
+
+The feature may be removed/replaced when a reliable enemy-cast source has been validated in-game; until then, avoid reconstructing unobserved ability uses through speculative combat history. `castSuccessOther`, `acceptedCasts` and rejection counters distinguish delivery, authorization and model acceptance.
+
+
+## AoE confirmed-hit sensor supplement (0.4.17.3 candidate)
+
+War Stomp (20549) and Iron Grenade (4068) are both harmful stun aura IDs in `Data.lua`. A successful racial/item cast identifies an action, not one or more specific victims. Strict confirmed-hit semantics continue to require positive victim-specific evidence.
+
+1. `Observer.scanGuid` supplements blocked indexed harmful-aura enumeration with **both** exact 20549 and exact 4068 queries, plus the existing six Nature's Grasp proc roots and bounded pending direct-cast queries. Explicit area spell lookups never generate their own cast estimates.
+2. `UNIT_AURA`'s `updateInfo.addedAuras` is accepted only when readable. The observer bounds the array, checks each value/field, requires `isHarmful=true`, known AoE spell ID and positive `auraInstanceID`, and retains optional valid duration-derived application time. This is an independent positive source. A secret payload is not decoded.
+3. An event witness is merged into the same GUID's owner+alias snapshot **before** identity reconciliation and delivered to the model only once. If the current complete indexed enumeration lacks that positive instance, its absence is contradictory; the scan becomes partial and the confirmed application remains. Later complete negative snapshots may establish removal but cannot erase the fact that the CC applied.
+4. `UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED` is registered only for availability diagnostics. The built-in tracker advertises secret payloads. Even an observed event or a readable unit token does not prove that a *specific* AoE cast hit that unit in the *stun* category. It cannot seed the model or expose private native data.
+5. Debug counters and bounded observation trace distinguish exact-spell hit, readable aura-event hit, secret/unavailable event data and native DR event presence. They do not claim a forbidden source is readable.
+
+The method is inspired by bjarkiPortraits' disciplined separation of secure/native presentation and readable application evidence. It cannot reproduce a native secure DR view or unlock restricted combat history. The only path to reliable confirmed caster tracking requires game-permitted readable victim-specific stun evidence. Application and stage clocks, side-grid geometry, AoE handling, estimates and SavedVariables schema are unchanged.
+
+
+## Evidence-first 0.4.17.2 candidate (2026-10-17)
+
+This isolated candidate retains the original 0.4.17.1 stage model and presentation. It adapts bjarkiPortraits' distinction between *observation*, *authorization*, and *display*, without copying native portrait behavior into an historical DR model.
+
+**Source recovery:** For a shared player GUID, the observer initially selects player > target > focus. When the selected target/focus harmful-aura scan is incomplete, it rechecks a readable alternate token's live GUID. If that alias yields a complete indexed snapshot, the alias is authoritative for presence and absence. Otherwise only its positive instance records are merged, with completeness staying false. The model receives a single reconciled snapshot per GUID. The player-only LoC strategy is unchanged.
+
+**Cast-guided verification:** The pure Model exposes a sorted, finite set of pending direct-cast spell IDs. An incomplete observer scan may use those IDs for positive-only GetUnitAuraBySpellID queries on the already resolved victim. Each accepted witness must carry a matching spell ID and a valid, guarded aura instance; nil/blocked/wrong identity does not prove hit/removal. The existing fixed War Stomp and six Grasp queries remain separate and bounded. A successful own cast is never promoted to confirmed DR merely by successful casting.
+
+**Enemy cooldown source diagnosis:** UNIT_SPELLCAST_START and UNIT_SPELLCAST_CHANNEL_START are now counted as events but cannot start a cooldown. SUCCEEDED is counted by unit class. Observer records fixed rejection reasons; acceptedCasts increases only when Model:Cast actually installs a new cooldown or applies a tracked reset. Readable Player- GUID type is a positive identity fallback for a secret UnitIsPlayer boolean. Unknown caster name is not a reason to discard an otherwise identified, hostile successful cast.
+
+**Presentation:** The native Cooldown object owns its own animation after the first SetCooldown. Stable starts/durations, icon sizes, icon offsets and bar geometry are not rewritten on every 0.1s paint. Changed applications, size settings and count still update as before. There is no change to default icon styling or timers.
+
+These improvements change which *readable* evidence is considered. They do not establish that Forever exposes the underlying information in every duel. The candidate requires the committed offline regressions and fresh in-client tests before being treated as a production replacement.
+
+
 ## Nature's Grasp exact lookup supplement (0.4.17.1)
 
 On an incomplete target/focus indexed scan, the observer supplements its existing War Stomp exact lookup with the six mapped Nature's Grasp proc-root IDs (19975 through 19970). The API's non-secret-aura result must pass matching spell and instance checks. Positive records merge by aura instance into the existing observation model; nil or unavailable records never make incomplete coverage complete or prove an aura ended. The self-buff cast supplies no victim and is not a DR application. This is a bounded observation change over the 0.4.17 baseline, with no model, UI, anchor or saved-settings migration changes. Live evidence that the fallback is readable during the reported restricted interval is still required.

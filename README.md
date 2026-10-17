@@ -1,5 +1,61 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.5: Native DR support probe for urgent Bash/Grenade duel testing
+
+A supplied **0.4.17.3 live status report** showed 1,186 `C_UnitAuras.GetAuraDataByIndex` access errors, `auraEventPositives=0`, `nativeDREvents=0`, target/focus exact War Stomp/Grenade lookups returning `none`, and complete per-unit LoC lists with zero mapped hits. However, the **receiving player** had a confirmed LoC Bash (5211), proving the spell mapping worked on the receiving side. `ownCast.captured=14`, `ownCast.estimated=11`, and no unresolved cast destinations show that the general direct-cast correlation runs. **There is no proof of a victim-specific caster-side Bash or Grenade application** in that report. Do not turn successful casts into confirmed stun stages.
+
+A community WoW Forever DR addon reports using Blizzard's built-in `C_SpellDiminish` system after enabling `spellDiminishPVPEnemiesEnabled`, but our prior `nativeDREvents=0` log does not establish whether the native feed is available on this client. This test adds an **explicit opt-in probe**:
+
+- `/bcc native status` — reports `C_SpellDiminish.IsSystemSupported()`, the native `spellDiminishPVPEnemiesEnabled` CVar, native-event validity if inspectable, native event counts/readable category/secret payload counts, and your own Bash/Iron Grenade/War Stomp cast event counts.
+- `/bcc native on` — only out of combat and only when `IsSystemSupported()` returns true, requests native DR CVar `1`, then rereads it. This changes a **client-global Blizzard option**, not just this addon. It is **never enabled automatically**.
+- `/bcc native off` — out of combat, returns the same CVar to `0`. Since it is a client CVar, it may persist through reloads unless manually reverted.
+- `/bcc status` — also shows the last **separately readable** native tracker fields (category number, start time, duration, showCountdown, isImmune) with unreadable fields explicitly shown as unknown, plus the last readable own Bash/Grenade/Stomp cast event. An event is *never* promoted to a confirmed stun or an observed DR count on its own.
+
+**Fast live protocol:** Install, run `/bcc native status`. If `supported=true`, leave combat and run `/bcc native on`; make a targeted/focused opponent cast/receive Bash or Iron Grenade; run `/bcc native status`, then copy `/bcc status` during the CC if possible. If `nativeDREvents` increments but payload is restricted, the event exists but still does not authorize a caster-side stage. If `supported=false`, do not keep debugging the native feed: it is not supported through this API on this client. Finally, run `/bcc native off` if you do not want the native Blizzard option left enabled.
+
+**No automatic DR breakthrough claimed:** This changes diagnostics and a controlled native UI setting only. It does not decode protected native events, bypass secret aura restrictions, conflate item use with a victim-specific hit, rewrite stage timers, add visual clutter, or change the 2×2 DR grid. The 0.4.17.4 experimental enemy cooldown opt-in remains.
+
+
+## 0.4.17.4: Experimental enemy cooldown bar opt-in
+
+The three "Enemy cooldowns (test)" icons shown by `/bcc test` are **synthetic Paladin/Rogue/Mage examples**, not evidence of live enemy casts. Earlier caster reports recorded `acceptedCasts=0`; there is still **no verified automatic enemy cooldown feed on Forever**. A live timer is created only after a readable enemy `UNIT_SPELLCAST_SUCCEEDED` event satisfies identity/hostility requirements (or `/bcc used <spellID>` is manually invoked). Cast START alone does not start a timer.
+
+- **Cooldown bar defaults OFF**, without disabling any player/target/focus DR displays. Use `/bcc cooldowns on` to opt in, `/bcc cooldowns off` to hide, or `/bcc` → Display → **Enemy CDs (beta)**. The feature stays experimental and can still miss real enemy casts.
+- The default position moves from **screen center (0,-280)**, which overlaps the user's Healing Touch cast bar, to **(0,-170)**. One-time schema 8 migration updates that old untouched default and disables an uncustomized legacy default-on bar. Explicitly customized/dragged positions and nondefault appearance/enable choices are preserved. The cooldown bar remains independently draggable when enabled and unlocked.
+- When enabled, `/bcc test` titles the three fake examples **Enemy cooldowns (SAMPLE)** and explains the simulation on hover. Turning preview off returns to actual observations. The settings panel and tooltips explicitly warn of the unverified enemy event feed.
+- `/bcc status` identifies whether the experimental cooldown HUD is enabled and already reports `castStartsOther`, `castSuccessOther`, `acceptedCasts`, and `castReject.*` counters. These allow diagnosis of absent events versus rejected readable events.
+- **No change** to stun/root observation, War Stomp/Iron Grenade probes, the 2×2 DR grids, stage colors, application or reset clocks, manual cooldown marks, or the actual enemy cooldown model. This is a presentation/default-policy correction, not an invented fix for inaccessible enemy casts.
+
+For live verification, disable preview, opt in only if you want to test automatic enemy tracking, and copy `/bcc status` immediately after a known enemy ability. If `castSuccessOther=0`, the addon has not seen a usable successful enemy cast event; if successful events arrive but `acceptedCasts=0`, inspect the rejection reasons.
+
+
+## 0.4.17.3 AoE caster-witness test (still requires in-game verification)
+
+**Reported:** War Stomp and Iron Grenade do not advance caster-side stun DR reliably despite visible hits on the opponent.
+
+The 0.4.17.2 evidence-first baseline already checked exact War Stomp aura 20549, with previous live trials returning no readable positive on the caster. It did **not** explicitly query Iron Grenade's harmful stun effect 4068. This update adds an exact 4068 query whenever target/focus indexed harmful-aura enumeration is incomplete. Only a readable matching spell **and real aura instance** advances observed DR; nil, secret, mismatched, expired or missing-ID results prove neither a hit nor a removal.
+
+`UNIT_AURA` now has a separate, **positive-only** path for readable `updateInfo.addedAuras` containing harmful spell 20549/4068 with a valid instance. This can retain a very short hit when a subsequent indexed snapshot loses access. It does **not** process arbitrary event data, use expired events, trust friendly auras or infer that a cast landed. If the event's payload is secret, it is ignored and logged as restricted. A positive event conflicting with an empty complete scan preserves the hit while marking coverage incomplete. The native `UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED` event is **diagnostics only**: its secret payload is never decoded into a category/stage/hit.
+
+`/bcc status` exposes `lookup20549`, `grenadeLookup`, `auraEventCalls`, `auraEventRestricted`, `auraEventPositives`, `auraEventConflicts`, `nativeDREvents`, `nativeDRRestricted`, and `nativeDRReadable`. Capture status **while War Stomp or Iron Grenade is active on a selected opponent**, preferably also focusing them. Have the recipient capture the same duel to distinguish actual hits from unreadable caster evidence.
+
+**Evidence ceiling:** WoW Forever marks `UNIT_AURA` updates secret when auras are restricted; `GetUnitAuraBySpellID` may return nil for a secret aura. Therefore this change is not a guarantee of automatic caster-side tracking during restricted duels. Neither area cast is allowed to guess the victim. The native DR event cannot safely be used to infer a stun category from a secret tracker. If all three positive paths fail, a correct confirmed DR stage cannot be reconstructed from permitted addon data alone. Defaults, timers, display and persistent settings remain unchanged.
+
+
+## 0.4.17.2: evidence-first test candidate (not yet live verified)
+
+This build retains the original 0.4.17 side-grid artwork, colors, controls, application clock (20s), separate provisional stage retention (18s), own-cast setting default, and SavedVariables schema. It is **not** a demonstrated fix for every restricted combat event. A GitHub Actions Lua test workflow builds an installable candidate ZIP after tests pass.
+
+Changes informed by bjarkiPortraits' evidence discipline:
+- When a Target aura list is restricted and Focus is the **same readable player GUID**, probe Focus before declaring the observation incomplete. A complete alias becomes the authoritative snapshot; otherwise merge only positive aura-instance records. A missing or secret alias is not a removal.
+- Pending, reviewed **own direct casts** can select a bounded exact-aura lookup for that spell when enumeration is restricted. This is only a query selector: the cast still never advances observed DR without a readable matching positive aura instance. Area War Stomp and Nature's Grasp retain their preexisting, separate confirmation probes.
+- A readable Player GUID remains a valid identity witness if UnitIsPlayer is unavailable, while an explicit contradictory result vetoes it. A readable hostile GUID can begin an observed cooldown even if UnitName is temporarily unavailable (the display may initially use a GUID).
+- `/bcc status` now separates cast-start delivery, successful event delivery, validation rejections, **actually accepted** cooldown records, alias coverage and exact lookup outcomes. Cast START is diagnostic only and does not create a cooldown.
+- Native cooldown swipes keep their original start/duration between render ticks; stable HUD geometry is not needlessly reanchored and resized.
+
+**Live checks needed:** incoming/outgoing CC with Target and Focus on the same enemy; compare complete/partial alias coverage; cast Hibernate or Entangling Roots through an indexed-aura restriction and check `castLookup`; repeat War Stomp and Nature's Grasp; note whether enemy cast START and SUCCEEDED events actually arrive. Check `/bcc status` during an active effect. The direct lookup cannot bypass secret data, and enemy cooldown tracking remains conditional on readable events.
+
+
 ## 0.4.17.1: Nature's Grasp confirmation fallback
 
 This narrow patch keeps the 0.4.17 artwork, layout, timers and saved-setting policy. When target/focus indexed aura scanning is restricted, it also checks the six known Nature's Grasp root-effect IDs through the same guarded exact-spell API used for War Stomp. Only a readable matching spell and aura instance can add a root application; activating the self-buff never assigns a victim.
@@ -147,7 +203,7 @@ Further unconfirmed cast attempts no longer restart a red DR timer. The third ap
 - Player DR follows `PlayerFrame`, target DR follows `TargetFrame`, and focus DR follows `FocusFrame`.
 - Each uses the visible outer portrait edge for placement, with native-frame fallback, in a fixed 2 x 2 grid beside it. Use `/bcc unlock` outside combat and drag the icons to adjust the offset; `/bcc lock` saves the layout from accidental movement. Offsets persist across reloads.
 - Moving the native unit frame also moves its DR bar. Bars disappear with hidden unit frames during live play; preview/unlock still shows setup handles.
-- The enemy cooldown bar remains independently movable.
+- The experimental enemy cooldown bar is disabled by default, independently movable if enabled, and does not follow cast-bar geometry automatically.
 - Target and focus share one observation history when they refer to the same player. Switching targets preserves the old target's DR if that player remains focused.
 
 Upgrading initializes frame-relative DR offsets once, preserving size, filters and the cooldown bar's position. `/bcc reset` restores the default offsets. The anchors use Blizzard's named unit frames, including addons that reposition those frames. Replacement unit-frame addons with different frame names are not automatically detected. If a native frame is missing, a setup-only handle appears at the old screen position; its live DR bar stays hidden until the native frame exists.
@@ -168,7 +224,7 @@ Previous default sizes and spacing migrate once to the compact defaults. Diagnos
 1. Exit WoW and extract the ZIP into `World of Warcraft/_classic_beta_/Interface/AddOns/`.
 2. The resulting file must be `Interface/AddOns/bjarkiCC/bjarkiCC.toc`, with no extra nested folder.
 3. Start the beta, enable **bjarkiCC (Forever)** in AddOns and log in.
-4. Select a target and set a focus so both frames are visible. Outside combat, run `/bcc test`, then `/bcc unlock`. Drag the three DR bars beside their frames and place the cooldown bar where you prefer.
+4. Select a target and set a focus so both frames are visible. Outside combat, run `/bcc test`, then `/bcc unlock`. Drag the three DR grids beside their frames. The experimental enemy cooldown bar is hidden by default; use `/bcc cooldowns on` only if you want to test it, then drag it well clear of your cast bar.
 5. Run `/bcc lock`, then `/bcc test` again to return to live observation.
 
 The package includes all Lua source; no other addon or library is required. Installation does not replace bjarkiUI or bjarkiPortraits.
@@ -178,11 +234,13 @@ The package includes all Lua source; no other addon or library is required. Inst
 | Command | Action |
 | --- | --- |
 | `/bcc` | Open settings: bars, DR categories, cooldown filters |
-| `/bcc test` | Toggle clearly labeled synthetic preview icons |
+| `/bcc test` | Toggle synthetic preview icons (never proof of live tracking) |
 | `/bcc unlock` / `/bcc lock` | Adjust DR offsets and cooldown position outside combat, or lock bars |
 | `/bcc reset` | Restore default frame offsets and cooldown position; preserve other settings |
 | `/bcc clear` | Clear observation history and restart the sensors |
 | `/bcc status` | Open a copyable build/API diagnostic report |
+| `/bcc cooldowns on` / `off` | Opt into or hide the experimental enemy cooldown bar |
+| `/bcc cooldowns status` | Check the experimental bar's current visibility setting |
 | `/bcc cooldown 853 45` | Use a 45-second HoJ estimate for future observations |
 | `/bcc cooldown 853 default` | Restore HoJ's default estimate range |
 | `/bcc used 853` | Manually mark HoJ used by the selected hostile player |
@@ -205,7 +263,7 @@ Forever restricts combat-log access, so bjarkiCC never registers combat-log even
 
 Own-cast estimates correlate the intended name at cast-send time with a visible player target/focus, then require matching successful cast and spell identifiers. Switching target after sending cannot redirect that estimate. Failed/interrupted casts are discarded; area effects, traps, procs and pet orders are excluded. Same-name ambiguity between target and focus is rejected, but a different same-name mouseover/outside unit cannot be ruled out because the event supplies a name, not a victim GUID. Resistance and immunity can still leave a false-positive estimate. This fallback cannot reconstruct other players' hidden CC.
 
-An enemy timer requires a visible event plus readable spell ID, unit identity, name and hostility. Off-screen enemies, late target selection, secret casts and unobserved resets can be missed. Player pets are tracked under their own identity. The target-only filter does not attribute a pet's cooldown to its owner. Hidden empty bars do not mean the data is available; check `/bcc status` if expected icons never appear.
+An automatically observed enemy timer requires a readable successful enemy spellcast event, a tracked spell ID, confirmed hostile unit identity and a valid cooldown rule; the caster name is optional. Off-screen enemies, secret casts and unobserved resets can be missed. The experimental cooldown bar is OFF until enabled; no visible timer is never proof of readiness. Player pets are tracked under their own identity. The target-only filter does not attribute a pet's cooldown to its owner. Hidden empty bars do not mean the data is available; check `/bcc status` if expected icons never appear.
 
 Loss of Control can omit debuffs such as Frost Shock. Once a readable player fallback is selected, it remains selected until `/bcc clear`, world entry, or reload. Target/focus accept readable per-unit witnesses alongside partial auras, but an empty LoC list cannot establish that all effects ended. An unavailable or partial scan remains restricted in diagnostics. Target and focus DR are PvP player tracking; NPC targets do not produce DR bars.
 

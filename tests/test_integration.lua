@@ -8,7 +8,7 @@ local generic = {'SetSize','SetWidth','SetHeight','SetPoint','ClearAllPoints','S
  'SetValueStep','SetObeyStepOnDrag','SetThumbTexture','StartMoving','StopMovingOrSizing','SetAutoFocus',
  'SetMultiLine','SetFontObject','HighlightText','SetFocus','SetScrollChild','SetMaxLetters'}
 for _,key in ipairs(generic) do frameMethods[key]=function() end end
-function frameMethods:SetSize(w,h) self.width=w; self.height=h end
+function frameMethods:SetSize(w,h) self.width=w; self.height=h; self.sizeWrites=(self.sizeWrites or 0)+1 end
 function frameMethods:SetPoint(...) self.point={...} end
 function frameMethods:SetBackdropBorderColor(...) self.border={...} end
 function frameMethods:SetColorTexture(...) self.color={...} end
@@ -34,7 +34,10 @@ function frameMethods:IsVisible() return self.shown end
 function frameMethods:Hide() self.shown=false end
 function frameMethods:Show() local changed=not self.shown; self.shown=true; if changed and self.scripts.OnShow then self.scripts.OnShow(self) end end
 function frameMethods:SetShown(v) if v then self:Show() else self:Hide() end end
-function frameMethods:SetCooldown(start,duration) assert(type(start)=='number' and type(duration)=='number'); self.cooldown={start,duration} end
+function frameMethods:SetCooldown(start,duration)
+ assert(type(start)=='number' and type(duration)=='number')
+ self.cooldown={start,duration}; self.cooldownWrites=(self.cooldownWrites or 0)+1
+end
 local function object(kind,name,parent,template)
  local f=setmetatable({kind=kind,name=name,parent=parent,template=template,scripts={},events={},shown=true},{__index=frameMethods})
  frames[#frames+1]=f; if name then _G[name]=f end; return f
@@ -82,6 +85,48 @@ assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
 assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
 assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+-- Probe the Blizzard-native DR option without modifying addon DR model state.
+local nativeCVar="0"
+local nativeSupported=true
+C_SpellDiminish={IsSystemSupported=function() return nativeSupported end}
+C_EventUtils={IsEventValid=function(event)
+ assert(event=="UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED")
+ return true
+end}
+C_CVar={
+ GetCVar=function(key) assert(key=="spellDiminishPVPEnemiesEnabled"); return nativeCVar end,
+ SetCVar=function(key,value)
+  assert(key=="spellDiminishPVPEnemiesEnabled")
+  nativeCVar=value
+  return true
+ end,
+}
+SlashCmdList.BJARKICC('native status')
+assert(ns.BuildStatus():find('Native DR feed: supported=true; cvar=0; eventValid=true',1,true),
+ 'status reports off client-native DR option, independent of addon predictions')
+SlashCmdList.BJARKICC('native on')
+assert(nativeCVar=="1" and ns.BuildStatus():find('cvar=1',1,true),
+ 'explicit out-of-combat command enables supported Blizzard DR CVar')
+SlashCmdList.BJARKICC('native off')
+assert(nativeCVar=="0",'off restores off client-native DR option')
+combat=true; SlashCmdList.BJARKICC('native on'); combat=false
+assert(nativeCVar=="0",'native settings never changed in combat')
+nativeSupported=false; SlashCmdList.BJARKICC('native on')
+assert(nativeCVar=="0",'unsupported native DR system is not force-enabled')
+nativeSupported=true
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','TargetEnemy','Cast-bash-probe',5211)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-bash-probe',5211)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','TargetEnemy','Cast-grenade-probe',4068)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-grenade-probe',4068)
+assert(ns.Observer.stats.ownBashSent==1 and ns.Observer.stats.ownBashSucceeded==1
+ and ns.Observer.stats.ownGrenadeSent==1 and ns.Observer.stats.ownGrenadeSucceeded==1,
+ 'real Main cast routing records useful Bash and grenade diagnostics independently of hits')
+assert(#ns.model:GetDR('Player-1-A',100)==0,'a cast event alone is still not a DR witness')
+
+assert(ns.db.bars.cooldown.enabled==false and ns.db.bars.cooldown.y==-170,
+ 'fresh enemy cooldown bar is opt-in and no longer overlaps the old castbar position')
+assert(ns.BuildStatus():find('Enemy cooldown HUD: OFF by default',1,true),
+ 'status must not imply an unverified enemy feed is working')
 -- These legacy timelines deliberately configure a 20-second stage window.
 -- The Forever 18-second trace below exercises the independent default.
 ns.db.stageResetSeconds=20
@@ -99,6 +144,11 @@ assert(ns.UI.bars.player.anchorFrame==PlayerFrame and ns.UI.bars.focus.anchorFra
 assert(ns.eventFrame.events.PLAYER_FOCUS_CHANGED and ns.eventFrame.events.PLAYER_REGEN_ENABLED,'focus and anchor recovery events registered')
 assert(ns.eventFrame.events.UNIT_SPELLCAST_SENT and ns.eventFrame.events.UNIT_SPELLCAST_SUCCEEDED
  and ns.eventFrame.events.UNIT_SPELLCAST_FAILED and ns.eventFrame.events.UNIT_SPELLCAST_INTERRUPTED,'outgoing cast correlation and cancellation events registered')
+assert(ns.eventFrame.events.UNIT_SPELLCAST_START and ns.eventFrame.events.UNIT_SPELLCAST_CHANNEL_START,
+ 'non-authoritative cast-start telemetry registers without creating cooldowns')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_START','target','Cast-start',853)
+assert(ns.Observer.stats.castStartsOther==1 and #ns.model:GetCooldowns(100)==0,
+ 'cast-start evidence never starts speculative enemy cooldowns')
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.3)
 assert(not ns.UI.bars.player.shown and not ns.UI.bars.cooldown.shown,'empty bars hidden in normal play')
 -- CC can apply and be removed between render ticks; event callbacks must sample it.
@@ -110,6 +160,14 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','player')
 ns.UI.Update(now)
 assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='','application shows its DR icon while long countdown text stays hidden')
 assert(ns.UI.bars.player.icons[1].swipe.cooldown[1]==100.1,'application supplies the cooldown sweep start')
+local initialIcon=ns.UI.bars.player.icons[1]
+local firstClockWrites=initialIcon.swipe.cooldownWrites
+local firstSizeWrites=initialIcon.sizeWrites
+local firstBarSizeWrites=ns.UI.bars.player.sizeWrites
+ns.UI.Update(now+0.05)
+assert(initialIcon.swipe.cooldownWrites==firstClockWrites and initialIcon.sizeWrites==firstSizeWrites
+ and ns.UI.bars.player.sizeWrites==firstBarSizeWrites,
+ 'identical presentation updates must leave native cooldown clock and geometry alone')
 local bevel=ns.UI.bars.player.icons[1].borderTextures[1]
 assert(bevel.atlas=='UI-HUD-ActionBar-IconFrame', 'DR icons use the native action-button bevel')
 assert(bevel.parent.frameLevel>ns.UI.bars.player.icons[1].swipe:GetFrameLevel(),
@@ -314,11 +372,28 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
 SlashCmdList.BJARKICC('clear')
 SlashCmdList.BJARKICC('test')
 assert(ns.demo and ns.UI.bars.player.icons[1].shown,'demo visible')
+assert(not ns.UI.bars.cooldown.shown,
+ 'normal DR preview must not show sample enemy cooldown icons without explicit opt-in')
+SlashCmdList.BJARKICC('cooldowns on')
+assert(ns.db.bars.cooldown.enabled and ns.UI.bars.cooldown.shown,
+ 'explicit command enables experimental cooldown preview without altering DR')
+assert(ns.UI.bars.cooldown.title.text=='Enemy cooldowns (SAMPLE)',
+ 'fake preview must not be confused with detected enemy cooldowns')
+local recordedMessages, oldChatWriter={}, DEFAULT_CHAT_FRAME.AddMessage
+DEFAULT_CHAT_FRAME.AddMessage=function(_,message) recordedMessages[#recordedMessages+1]=message end
+SlashCmdList.BJARKICC('cooldowns status')
+assert(#recordedMessages>=2 and recordedMessages[#recordedMessages]:find('accepted automatic cooldowns=',1,true),
+ 'quick cooldown status reports actual accepted-cast counts, not sample icons')
+DEFAULT_CHAT_FRAME.AddMessage=oldChatWriter
 assert(ns.UI.bars.focus.icons[1].shown,'focus has an independent preview')
 assert(ns.UI.bars.player.title.shown,'test bars identified')
 assert(not ns.UI.bars.player.icons[1].caption.shown,'no category captions in minimal view')
 assert(not ns.UI.bars.player.icons[1].state.shown,'known DR uses border without duplicate stage text')
 assert(not ns.UI.bars.cooldown.icons[1].caption.shown and not ns.UI.bars.cooldown.icons[1].state.shown,'cooldown minimal view has just timer')
+local previewIcon=ns.UI.bars.cooldown.icons[1]
+previewIcon.scripts.OnEnter(previewIcon)
+assert(ns.UI.tip.lines[1]=='SAMPLE ONLY: no enemy cast was observed.',
+ 'hovering a demo cooldown must identify it as synthetic, not verified live data')
 assert(ns.UI.bars.player.icons[1].time.parent:GetFrameLevel()>ns.UI.bars.player.icons[1].swipe:GetFrameLevel(),'countdown text must sit above swipe')
 SlashCmdList.BJARKICC('test')
 assert(not ns.demo and not ns.UI.bars.player.icons[1].shown,'demo never survives into live display')
@@ -805,4 +880,34 @@ for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
  assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
 end
 ns.UI.GetRows=originalRows
+SlashCmdList.BJARKICC('cooldowns off')
+assert(not ns.db.bars.cooldown.enabled and not ns.UI.bars.cooldown.shown,
+ 'disabling unverified cooldown HUD never requires clearing DR history')
+assert(ns.BuildStatus():find('Enemy cooldown HUD: OFF by default',1,true),
+ 'cooldown off state is exposed in status')
+-- New source path must run through the real Main event router, not only the
+-- unit observer's isolated fixture. A readable harmful AoE delta survives a
+-- restricted indexed scan, while the secret native DR feed is diagnostic only.
+SlashCmdList.BJARKICC('clear')
+now=3000000.01
+units.target='Player-1-Grenade'; units.focus=nil
+C_UnitAuras.GetAuraDataByIndex=function(unit)
+ if unit=='target' then error('restricted target aura stream',0) end
+ return nil
+end
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target',{
+ addedAuras={{spellId=4068,auraInstanceID=2300,isHarmful=true,
+  expirationTime=3000003,duration=3}}
+})
+local grenade=ns.model:GetDR('Player-1-Grenade',now)
+assert(#grenade==1 and grenade[1].spellID==4068 and grenade[1].started==3000000
+ and not grenade[1].estimated,'Main routes a readable Grenade event to observed stun DR')
+assert(ns.Observer.GetUnitState('target').eventWitnesses==1
+ and ns.Observer.stats.auraEventPositives==1,'Main retains event evidence in diagnostics')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED',
+ 'target',{category=2,startTime=3000000,duration=18,showCountdown=true,isImmune=false})
+assert(ns.Observer.stats.nativeDREvents==1
+ and ns.model:GetDR('Player-1-Grenade',now)[1].stage==1,
+ 'native DR telemetry cannot advance an observed stage without a stun witness')
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')

@@ -73,7 +73,27 @@ end
 -- textures stretch natively; unlike BackdropTemplate they never divide a
 -- GetWidth/GetHeight result in an OnSizeChanged callback.
 local function setBorderColor(frame,r,g,b,a)
-    for _,edge in ipairs(frame.borderTextures) do edge:SetVertexColor(r,g,b,a or 1) end
+    local opacity = a or 1
+    if frame._borderR == r and frame._borderG == g and frame._borderB == b
+        and frame._borderA == opacity then return end
+    for _,edge in ipairs(frame.borderTextures) do edge:SetVertexColor(r,g,b,opacity) end
+    frame._borderR, frame._borderG, frame._borderB, frame._borderA = r,g,b,opacity
+end
+
+-- The native Cooldown widget advances its own swipe. Reasserting an unchanged
+-- start and duration every render tick is unnecessary and may reset its artwork.
+local function updateNativeClock(icon, started, duration)
+    if icon._clockStart ~= started or icon._clockDuration ~= duration then
+        icon.swipe:SetCooldown(started, duration)
+        icon._clockStart, icon._clockDuration = started, duration
+    end
+end
+
+local function setTextIfChanged(region, value)
+    if region._displayText ~= value then
+        region:SetText(value)
+        region._displayText = value
+    end
 end
 
 local function panelBackground(frame,alpha)
@@ -110,13 +130,20 @@ local function tooltip(owner, row, key)
     local ability = ns.Data.spells[row.spellID]
     tip:SetText(ability and ability.name or (cat and cat.name or 'Crowd control'), gold[1],gold[2],gold[3])
     if key == 'cooldown' then
-        tip:AddLine(row.name or 'Observed enemy',1,1,1)
-        tip:AddLine(row.manual and 'Manually marked use' or 'Observed successful cast',.7,.7,.7)
+        if ns.demo then
+            tip:AddLine('SAMPLE ONLY: no enemy cast was observed.',1,.58,.34,true)
+        else
+            tip:AddLine(row.name or 'Observed enemy',1,1,1)
+            tip:AddLine(row.manual and 'Manually marked use' or 'Readable successful cast event',.7,.7,.7)
+        end
         tip:AddLine('Estimated remaining: '..math.ceil(row.remaining)..'s',1,.85,.4)
         if row.earlyRemaining and row.earlyRemaining < row.remaining then
             tip:AddLine('May be ready in '..math.ceil(row.earlyRemaining)..'s with talents.',1,.65,.25,true)
         end
         tip:AddLine('Talents and unseen resets can change this timer.',.7,.7,.7,true)
+        if not ns.demo then
+            tip:AddLine('Automatic enemy cast events may be unavailable on Forever.',1,.65,.35,true)
+        end
     else
         tip:AddLine('Next duration: '..(row.uncertain and 'unknown' or ({'50%','25%','immune'})[row.stage]),1,1,1)
         if row.uncertain then
@@ -255,16 +282,23 @@ function UI.Update(now)
                 local captions=key=='cooldown' and ns.db.showNames
                 local captionHeight=captions and 13 or 0
                 bar:SetShown(setup or (count>0 and ns.Anchors.Visible(bar)))
-                bar.title:SetText(titles[key]..(ns.demo and ' (test)' or ''))
+                bar.title:SetText(key == 'cooldown'
+                    and (ns.demo and 'Enemy cooldowns (SAMPLE)' or 'Enemy cooldowns (experimental)')
+                    or (titles[key]..(ns.demo and ' (test)' or '')))
                 bar.title:SetShown(setup)
                 local step=settings.size+settings.gap+(settings.vertical and captionHeight or 0)
                 local span=settings.size+math.max(count-1,0)*step
+                local width, height
                 if grid then
                     local side=settings.size*2+settings.gap
-                    bar:SetSize(side,side)
+                    width, height = side, side
                 else
-                    bar:SetSize(settings.vertical and settings.size or math.max(span,count==0 and 96 or 1),
-                        settings.vertical and span or settings.size)
+                    width = settings.vertical and settings.size or math.max(span,count==0 and 96 or 1)
+                    height = settings.vertical and span or settings.size
+                end
+                if bar._renderWidth ~= width or bar._renderHeight ~= height then
+                    bar:SetSize(width,height)
+                    bar._renderWidth, bar._renderHeight = width,height
                 end
                 bar.overflow:SetShown(not grid and #rows>count)
                 bar.overflow:SetText('+'..(#rows-count))
@@ -278,52 +312,66 @@ function UI.Update(now)
                     local row=rows[i]
                     if not bar.icons[i] then bar.icons[i]=makeIcon(bar) end
                     local icon=bar.icons[i]
-                    icon.row=row; icon:Show(); icon:SetSize(settings.size,settings.size); icon:ClearAllPoints()
-                    -- Native action buttons use a 46x45 bevel on a 45x45 button.
-                    -- Derive it from our saved size, never protected frame dimensions.
-                    if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
-                    local offset=(i-1)*step
-                    if grid then
-                        local point=key=='player' and 'TOPRIGHT' or 'TOPLEFT'
-                        icon:SetPoint(point,bar,point,((i-1)%2)*step*(key=='player' and -1 or 1),-math.floor((i-1)/2)*step)
-                    elseif settings.vertical then
-                        icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'BOTTOM' or 'TOP',0,settings.reverse and offset or -offset)
-                    else
-                        icon:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'RIGHT' or 'LEFT',settings.reverse and -offset or offset,0)
+                    icon.row=row; icon:Show()
+                    if icon._renderSize ~= settings.size then
+                        icon:SetSize(settings.size,settings.size)
+                        -- Native action buttons use a 46x45 bevel on a 45x45 button.
+                        -- Derive it from saved size, not protected frame dimensions.
+                        if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
+                        icon.time:SetFont(STANDARD_TEXT_FONT,math.floor(settings.size*.47),'OUTLINE')
+                        icon.time:SetTextColor(1,1,1)
+                        icon.state:SetFont(STANDARD_TEXT_FONT,math.max(9,math.floor(settings.size*.3)),'OUTLINE')
+                        icon.caption:SetWidth(settings.size+settings.gap)
+                        icon._renderSize=settings.size
                     end
+                    local layoutKey=table.concat({settings.size,settings.gap,settings.vertical and 1 or 0,
+                        settings.reverse and 1 or 0,i,key},":")
+                    if icon._layoutKey ~= layoutKey then
+                        icon:ClearAllPoints()
+                        local offset=(i-1)*step
+                        if grid then
+                            local point=key=='player' and 'TOPRIGHT' or 'TOPLEFT'
+                            icon:SetPoint(point,bar,point,((i-1)%2)*step*(key=='player' and -1 or 1),-math.floor((i-1)/2)*step)
+                        elseif settings.vertical then
+                            icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'BOTTOM' or 'TOP',0,settings.reverse and offset or -offset)
+                        else
+                            icon:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'RIGHT' or 'LEFT',settings.reverse and -offset or offset,0)
+                        end
+                        icon._layoutKey=layoutKey
+                    end
+                    -- Keep spell texture resolution dynamic when the client
+                    -- makes an initially unavailable public icon accessible.
                     icon.texture:SetTexture(textureFor(row))
-                    icon.time:SetFont(STANDARD_TEXT_FONT,math.floor(settings.size*.47),'OUTLINE')
-                    icon.time:SetTextColor(1,1,1)
-                    icon.time:ClearAllPoints(); icon.time:SetPoint('CENTER',0,0)
-                    icon.state:SetFont(STANDARD_TEXT_FONT,math.max(9,math.floor(settings.size*.3)),'OUTLINE')
-                    icon.state:ClearAllPoints(); icon.state:SetPoint('TOPRIGHT',-1,-1)
-                    icon.state:Hide()
-                    icon.caption:SetWidth(settings.size+settings.gap)
                     icon.caption:SetShown(captions)
                     if key=='cooldown' then
-                        icon.time:SetText(UI.FormatTime(row.remaining))
+                        setTextIfChanged(icon.time,UI.FormatTime(row.remaining))
                         local maybe=row.earlyRemaining and row.earlyRemaining<=0
-                        icon.state:SetText(maybe and '?' or (row.manual and 'M' or ''))
+                        setTextIfChanged(icon.state,maybe and '?' or (row.manual and 'M' or ''))
                         icon.state:SetShown(maybe or row.manual==true)
                         icon.state:SetTextColor(1,.82,.36)
-                        icon.caption:SetText((row.name or 'Enemy'):sub(1,12))
+                        setTextIfChanged(icon.caption,(row.name or 'Enemy'):sub(1,12))
                         icon.caption:SetTextColor(.85,.85,.85)
                         setBorderColor(icon,1,1,1,1)
-                        icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
+                        icon.swipe:Show(); updateNativeClock(icon,row.started,row.duration)
                     else
-                        icon.time:SetText(row.remaining>0 and row.remaining<=5 and UI.FormatTime(row.remaining) or '')
+                        setTextIfChanged(icon.time,row.remaining>0 and row.remaining<=5 and UI.FormatTime(row.remaining) or '')
                         -- Keep uncertainty in the tooltip and status report. An
                         -- inferred stage cannot supply an exact percentage.
-                        icon.state:SetText(row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])
-                        icon.state:SetShown(not row.uncertain and ns.db.showDRText)
-                        if not row.uncertain and ns.db.showDRText then
-                            icon.state:ClearAllPoints(); icon.state:SetPoint('BOTTOM',0,1)
-                            icon.time:ClearAllPoints(); icon.time:SetPoint('CENTER',0,4)
+                        setTextIfChanged(icon.state,row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])
+                        local pctVisible=not row.uncertain and ns.db.showDRText
+                        icon.state:SetShown(pctVisible)
+                        if icon._percentLayout ~= pctVisible then
+                            icon.state:ClearAllPoints()
+                            icon.state:SetPoint(pctVisible and 'BOTTOM' or 'TOPRIGHT',
+                                pctVisible and 0 or -1,pctVisible and 1 or -1)
+                            icon.time:ClearAllPoints()
+                            icon.time:SetPoint('CENTER',0,pctVisible and 4 or 0)
+                            icon._percentLayout=pctVisible
                         end
                         local color=stageColors[row.stage]
                         icon.state:SetTextColor(color[1],color[2],color[3]); setBorderColor(icon,color[1],color[2],color[3],1)
                         icon.swipe:SetShown(row.remaining>0)
-                        if row.remaining>0 then icon.swipe:SetCooldown(row.started,row.duration) end
+                        if row.remaining>0 then updateNativeClock(icon,row.started,row.duration) end
                     end
                 end
                 for i=count+1,#bar.icons do bar.icons[i]:Hide(); bar.icons[i].row=nil end
@@ -401,7 +449,8 @@ function UI.OpenOptions()
     for i,key in ipairs(order) do
         local settings=ns.db.bars[key]
         local y=-(i-1)*50
-        check(page,titles[key],0,y-7,function() return settings.enabled end,function(v) settings.enabled=v end)
+        check(page,key=='cooldown' and 'Enemy CDs (beta)' or titles[key],0,y-7,
+            function() return settings.enabled end,function(v) settings.enabled=v end)
         if key=='cooldown' then
             check(page,'Vertical',164,y-7,function() return settings.vertical end,function(v) settings.vertical=v end)
         else
@@ -449,6 +498,6 @@ function UI.OpenOptions()
             function() return not ns.db.disabledSpells[id] end,function(v) ns.db.disabledSpells[id]=not v end)
     end
     child:SetHeight(#abilities*29+10)
-    label(page,'Times are estimates. Use /bcc status for diagnostics.',6,-265,450)
+    label(page,'Experimental: automatic enemy casts are not verified on Forever.\nNo icon does not mean an ability is ready.',6,-265,450)
     panel:Show()
 end

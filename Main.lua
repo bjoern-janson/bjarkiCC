@@ -38,6 +38,22 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
     if diagnostics and diagnostics.graspLookup then
         probe=probe..'; graspLookup='..diagnostics.graspLookup
     end
+    if diagnostics and diagnostics.grenadeLookup then
+        probe=probe..'; grenadeLookup='..diagnostics.grenadeLookup
+    end
+    if diagnostics and diagnostics.eventWitnesses then
+        probe=probe..'; auraEventAoE='..diagnostics.eventWitnesses
+            ..'; conflict='..tostring(diagnostics.eventConflict == true)
+    end
+    if diagnostics and diagnostics.aliasCoverage then
+        probe=probe..'; alias='..diagnostics.aliasUnit..':'..diagnostics.aliasCoverage
+            ..'; aliasMapped='..(diagnostics.aliasMapped or 0)
+    end
+    if diagnostics and diagnostics.castLookup then
+        probe=probe..'; castLookup='..diagnostics.castLookup
+            ..'; queries='..(diagnostics.castLookupQueries or 0)
+            ..'; hits='..(diagnostics.castLookupHits or 0)
+    end
     local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')..probe
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
@@ -67,6 +83,22 @@ local function register(event)
     if not ok then ns.eventErrors[#ns.eventErrors+1] = event end
 end
 
+-- The native DR CVAR is global client configuration, not an addon-private
+-- setting. Never toggle it implicitly on login or while in combat.
+local NATIVE_CVAR = "spellDiminishPVPEnemiesEnabled"
+local function nativeDRSupport()
+    local fn = C_SpellDiminish and C_SpellDiminish.IsSystemSupported
+    local supported = S.Boolean(S.Call(fn))
+    local active = S.String(S.Call(C_CVar and C_CVar.GetCVar, NATIVE_CVAR))
+    local eventValid = S.Boolean(S.Call(C_EventUtils and C_EventUtils.IsEventValid,
+        "UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED"))
+    return supported, active, eventValid
+end
+
+local function nativeLabel(value)
+    return value == nil and "unknown" or tostring(value)
+end
+
 function ns.BuildStatus()
     local version, build, interface = 'unknown','unknown','unknown'
     local now = S.Number(S.Call(GetTime))
@@ -82,7 +114,13 @@ function ns.BuildStatus()
         'DR stage reset: '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate; separate from countdown)',
         'Mode: '..(ns.demo and 'TEST (synthetic display)' or 'live observation'),
         'Combat log: deliberately not registered (restricted on Forever)',
+        'Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'ENABLED (experimental)' or 'OFF by default (unverified enemy cast feed)'),
+        'Enemy cooldown icons require readable success events or manual marks; empty icons do not prove readiness.',
     }
+    local nativeSupported, nativeCVar, nativeEventValid = nativeDRSupport()
+    lines[#lines+1]='Native DR feed: supported='..nativeLabel(nativeSupported)
+        ..'; cvar='..nativeLabel(nativeCVar)..'; eventValid='..nativeLabel(nativeEventValid)
+        ..'; opt-in only (/bcc native on|off|status)'
     for _,unit in ipairs({'player','target','focus'}) do
         local state=ns.Observer.GetUnitState(unit)
         lines[#lines+1]=unit..': '..(state.status or 'unknown')..'; sensor '..(state.sensor or 'none')
@@ -97,6 +135,14 @@ function ns.BuildStatus()
             ..(state.byUnitCount and ('; records '..state.byUnitCount) or '')
         if state.stompLookup then lines[#lines+1]='  Exact War Stomp lookup: '..state.stompLookup end
         if state.graspLookup then lines[#lines+1]="  Exact Nature's Grasp lookup: "..state.graspLookup end
+        if state.grenadeLookup then lines[#lines+1]='  Exact Iron Grenade lookup: '..state.grenadeLookup end
+        if state.eventWitnesses then lines[#lines+1]='  Readable AoE event: '..state.eventWitnesses
+            ..'; conflicting scan '..tostring(state.eventConflict == true) end
+        if state.aliasCoverage then lines[#lines+1]='  Shared-GUID alias: '..state.aliasUnit
+            ..'; coverage '..state.aliasCoverage..'; mapped '..(state.aliasMapped or 0) end
+        if state.castLookup then lines[#lines+1]='  Cast-guided exact lookup: '..state.castLookup
+            ..'; queries '..(state.castLookupQueries or 0)
+            ..'; positive hits '..(state.castLookupHits or 0) end
         if state.unmappedSpellIDs and #state.unmappedSpellIDs>0 then
             local ids={}; for _,id in ipairs(state.unmappedSpellIDs) do ids[#ids+1]=tostring(id) end
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')
@@ -133,8 +179,32 @@ function ns.BuildStatus()
             ..(bar and bar.anchorPending and ' (layout pending until combat ends)' or '')
     end
     local stats=ns.Observer.stats or {}
+    local lastNative = ns.Observer.nativeLast
+    if lastNative then
+        lines[#lines+1]='Last native DR event: unit='..nativeLabel(lastNative.unit)
+            ..' reason='..nativeLabel(lastNative.reason)
+            ..' category='..nativeLabel(lastNative.category)
+            ..' start='..nativeLabel(lastNative.start)
+            ..' duration='..nativeLabel(lastNative.duration)
+            ..' countdown='..nativeLabel(lastNative.countdown)
+            ..' immune='..nativeLabel(lastNative.immune)
+            ..' (diagnostics only; no hit or stage inferred)'
+    end
+    local lastOwn=ns.Observer.ownCCLast
+    if lastOwn then
+        lines[#lines+1]='Last own CC cast event: '..lastOwn.family..' '..lastOwn.phase
+            ..' spell='..lastOwn.spellID..' at='..nativeLabel(lastOwn.time)
+            ..' (cast event, not proven hit)'
+    end
     local keys={}; for key in pairs(stats) do keys[#keys+1]=key end; table.sort(keys)
     for _,key in ipairs(keys) do lines[#lines+1]=key..': '..tostring(stats[key]) end
+    local rejects = ns.Observer.castRejects or {}
+    local rejectKeys = {}
+    for reason in pairs(rejects) do rejectKeys[#rejectKeys+1] = reason end
+    table.sort(rejectKeys)
+    for _, reason in ipairs(rejectKeys) do
+        lines[#lines+1] = 'castReject.'..reason..': '..rejects[reason]
+    end
     local failures=ns.Observer.apiFailures or {}
     local operations={}; for operation in pairs(failures) do operations[#operations+1]=operation end
     table.sort(operations)
@@ -202,7 +272,7 @@ function ns.ShowStatus()
 end
 
 local function help()
-    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; cooldown <spellID> <seconds|default>; used <spellID>.')
+    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; native on|off|status; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
 end
 
 function ns.Command(message)
@@ -212,12 +282,75 @@ function ns.Command(message)
     command=command:lower()
     if command=='' or command=='options' then ns.UI.OpenOptions()
     elseif command=='test' then
-        ns.demo=not ns.demo; ns.UI.Update(GetTime()); ns.Print(ns.demo and 'Test mode ON: synthetic icons.' or 'Live observation restored.')
+        ns.demo=not ns.demo; ns.UI.Update(GetTime()); ns.Print(ns.demo and 'Test mode ON: SAMPLE icons, not observed enemy casts.' or 'Live observation restored.')
     elseif command=='lock' or command=='unlock' then
         ns.db.locked=command=='lock'; ns.UI.ApplyLayout(); ns.Print(ns.db.locked and 'Bars locked.' or 'Drag outside combat: DR offsets follow their unit frames.')
     elseif command=='reset' then ns.ResetPositions(); ns.UI.ApplyLayout(); ns.Print('Bar positions reset.')
     elseif command=='clear' then resetTracking(); ns.UI.Update(GetTime()); ns.Print('Tracking history cleared.')
     elseif command=='status' then ns.ShowStatus()
+    elseif command=='native' then
+        local option=rest:lower()
+        local supported, active, eventValid=nativeDRSupport()
+        if option=='on' or option=='off' then
+            if type(C_CVar)~='table' or type(C_CVar.SetCVar)~='function' then
+                ns.Print('Native DR CVar setter unavailable on this client.')
+                return
+            end
+            if S.Boolean(S.Call(InCombatLockdown))~=false then
+                ns.Print('Change the native DR option outside combat.')
+                return
+            end
+            if option=='on' and supported~=true then
+                ns.Print('Native DR IsSystemSupported did not return true. No setting changed.')
+                return
+            end
+            local wanted=option=='on' and '1' or '0'
+            local ok,result=pcall(C_CVar.SetCVar,NATIVE_CVAR,wanted)
+            local newSupported,newValue,newEvent=nativeDRSupport()
+            if not ok or S.Boolean(result)==false or newValue~=wanted then
+                ns.Print('Native DR setting not confirmed; supported='..nativeLabel(newSupported)
+                    ..' cvar='..nativeLabel(newValue)..' eventValid='..nativeLabel(newEvent))
+            else
+                ns.Print('Native DR '..(option=='on' and 'ENABLED' or 'DISABLED')
+                    ..' in client settings. This changes a WoW CVar, not bjarkiCC DR math.')
+            end
+            ns.Print('Use /bcc native status after a real Bash/Grenade. Native events may be secret or absent.')
+        elseif option=='status' or option=='' then
+            local stats=ns.Observer.stats or {}
+            ns.Print('Native DR supported='..nativeLabel(supported)
+                ..'; cvar='..nativeLabel(active)..'; eventValid='..nativeLabel(eventValid))
+            ns.Print('Native events='..(stats.nativeDREvents or 0)
+                ..'; readable category='..(stats.nativeDRReadable or 0)
+                ..'; restricted='..(stats.nativeDRRestricted or 0)
+                ..'; player Bash sent/succeeded='..(stats.ownBashSent or 0)..'/'..(stats.ownBashSucceeded or 0)
+                ..'; Iron Grenade='..(stats.ownGrenadeSent or 0)..'/'..(stats.ownGrenadeSucceeded or 0)
+                ..'; War Stomp='..(stats.ownStompSent or 0)..'/'..(stats.ownStompSucceeded or 0))
+            local last=ns.Observer.nativeLast
+            if last then ns.Print('Last native event: unit='..nativeLabel(last.unit)
+                ..' category='..nativeLabel(last.category)
+                ..' start='..nativeLabel(last.start)..' duration='..nativeLabel(last.duration)
+                ..' countdown='..nativeLabel(last.countdown)
+                ..' immune='..nativeLabel(last.immune)
+                ..' (never counted as a hit)') end
+        else
+            ns.Print('Usage: /bcc native on|off|status')
+        end
+    elseif command=='cooldowns' then
+        local option=rest:lower()
+        if option=='on' or option=='off' then
+            ns.db.bars.cooldown.enabled=(option=='on')
+            ns.UI.ApplyLayout()
+            ns.Print(option=='on' and 'Enemy cooldown HUD ON (experimental; only readable enemy successes or manual marks).' or 'Enemy cooldown HUD OFF. DR trackers unchanged.')
+        elseif option=='status' then
+            local stats=ns.Observer.stats or {}
+            ns.Print('Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'on (experimental)' or 'off')..'.')
+            ns.Print('Event counts since tracking reset: other-unit cast START='..(stats.castStartsOther or 0)
+                ..', SUCCEEDED='..(stats.castSuccessOther or 0)
+                ..', accepted automatic cooldowns='..(stats.acceptedCasts or 0)
+                ..'. These counts do not establish complete enemy cast coverage.')
+        else
+            ns.Print('Usage: /bcc cooldowns on|off|status')
+        end
     elseif command=='cooldown' then
         local idText,value=rest:match('^(%d+)%s+(%S+)$')
         local id=tonumber(idText); local canonical=id and ns.Data.castToSpell[id]
@@ -251,23 +384,35 @@ frame:SetScript('OnEvent',function(_,event,...)
         ns.Observer.Scan(GetTime()); ns.UI.Update(GetTime())
         ns.Print('Forever beta '..ns.version..' loaded. /bcc for settings, /bcc test to position bars.')
     elseif initialized then
-        if event=='UNIT_SPELLCAST_SENT' then
+        if event=='UNIT_SPELLCAST_START' or event=='UNIT_SPELLCAST_CHANNEL_START' then
+            ns.Observer.NoteCastStart(...)
+        elseif event=='UNIT_SPELLCAST_SENT' then
             local unit,targetName,castGUID,spellID=...
+            ns.Observer.NoteOwnCCCast('Sent',unit,spellID,GetTime())
             ns.OwnCasts.Sent(unit,targetName,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_SUCCEEDED' then
             local unit,castGUID,spellID=...
+            ns.Observer.NoteOwnCCCast('Succeeded',unit,spellID,GetTime())
             ns.Observer.OnCast(unit,castGUID,spellID,GetTime())
             ns.OwnCasts.Succeeded(unit,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_FAILED' or event=='UNIT_SPELLCAST_INTERRUPTED' then
             local unit,castGUID,spellID=...
             ns.OwnCasts.Failed(unit,castGUID,spellID,GetTime())
-        elseif event=='UNIT_AURA' or event=='LOSS_OF_CONTROL_ADDED' or event=='LOSS_OF_CONTROL_UPDATE' then
+        elseif event=='UNIT_AURA' then
+            local unit, updateInfo=...
+            local token=S.String(unit)
+            if not token or token=='player' or token=='target' or token=='focus' then
+                -- A readable positive event can capture short-lived AoE CC even
+                -- when the following indexed scan has already become secret.
+                ns.Observer.OnAuraEvent(unit,updateInfo,GetTime())
+            end
+        elseif event=='LOSS_OF_CONTROL_ADDED' or event=='LOSS_OF_CONTROL_UPDATE' then
             local unit=S.String(...)
             if not unit or unit=='player' or unit=='target' or unit=='focus' then
-                -- Sample synchronously: a short CC can start and end between
-                -- render ticks. Render remains throttled independently.
                 ns.Observer.Scan(GetTime())
             end
+        elseif event=='UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED' then
+            ns.Observer.OnNativeDR(...)
         elseif event=='PLAYER_ENTERING_WORLD' then resetTracking()
         elseif event=='PLAYER_REGEN_ENABLED' then ns.UI.ApplyLayout(); dirty=true
         elseif event=='PLAYER_REGEN_DISABLED' then
@@ -291,11 +436,12 @@ frame:SetScript('OnUpdate',function(_,elapsed)
     if drawElapsed>=.1 then drawElapsed=0; ns.UI.Update(GetTime()) end
 end)
 
--- No combat-log or secret native SpellDiminish event registration.
+-- Native DR event is diagnostics-only. Its secret payload never enters the model.
 for _,event in ipairs({'ADDON_LOADED','PLAYER_ENTERING_WORLD','PLAYER_TARGET_CHANGED','PLAYER_FOCUS_CHANGED',
     'PLAYER_REGEN_ENABLED','PLAYER_REGEN_DISABLED','UNIT_AURA',
-    'LOSS_OF_CONTROL_ADDED','LOSS_OF_CONTROL_UPDATE','UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_SUCCEEDED',
-    'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','PLAYER_DEAD','PLAYER_ALIVE'}) do register(event) end
+    'UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED',
+    'LOSS_OF_CONTROL_ADDED','LOSS_OF_CONTROL_UPDATE','UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_START',
+    'UNIT_SPELLCAST_CHANNEL_START','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','PLAYER_DEAD','PLAYER_ALIVE'}) do register(event) end
 SLASH_BJARKICC1='/bcc'
 SLASH_BJARKICC2='/bjarkicc'
 SlashCmdList.BJARKICC=ns.Command

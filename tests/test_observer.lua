@@ -56,6 +56,7 @@ local function reset()
         Forget = function(_,guid) forgotten[#forgotten+1] = guid end,
         Cast = function(_,guid,name,id,now,castID,manual,overrides)
             casts[#casts+1] = {guid=guid,name=name,id=id,now=now,castID=castID,manual=manual,overrides=overrides}
+            return true
         end,
     }
     ns.db.interrupts = true
@@ -257,8 +258,12 @@ test("secret input cannot be normalized into an accepted cast", function()
     ns.Observer.OnCast("target",secret,853,10)
     ns.Observer.OnCast("target","Cast-2",secret,10)
     fixture.name.target=secret; ns.Observer.OnCast("target","Cast-3",853,10)
+    -- A readable hostile Player GUID is sufficient even when the name is
+    -- unavailable. The opaque name must never be passed to the model.
+    equal(#casts,1); equal(casts[1].name,nil)
+    equal(ns.Observer.stats.castNameUnavailable,1)
     fixture.name.target="Enemy"; fixture.hostile.target=secret; ns.Observer.OnCast("target","Cast-4",853,10)
-    equal(#casts,0)
+    equal(#casts,1)
 end)
 test("known reset casts reach model even without a cooldown row", function()
     reset(); ns.Observer.OnCast("target","Cast-1",11958,10); equal(#casts,1); equal(casts[1].id,11958)
@@ -406,6 +411,8 @@ test("ByUnit observations for a shared target focus GUID happen only once", func
     equal(fixture.locByUnitScans.target,1); equal(fixture.locByUnitScans.focus,nil)
     equal(ns.Observer.GetUnitState("target"),ns.Observer.GetUnitState("focus"))
     equal(size(last("Player-1-A").effects),1)
+    equal(last("Player-1-A").complete,false,"empty alias cannot erase positive owner LoC")
+    equal(ns.Observer.GetUnitState("target").aliasCoverage,"conflicting-positive")
 end)
 
 test("missing-instance LoC fallback stays stable and does not duplicate same-spell aura", function()
@@ -632,7 +639,7 @@ test("restricted or nonplayer focus identity cannot retain old history", functio
     local invalid={
         {guid=secret,player=true}, {guid="invalid",player=true},
         {guid="Pet-1-B",player=false}, {guid="Creature-1-B",player=false},
-        {guid="Player-1-B",player=secret}, {guid="Player-1-B",player=false},
+        {guid="Player-1-B",player=false},
     }
     for _,case in ipairs(invalid) do
         reset(); fixture.guid.focus="Player-1-B"; ns.Observer.Scan(10)
@@ -645,12 +652,13 @@ test("restricted or nonplayer focus identity cannot retain old history", functio
     end
 end)
 
-test("restricted focus alias cannot erase a readable target", function()
+test("a focus Player GUID still shares target history when its player boolean is protected", function()
     reset(); fixture.guid.focus="Player-1-A"; ns.Observer.Scan(10)
     truth(ns.Observer.GetUnitState("focus"))
     fixture.player.focus=secret; ns.Observer.Scan(11)
-    equal(ns.Observer.GetUnitState("focus").guid,nil)
+    equal(ns.Observer.GetUnitState("focus").guid,"Player-1-A")
     equal(ns.Observer.GetUnitState("target").guid,"Player-1-A")
+    equal(ns.Observer.GetUnitState("focus"),ns.Observer.GetUnitState("target"))
     equal(contains(forgotten,"Player-1-A"),nil)
 end)
 
@@ -1404,7 +1412,7 @@ test("non-secret exact War Stomp aura confirms a hit when enumeration is blocked
     equal(ns.Observer.GetUnitState("target").auraComplete,false,"one hit cannot prove full aura coverage")
     equal(ns.Observer.GetUnitState("target").byUnitCount,0)
     ns.Observer.Scan(10.2); equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,2)
-    equal(calls,14,"shared target/focus identity queries seven reviewed effects once per scan")
+    equal(calls,16,"shared target/focus identity queries eight reviewed effects once per scan")
     fixture.locByUnit.target={{spellID=20549,auraInstanceID=900,startTime=10,duration=2}}
     ns.Observer.Scan(10.3)
     equal(ns.model:GetDR("Player-1-A",10.3)[1].stage,2,"matching LoC cannot count the exact aura twice")
@@ -1470,13 +1478,13 @@ test("exact Grasp observes the root immediately and later indexed discovery dedu
     equal(state.graspLookup,"confirmed"); equal(state.stompLookup,"none")
     equal(state.status,"restricted"); equal(state.auraComplete,false)
     equal(state.sensor,"aura+exact"); equal(state.byUnitAvailable,false)
-    equal(calls,7,"shared target/focus GUID is queried once")
-    ns.Observer.Scan(10.2); equal(calls,14)
+    equal(calls,8,"shared target/focus GUID is queried once")
+    ns.Observer.Scan(10.2); equal(calls,16)
     fixture.auraError=false; fixture.auras.target={current}
     ns.Observer.Scan(10.4)
     row=ns.model:GetDR("Player-1-A",10.4)[1]
     equal(row.observedStage,1); equal(row.started,10)
-    equal(calls,14,"complete enumeration skips every exact query")
+    equal(calls,16,"complete enumeration skips every exact query")
     equal(size(ns.Observer.GetUnitState("target").witnesses),1)
     ns.Data=fixtureData
 end)
@@ -1488,12 +1496,12 @@ test("all six Grasp proc ranks have bounded exact lookup support", function()
         reset(); fixture.guid.player=nil; fixture.auraError=true
         local queried={}
         C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
-            truth(id==20549 or (id>=19970 and id<=19975),"never query a self-buff cast ID")
+            truth(id==20549 or id==4068 or (id>=19970 and id<=19975),"never query a self-buff cast ID")
             queried[id]=(queried[id] or 0)+1
             if id==procID then return {spellId=id,auraInstanceID=960,expirationTime=20,duration=10} end
         end
         ns.Observer.Scan(10)
-        equal(size(queried),7)
+        equal(size(queried),8)
         for _,count in pairs(queried) do equal(count,1) end
         equal(size(last("Player-1-A").effects),1)
         equal(effect(last("Player-1-A")).spellID,procID)
@@ -1583,9 +1591,293 @@ test("exact lookups remain bounded per distinct readable target and focus identi
         calls[unit]=(calls[unit] or 0)+1
     end
     ns.Observer.Scan(10)
-    equal(calls.target,7); equal(calls.focus,7); equal(calls.player,nil)
+    equal(calls.target,8); equal(calls.focus,8); equal(calls.player,nil)
     fixture.guid.focus=secret; calls={}; ns.Observer.Scan(10.2)
-    equal(calls.target,7); equal(calls.focus,nil)
+    equal(calls.target,8); equal(calls.focus,nil)
+end)
+
+test("same-GUID focus recovers complete aura enumeration when target is restricted", function()
+    reset()
+    fixture.guid.focus="Player-1-A"; fixture.name.focus="Enemy"
+    fixture.auras.target={{spellId=secret,auraInstanceID=20}}
+    fixture.auras.focus={{spellId=853,auraInstanceID=201,expirationTime=16,duration=6}}
+    ns.Observer.Scan(10)
+    local result=last("Player-1-A")
+    equal(result.complete,true)
+    equal(size(result.effects),1)
+    equal(effect(result).spellID,853)
+    equal(ns.Observer.GetUnitState("target").authoritativeUnit,"focus")
+    equal(ns.Observer.GetUnitState("focus").guid,"Player-1-A")
+    equal(ns.Observer.stats.aliasRecoveries,1)
+    equal(fixture.auraScans.focus,1,"focus alias queried once, not twice")
+    equal(ns.Observer.stats.scans,1)
+end)
+
+test("two restricted same-GUID aliases retain positive witnesses without proving absence", function()
+    reset()
+    fixture.guid.focus="Player-1-A"
+    fixture.auras.target={{spellId=853,auraInstanceID=201,expirationTime=16},{spellId=secret,auraInstanceID=8}}
+    fixture.auras.focus={{spellId=2637,auraInstanceID=202,expirationTime=18},{spellId=secret,auraInstanceID=9}}
+    ns.Observer.Scan(10)
+    local result=last("Player-1-A")
+    equal(result.complete,false)
+    equal(size(result.effects),2)
+    equal(ns.Observer.GetUnitState("target").aliasCoverage,"partial")
+    equal(ns.Observer.stats.aliasRecoveries,0)
+end)
+
+test("unrelated focus and changed alias identity cannot contribute target evidence", function()
+    reset()
+    fixture.guid.focus="Player-1-B"
+    fixture.auras.target={{spellId=secret,auraInstanceID=21}}
+    fixture.auras.focus={{spellId=853,auraInstanceID=222}}
+    ns.Observer.Scan(10)
+    equal(size(last("Player-1-A").effects),0)
+    equal(ns.Observer.GetUnitState("target").aliasCoverage,nil)
+    equal(size(last("Player-1-B").effects),1)
+end)
+
+test("readable player GUID remains valid when the secondary player boolean is secret", function()
+    reset()
+    fixture.player.target=secret
+    fixture.auras.target={{spellId=853,auraInstanceID=233}}
+    ns.Observer.Scan(10)
+    equal(ns.Observer.GetUnitState("target").guid,"Player-1-A")
+    equal(size(last("Player-1-A").effects),1)
+    fixture.player.target=false
+    ns.Observer.Scan(10.2)
+    equal(ns.Observer.GetUnitState("target").guid,nil,"readable explicit contradiction vetoes GUID")
+end)
+
+test("own-cast spell can select an exact query but only readable positive is a hit", function()
+    local savedData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    truth(ns.model:EstimateDR("Player-1-A", 853, "stun", 10, "Cast-probe", 9.9))
+    local queried=0
+    C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
+        if id==853 then
+            equal(unit,"target"); queried=queried+1
+            return {spellId=853,auraInstanceID=300,expirationTime=16,duration=6}
+        end
+    end
+    ns.Observer.Scan(10.1)
+    local row=ns.model:GetDR("Player-1-A",10.1)[1]
+    truth(row)
+    equal(row.stage,1)
+    equal(row.estimated,false)
+    equal(row.started,10)
+    equal(ns.Observer.GetUnitState("target").castLookup,"confirmed")
+    equal(ns.Observer.GetUnitState("target").castLookupQueries,1)
+    equal(ns.Observer.GetUnitState("target").castLookupHits,1)
+    equal(queried,1)
+    fixture.auraError=false
+    fixture.auras.target={{spellId=853,auraInstanceID=300,expirationTime=16,duration=6}}
+    ns.Observer.Scan(10.2)
+    equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,1,"same identity cannot advance twice")
+    equal(ns.Observer.GetUnitState("target").castLookup,nil,"complete enumeration needs no extra probes")
+    ns.Data=savedData
+end)
+
+test("exact query without matching readable instance remains an estimate", function()
+    local savedData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    truth(ns.model:EstimateDR("Player-1-A",853,"stun",10,"Cast-no-hit",9.9))
+    C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+        if id==853 then return {spellId=5211,auraInstanceID=301} end
+    end
+    ns.Observer.Scan(10.1)
+    local rows=ns.model:GetDR("Player-1-A",10.1)
+    equal(#rows,1)
+    equal(rows[1].estimated,true)
+    equal(ns.Observer.GetUnitState("target").castLookup,"mismatch")
+    equal(ns.Observer.GetUnitState("target").castLookupHits,0)
+    ns.Data=savedData
+end)
+
+test("enemy cast telemetry separates delivery from model acceptance", function()
+    reset()
+    ns.Observer.NoteCastStart("target")
+    ns.Observer.NoteCastStart("player")
+    ns.Observer.NoteCastStart(secret)
+    local attempts=0
+    ns.model.Cast=function() attempts=attempts+1; return attempts==1 end
+    truth(ns.Observer.OnCast("target","Cast-1",853,10))
+    equal(ns.Observer.OnCast("target","Cast-1",853,10.05),false)
+    equal(ns.Observer.stats.castStartsOther,1)
+    equal(ns.Observer.stats.castStartsPlayer,1)
+    equal(ns.Observer.stats.castStartsUnknown,1)
+    equal(ns.Observer.stats.castSuccessOther,2)
+    equal(ns.Observer.stats.acceptedCasts,1)
+    equal(ns.Observer.castRejects.duplicateOrNoCooldown,1)
+    fixture.name.target=secret
+    fixture.player.target=secret
+    truth(ns.Observer.OnCast("target","Cast-2",853,10.1)==false)
+    equal(ns.Observer.stats.castNameUnavailable,1)
+    equal(ns.Observer.stats.castPlayerGuidFallback,1)
+end)
+
+
+test("exact Iron Grenade identifies the harmful stun only on a readable instance", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    local calls=0
+    C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
+        if id==4068 then
+            equal(unit,"target"); calls=calls+1
+            return {spellId=4068,auraInstanceID=1201,expirationTime=13,duration=3}
+        end
+    end
+    ns.Observer.Scan(10.02)
+    local row=ns.model:GetDR("Player-1-A",10.02)[1]
+    truth(row,"a confirmed Grenade instance must reach the model")
+    equal(row.category,"stun"); equal(row.spellID,4068)
+    equal(row.stage,1); equal(row.started,10)
+    equal(row.estimated,false)
+    equal(ns.Observer.GetUnitState("target").grenadeLookup,"confirmed")
+    equal(ns.Observer.GetUnitState("target").auraComplete,false)
+    equal(calls,1)
+    ns.Observer.Scan(10.2)
+    equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,1,"stable instance cannot replay")
+    ns.Data=original
+end)
+
+test("Iron Grenade negative and restricted exact queries never create a hit", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    for _,case in ipairs({
+        {status="none"}, {status="blocked",value=secret},
+        {status="identity-unavailable",value={spellId=4068,auraInstanceID=secret}},
+        {status="mismatch",value={spellId=20549,auraInstanceID=1220}},
+        {status="expired",value={spellId=4068,auraInstanceID=1220,expirationTime=9}},
+    }) do
+        reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+        C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+            if id==4068 then return case.value end
+        end
+        ns.Observer.Scan(10)
+        equal(ns.Observer.GetUnitState("target").grenadeLookup,case.status)
+        equal(#ns.model:GetDR("Player-1-A",10),0)
+    end
+    ns.Data=original
+end)
+
+test("guarded UNIT_AURA addedAuras confirms War Stomp and Grenade only as harmful positive records", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    for _,spellID in ipairs({20549,4068}) do
+        reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+        local event={addedAuras={{spellId=spellID, auraInstanceID=1250,
+            isHarmful=true, expirationTime=13, duration=3}}}
+        ns.Observer.OnAuraEvent("target",event,10.02)
+        local row=ns.model:GetDR("Player-1-A",10.02)[1]
+        truth(row,"positive AoE event witness must be retained")
+        equal(row.spellID,spellID); equal(row.stage,1); equal(row.started,10)
+        equal(row.estimated,false)
+        equal(ns.Observer.GetUnitState("target").eventWitnesses,1)
+        equal(ns.Observer.stats.auraEventPositives,1)
+        ns.Observer.OnAuraEvent("target",event,10.2)
+        equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,1,"repeated event identity cannot advance")
+    end
+    ns.Data=original
+end)
+
+test("event witness disagrees with complete indexed absence without hiding the AoE application", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil
+    local event={addedAuras={{spellId=20549,auraInstanceID=1280,
+        isHarmful=true,expirationTime=13,duration=3}}}
+    ns.Observer.OnAuraEvent("target",event,10.01)
+    local row=ns.model:GetDR("Player-1-A",10.01)[1]
+    equal(row.spellID,20549); equal(row.started,10)
+    equal(ns.Observer.GetUnitState("target").status,"restricted")
+    equal(ns.Observer.GetUnitState("target").eventConflict,true)
+    equal(ns.Observer.stats.auraEventConflicts,1)
+    ns.Observer.Scan(10.1)
+    row=ns.model:GetDR("Player-1-A",10.1)[1]
+    equal(row.stage,1); equal(row.started,10,"later absence ends coverage but not the application clock")
+    ns.Data=original
+end)
+
+test("secret malformed helpful and unknown aura deltas cannot fabricate AoE applications", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    ns.Observer.OnAuraEvent("target",secret,10)
+    equal(ns.Observer.stats.auraEventRestricted,1)
+    equal(#ns.model:GetDR("Player-1-A",10),0)
+    for i,record in ipairs({
+        {spellId=4068,auraInstanceID=1290,isHarmful=false},
+        {spellId=20549,auraInstanceID=secret,isHarmful=true},
+        {spellId=4068,auraInstanceID=1290,isHarmful=secret},
+        {spellId=999999,auraInstanceID=1290,isHarmful=true},
+        {spellId=4068,auraInstanceID=1290,isHarmful=true,expirationTime=9},
+    }) do
+        ns.Observer.OnAuraEvent("target",{addedAuras={record}},10+i*.01)
+        equal(#ns.model:GetDR("Player-1-A",10+i*.01),0,"no fabricated hit from rejected event")
+    end
+    equal(ns.Observer.stats.auraEventPositives,0)
+    ns.Data=original
+end)
+
+test("native diminishing-return event telemetry never interprets an opaque category as a hit", function()
+    reset()
+    ns.Observer.OnNativeDR("target",secret)
+    ns.Observer.OnNativeDR("target",{category=0})
+    ns.Observer.OnNativeDR("target",{category=2})
+    ns.Observer.OnNativeDR("target",{category=secret})
+    equal(ns.Observer.stats.nativeDREvents,4)
+    equal(ns.Observer.stats.nativeDRRestricted,2)
+    equal(ns.Observer.stats.nativeDRReadable,2)
+    equal(#observed,0,"native secret/private DR state must not reach the model")
+end)
+
+test("own Bash, grenade and War Stomp cast telemetry is diagnostic not landing proof", function()
+    reset()
+    ns.Observer.NoteOwnCCCast("Sent","player",5211,10)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",6798,10.1)
+    ns.Observer.NoteOwnCCCast("Sent","player",4068,11)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",4068,12)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",20549,13)
+    ns.Observer.NoteOwnCCCast("Succeeded","target",20549,13)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",secret,13)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",999999,13)
+    equal(ns.Observer.stats.ownBashSent,1)
+    equal(ns.Observer.stats.ownBashSucceeded,1)
+    equal(ns.Observer.stats.ownGrenadeSent,1)
+    equal(ns.Observer.stats.ownGrenadeSucceeded,1)
+    equal(ns.Observer.stats.ownStompSent,0)
+    equal(ns.Observer.stats.ownStompSucceeded,1)
+    equal(ns.Observer.ownCCLast.family,"Stomp")
+    equal(ns.Observer.ownCCLast.spellID,20549)
+    equal(#observed,0,"own cast events never count a hit")
+end)
+
+test("native DR probe retains only individually readable fields, including category zero", function()
+    reset()
+    ns.Observer.OnNativeDR("target", {
+        category=0, startTime=100, duration=18, showCountdown=true, isImmune=false
+    })
+    local data=ns.Observer.nativeLast
+    equal(data.reason,"category-readable")
+    equal(data.category,0); equal(data.start,100); equal(data.duration,18)
+    equal(data.countdown,true); equal(data.immune,false)
+    ns.Observer.OnNativeDR("focus", {
+        category=2, startTime=secret, duration=secret, showCountdown=secret, isImmune=secret
+    })
+    data=ns.Observer.nativeLast
+    equal(data.category,2)
+    equal(data.start,nil); equal(data.duration,nil)
+    equal(data.countdown,nil); equal(data.immune,nil)
+    ns.Observer.OnNativeDR("target",{category=secret})
+    equal(ns.Observer.nativeLast.reason,"category-unreadable")
+    equal(ns.Observer.stats.nativeDREvents,3)
+    equal(ns.Observer.stats.nativeDRReadable,2)
+    equal(ns.Observer.stats.nativeDRRestricted,1)
+    equal(#observed,0,"native event cannot fabricate observed DR")
 end)
 
 local failures={}
