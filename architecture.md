@@ -1,5 +1,16 @@
 # bjarkiCC architecture and DR research
 
+## 0.4.17.4 enemy cooldown HUD ownership and migration
+
+The cooldown model and its curated 27 ability families are unchanged; no observation mechanism has become more reliable simply by improving the display. The original three sample icons in `/bcc test` come from `UI.demoRows('cooldown')`, not `Model:GetCooldowns`. The earlier (0,-280) free anchor physically overlapped the user's cast bar. Real enemy cast coverage is unverified (`acceptedCasts=0` in supplied reports).
+
+The cooldown bar is now **opt-in**: a new SavedVariables profile sets `bars.cooldown.enabled=false`. Schema 8 migrates an untouched schema-7 cooldown bar at (0,-280) to (0,-170), disables only an unchanged default-on bar, and preserves deliberate custom positions and nondefault appearances. After schema 8, explicit opt-in and drag coordinates survive reload; `/bcc reset` resets coordinates only, not enabled state. Player/target/focus DR presentation and all timing settings are invariant.
+
+The opt-in control is `/bcc cooldowns on|off|status`, separate from the existing per-spell `/bcc cooldown <id> <seconds|default>` and `/bcc used <id>`. `/bcc test` still allows placement preview only for enabled bars, but synthetic enemy icons are labeled SAMPLE with an explicit preview tooltip. Live cooldown rows require actual readable, accepted successful enemy spellcasts or manual marks. No icon must never be interpreted as cooldown-ready proof.
+
+The feature may be removed/replaced when a reliable enemy-cast source has been validated in-game; until then, avoid reconstructing unobserved ability uses through speculative combat history. `castSuccessOther`, `acceptedCasts` and rejection counters distinguish delivery, authorization and model acceptance.
+
+
 ## AoE confirmed-hit sensor supplement (0.4.17.3 candidate)
 
 War Stomp (20549) and Iron Grenade (4068) are both harmful stun aura IDs in `Data.lua`. A successful racial/item cast identifies an action, not one or more specific victims. Strict confirmed-hit semantics continue to require positive victim-specific evidence.
