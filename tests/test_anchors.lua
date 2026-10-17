@@ -237,4 +237,22 @@ assert(math.abs(ns.db.bars.focus.offsetX+431)<.001 and math.abs(ns.db.bars.focus
  'dragged bottom-center is saved against portrait top-center across scales')
 assert(bars.focus.point[1]=='BOTTOM' and bars.focus.point[2]==focusPortrait,
  'drag restores the portrait-relative column attachment')
+-- Side grids attach using only native relative points; the mirrored player
+-- placement leaves the space between paired unit frames clear.
+for _,pair in ipairs({{'player',playerPortrait},{'target',targetPortrait},{'focus',focusPortrait}}) do
+ local key,region=pair[1],pair[2]
+ local settings=ns.db.bars[key]
+ settings.anchorKind='unit-side'; settings.offsetX=key=='player' and -18 or 18; settings.offsetY=0
+ A.Apply(bars[key],true)
+ assert(bars[key].point[2]==region and bars[key].point[1]==(key=='player' and 'TOPRIGHT' or 'TOPLEFT')
+  and bars[key].point[3]==(key=='player' and 'TOPLEFT' or 'TOPRIGHT')
+  and bars[key].point[4]==settings.offsetX and bars[key].point[5]==0,'DR grid sits beside its native frame at every scale')
+end
+bars.focus.left,bars.focus.bottom,bars.focus.width,bars.focus.height=200,200,59,59
+assert(A.StartDrag(bars.focus),'side grid remains movable')
+A.StopDrag(bars.focus)
+assert(math.abs(ns.db.bars.focus.offsetX+467.5)<.001 and math.abs(ns.db.bars.focus.offsetY+18.5)<.001,
+ 'side-grid top corner saves its offset against the portrait edge across scales')
+assert(bars.focus.point[1]=='TOPLEFT' and bars.focus.point[2]==focusPortrait,
+ 'drag restores the side-grid native anchor')
 print('anchors: health and portrait geometry, legacy placement, scaling, dragging, visibility, missing frames and combat deferral passed')

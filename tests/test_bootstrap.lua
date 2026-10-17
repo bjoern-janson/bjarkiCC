@@ -22,13 +22,13 @@ bjarkiCCDB = {bars={player={size=999,gap=-1,x='bad',vertical=true}},resetSeconds
 ns.InitializeDB()
 assert(ns.db.bars.player.size <= 72 and ns.db.bars.player.gap >= 0, 'saved layout bounded')
 assert(type(ns.db.bars.player.x) == 'number', 'malformed saved position recovered')
-assert(ns.db.bars.player.vertical == true and ns.db.targetOnly, 'valid preferences retained')
+assert(ns.db.bars.player.vertical == false and ns.db.targetOnly, 'valid preferences retained')
 assert(ns.db.categories.stun == false and ns.db.categories.fear == true, 'category defaults merged')
 assert(ns.db.resetSeconds >= 10 and ns.db.locked == true, 'malformed defaults recovered')
 assert(ns.db.cooldownOverrides[853] == nil and ns.db.cooldownOverrides[408] == 30, 'overrides sanitized')
 ns.db.bars.player.x = 300
 ns.ResetPositions()
-assert(ns.db.bars.player.x == -230 and ns.db.bars.player.vertical == true, 'reset only placement')
+assert(ns.db.bars.player.x == -230 and ns.db.bars.player.vertical == false, 'reset adopts the fixed grid layout')
 
 -- Loading without saved settings produces the compact, icon-only layout.
 bjarkiCCDB = nil
@@ -55,20 +55,20 @@ ns.db.resetSeconds, ns.db.stageResetSeconds = 20, 18
 for _, key in ipairs({'player', 'target', 'focus', 'cooldown'}) do
     assert(ns.db.bars[key].gap == 3 and ns.db.bars[key].label == false, 'fresh bars have tight gaps and no labels')
 end
-local function centeredDefaults()
+local function sideDefaults()
     for _,key in ipairs({'player','target','focus'}) do
         local bar=ns.db.bars[key]
-        assert(bar.anchorKind=='portrait-top' and bar.offsetX==0 and bar.offsetY==8,
-            'requested placement centers each DR column eight pixels above its portrait')
-        assert(bar.vertical and bar.reverse,'additional DR icons grow upward')
+        assert(bar.anchorKind=='unit-side' and bar.offsetX==(key=='player' and -18 or 18) and bar.offsetY==0,
+            'requested grid sits beyond the outer portrait edge with badge clearance')
+        assert(not bar.vertical and bar.reverse==(key=='player') and bar.maxIcons==4,'fixed two-row grid is capped at four icons')
     end
 end
-centeredDefaults()
+sideDefaults()
 assert(ns.db.bars.cooldown.offsetX==nil,'cooldowns keep free positioning')
 
 -- This explicit layout request replaces every previous DR placement once.
 -- All unrelated appearance, tracking, and cooldown layout choices survive.
-for _,oldSchema in ipairs({0,1,2,3,4,5}) do
+for _,oldSchema in ipairs({0,1,2,3,4,5,6}) do
     bjarkiCCDB={schema=oldSchema,locked=false,targetOnly=true,interrupts=true,
         resetSeconds=24,stageResetSeconds=17,ownCastEstimates=false,
         categories={stun=false},disabledSpells={[853]=true},cooldownOverrides={[408]=45},
@@ -76,10 +76,10 @@ for _,oldSchema in ipairs({0,1,2,3,4,5}) do
             target={anchorKind='frame',offsetX=-55,offsetY=91,vertical=false,reverse=false},
             focus={anchorKind='portrait',offsetX=10,offsetY=0},
             cooldown={x=444,y=-333,size=48,gap=5,vertical=false,reverse=false,enabled=false}}}
-    ns.InitializeDB(); centeredDefaults()
-    assert(ns.db.schema==6,'layout migration runs once')
+    ns.InitializeDB(); sideDefaults()
+    assert(ns.db.schema==7,'layout migration runs once')
     assert(ns.db.bars.player.size==44 and ns.db.bars.player.gap==5
-        and not ns.db.bars.player.enabled and ns.db.bars.player.maxIcons==7,'DR appearance and enable preferences survive')
+        and not ns.db.bars.player.enabled and ns.db.bars.player.maxIcons==4,'DR appearance and enable preferences survive')
     local cd=ns.db.bars.cooldown
     assert(cd.x==444 and cd.y==-333 and cd.size==48 and cd.gap==5
         and not cd.vertical and not cd.reverse and not cd.enabled,'cooldown bar is unaffected by DR migration')
@@ -92,7 +92,7 @@ for _,oldSchema in ipairs({0,1,2,3,4,5}) do
     ns.InitializeDB()
     assert(ns.db.bars.target.offsetX==15.5 and ns.db.bars.target.offsetY==-21.25
         and not ns.db.bars.target.vertical and not ns.db.bars.target.reverse,'later reload preserves deliberate drag/layout changes')
-    ns.ResetPositions(); centeredDefaults()
+    ns.ResetPositions(); sideDefaults()
     assert(ns.db.bars.cooldown.size==48 and not ns.db.bars.cooldown.vertical,'position reset preserves cooldown appearance and growth')
 end
 -- Existing compact visual migration still applies only to old visual defaults.
@@ -104,11 +104,11 @@ assert(ns.db.bars.cooldown.size==32 and ns.db.bars.cooldown.gap==3,'old default 
 ns.db.bars.player.size,ns.db.bars.player.gap=36,8
 ns.InitializeDB()
 assert(ns.db.bars.player.size==36 and ns.db.bars.player.gap==8,'visual migration is not reapplied')
-bjarkiCCDB={schema=6,bars={player={anchorKind='portrait-top',offsetX=secret,offsetY=0/0},
-    target={anchorKind='portrait-top',offsetX=math.huge,offsetY=-math.huge},
-    focus={anchorKind='portrait-top',offsetX=20001,offsetY=-20001}}}
+bjarkiCCDB={schema=7,bars={player={anchorKind='unit-side',offsetX=secret,offsetY=0/0},
+    target={anchorKind='unit-side',offsetX=math.huge,offsetY=-math.huge},
+    focus={anchorKind='unit-side',offsetX=20001,offsetY=-20001}}}
 ns.InitializeDB()
-assert(ns.db.bars.player.offsetX==0 and ns.db.bars.player.offsetY==8,'hidden and NaN offsets use safe defaults')
-assert(ns.db.bars.target.offsetX==0 and ns.db.bars.target.offsetY==8,'infinite offsets use safe defaults')
+assert(ns.db.bars.player.offsetX==-18 and ns.db.bars.player.offsetY==0,'hidden and NaN offsets use safe defaults')
+assert(ns.db.bars.target.offsetX==18 and ns.db.bars.target.offsetY==0,'infinite offsets use safe defaults')
 assert(ns.db.bars.focus.offsetX==10000 and ns.db.bars.focus.offsetY==-10000,'finite offsets remain bounded')
 print('bootstrap: protected values, compact defaults, centered portrait migration and saved preferences passed')

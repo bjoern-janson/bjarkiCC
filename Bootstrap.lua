@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.16-beta'
+ns.name, ns.version = addonName, '0.4.17-beta'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -50,9 +50,9 @@ local placements = { player={-230,-165}, target={230,-165}, focus={230,-230}, co
 local portraitOffsets = { player={0,8}, target={10,0}, focus={10,0} }
 local healthOffsets = { player={24,24}, target={-24,24}, focus={-24,24} }
 local function defaultUnitPlacement(bar, key)
-    bar.anchorKind = 'portrait-top'
-    bar.offsetX, bar.offsetY = 0, 8
-    bar.vertical, bar.reverse = true, true
+    bar.anchorKind = 'unit-side'
+    bar.offsetX, bar.offsetY = key == 'player' and -18 or 18, 0
+    bar.vertical, bar.reverse, bar.maxIcons = false, key == 'player', 4
 end
 local function bounded(v, default, low, high)
     v = S.Number(v)
@@ -68,7 +68,7 @@ function ns.InitializeDB()
     local db = type(bjarkiCCDB) == 'table' and bjarkiCCDB or {}
     local savedSchema = S.Number(db.schema) or 0
     local migrateVisualDefaults = savedSchema < 2
-    local migrateUnitOffsets = savedSchema < 6
+    local migrateUnitOffsets = savedSchema < 7
     db.locked = bool(db.locked, true)
     db.targetOnly = bool(db.targetOnly, false)
     db.interrupts = bool(db.interrupts, false)
@@ -104,7 +104,7 @@ function ns.InitializeDB()
         bar.reverse = bool(bar.reverse, key ~= 'cooldown')
         bar.size = bounded(bar.size, key == 'cooldown' and 32 or 28, 24, 72)
         bar.gap = bounded(bar.gap, 3, 0, 30)
-        bar.maxIcons = math.floor(bounded(bar.maxIcons, 12, 3, 30))
+        bar.maxIcons = key ~= 'cooldown' and 4 or math.floor(bounded(bar.maxIcons, 12, 3, 30))
         bar.x = bounded(bar.x, position[1], -10000, 10000)
         bar.y = bounded(bar.y, position[2], -10000, 10000)
         if key ~= 'cooldown' then
@@ -112,19 +112,20 @@ function ns.InitializeDB()
                 defaultUnitPlacement(bar, key)
             else
                 if bar.anchorKind ~= 'frame' and bar.anchorKind ~= 'portrait'
-                    and bar.anchorKind ~= 'health' and bar.anchorKind ~= 'portrait-top' then
+                    and bar.anchorKind ~= 'health' and bar.anchorKind ~= 'portrait-top' and bar.anchorKind ~= 'unit-side' then
                     defaultUnitPlacement(bar, key)
                 end
                 local defaults = bar.anchorKind == 'frame' and {6,-8}
                     or bar.anchorKind == 'portrait' and portraitOffsets[key]
-                    or bar.anchorKind == 'health' and healthOffsets[key] or {0,8}
+                    or bar.anchorKind == 'health' and healthOffsets[key]
+                    or bar.anchorKind == 'unit-side' and {key == 'player' and -18 or 18,0} or {0,8}
                 bar.offsetX = bounded(bar.offsetX, defaults[1], -10000, 10000)
                 bar.offsetY = bounded(bar.offsetY, defaults[2], -10000, 10000)
             end
         end
         db.bars[key] = bar
     end
-    db.schema = 6
+    db.schema = 7
     bjarkiCCDB, ns.db = db, db
 end
 

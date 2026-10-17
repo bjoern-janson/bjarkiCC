@@ -90,8 +90,9 @@ assert(not ns.UI.bars.player.template and not ns.UI.bars.target.template and not
  'unit-anchored bars must not inherit BackdropTemplate secret-size arithmetic')
 for _,pair in ipairs({{'player',playerPortrait},{'target',targetPortrait},{'focus',focusPortrait}}) do
  local bar=ns.UI.bars[pair[1]]
- assert(bar.point[2]==pair[2] and bar.point[1]=='BOTTOM' and bar.point[3]=='TOP'
-  and bar.point[4]==0 and bar.point[5]==8,'each DR column starts centered above its portrait')
+ assert(bar.point[2]==pair[2] and bar.point[1]==(pair[1]=='player' and 'TOPRIGHT' or 'TOPLEFT')
+  and bar.point[3]==(pair[1]=='player' and 'TOPLEFT' or 'TOPRIGHT')
+  and bar.point[4]==(pair[1]=='player' and -18 or 18) and bar.point[5]==0,'each grid starts beside the outer portrait edge')
 end
 assert(ns.UI.bars.player.anchorFrame==PlayerFrame and ns.UI.bars.focus.anchorFrame==FocusFrame,
  'native frame remains the visibility owner')
@@ -352,7 +353,7 @@ for _,bar in pairs(ns.db.bars) do bar.vertical=true; bar.reverse=true end
 ns.UI.ApplyLayout()
 assert(ns.UI.bars.cooldown.icons[1].cooldown==nil,'cooldown is rendered by child widget')
 assert(ns.UI.bars.cooldown.icons[1].swipe.cooldown[2]==60,'render uses estimated max duration')
-assert(ns.UI.bars.player.height==90,'vertical DR rows have no phantom caption spacing')
+assert(ns.UI.bars.player.height==59,'DR grid remains two rows regardless of legacy vertical settings')
 ns.db.showNames=true; ns.db.showDRText=true
 ns.UI.Update(now)
 assert(ns.UI.bars.cooldown.icons[1].caption.shown and ns.UI.bars.cooldown.icons[1].caption.text=='Paladin','optional caster identity')
@@ -776,19 +777,30 @@ local remaining=5.01
 ns.UI.GetRows=function(key)
  if key=='cooldown' then return {{spellID=853,category='stun',name='Enemy',started=300,duration=60,remaining=40}} end
  return {{spellID=853,category='stun',stage=1,started=300,duration=20,remaining=remaining,uncertain=true},
-         {spellID=5782,category='fear',stage=2,started=300,duration=20,remaining=remaining,uncertain=true}}
+         {spellID=5782,category='fear',stage=2,started=300,duration=20,remaining=remaining,uncertain=true},
+         {spellID=408,category='kidney',stage=3,started=300,duration=20,remaining=remaining,uncertain=true},
+         {spellID=122,category='root',stage=1,started=300,duration=20,remaining=remaining,uncertain=true},
+         {spellID=2637,category='incapacitate',stage=1,started=300,duration=20,remaining=remaining,uncertain=true}}
 end
 ns.demo=false; ns.db.locked=true
-for _,key in ipairs({'player','target','focus'}) do ns.db.bars[key].vertical=true; ns.db.bars[key].reverse=true end
+for _,key in ipairs({'player','target','focus'}) do
+ ns.db.bars[key].vertical=true; ns.db.bars[key].reverse=true; ns.db.bars[key].maxIcons=30
+end
 for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
  remaining=case[1]; ns.UI.Update(315)
  for _,key in ipairs({'player','target','focus'}) do
   local bar=ns.UI.bars[key]; local first,second=bar.icons[1],bar.icons[2]
   assert(first.time.text==case[2],'DR number appears only at five seconds or below')
   assert(first.swipe.cooldown[1]==300 and first.swipe.cooldown[2]==20,'text threshold never changes the application clock')
-  assert(first.point[1]=='BOTTOM' and first.point[4]==0 and first.point[5]==0,'first icon stays centered at the bottom of its column')
-  assert(second.point[1]=='BOTTOM' and second.point[4]==0 and second.point[5]==ns.db.bars[key].size+ns.db.bars[key].gap,
-   'additional icons stack upward in one column')
+  local step=ns.db.bars[key].size+ns.db.bars[key].gap
+  local sign=key=='player' and -1 or 1
+  assert(first.point[1]==(key=='player' and 'TOPRIGHT' or 'TOPLEFT') and first.point[4]==0 and first.point[5]==0,
+   'first icon stays beside its unit frame')
+  assert(second.point[4]==sign*step and second.point[5]==0,'second icon completes the first row away from the frame')
+  assert(bar.icons[3].point[4]==0 and bar.icons[3].point[5]==-step,'third starts the second row')
+  assert(bar.icons[4].point[4]==sign*step and bar.icons[4].point[5]==-step,'fourth completes the second row')
+  assert(not (bar.icons[5] and bar.icons[5].shown) and not bar.overflow.shown,'no fifth icon or overflow label is displayed')
+  assert(bar.width==2*ns.db.bars[key].size+ns.db.bars[key].gap and bar.height==bar.width,'grid bounds stay fixed at two by two')
  end
  assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
 end

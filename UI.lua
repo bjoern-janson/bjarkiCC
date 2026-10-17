@@ -27,6 +27,7 @@ local function demoRows(key, now)
         {spellID=853,category='stun',stage=1,remaining=remaining,started=now+remaining-20,duration=20},
         {spellID=408,category='kidney',stage=2,remaining=remaining,started=now+remaining-20,duration=20},
         {spellID=5782,category='fear',stage=3,remaining=remaining,started=now+remaining-20,duration=20},
+        {spellID=122,category='root',stage=1,remaining=remaining,started=now+remaining-20,duration=20},
     }
 end
 
@@ -248,7 +249,8 @@ function UI.Update(now)
                 bar:Hide()
             else
                 local rows = UI.GetRows(key,now)
-                local count = math.min(#rows,settings.maxIcons)
+                local grid = key ~= 'cooldown'
+                local count = math.min(#rows,grid and 4 or settings.maxIcons)
                 local setup=ns.demo or not ns.db.locked
                 local captions=key=='cooldown' and ns.db.showNames
                 local captionHeight=captions and 13 or 0
@@ -257,9 +259,14 @@ function UI.Update(now)
                 bar.title:SetShown(setup)
                 local step=settings.size+settings.gap+(settings.vertical and captionHeight or 0)
                 local span=settings.size+math.max(count-1,0)*step
-                bar:SetSize(settings.vertical and settings.size or math.max(span,count==0 and 96 or 1),
-                    settings.vertical and span or settings.size)
-                bar.overflow:SetShown(#rows>count)
+                if grid then
+                    local side=settings.size*2+settings.gap
+                    bar:SetSize(side,side)
+                else
+                    bar:SetSize(settings.vertical and settings.size or math.max(span,count==0 and 96 or 1),
+                        settings.vertical and span or settings.size)
+                end
+                bar.overflow:SetShown(not grid and #rows>count)
                 bar.overflow:SetText('+'..(#rows-count))
                 bar.overflow:ClearAllPoints()
                 if settings.vertical then
@@ -276,7 +283,10 @@ function UI.Update(now)
                     -- Derive it from our saved size, never protected frame dimensions.
                     if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
                     local offset=(i-1)*step
-                    if settings.vertical then
+                    if grid then
+                        local point=key=='player' and 'TOPRIGHT' or 'TOPLEFT'
+                        icon:SetPoint(point,bar,point,((i-1)%2)*step*(key=='player' and -1 or 1),-math.floor((i-1)/2)*step)
+                    elseif settings.vertical then
                         icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'BOTTOM' or 'TOP',0,settings.reverse and offset or -offset)
                     else
                         icon:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'RIGHT' or 'LEFT',settings.reverse and -offset or offset,0)
@@ -392,7 +402,11 @@ function UI.OpenOptions()
         local settings=ns.db.bars[key]
         local y=-(i-1)*50
         check(page,titles[key],0,y-7,function() return settings.enabled end,function(v) settings.enabled=v end)
-        check(page,'Vertical',164,y-7,function() return settings.vertical end,function(v) settings.vertical=v end)
+        if key=='cooldown' then
+            check(page,'Vertical',164,y-7,function() return settings.vertical end,function(v) settings.vertical=v end)
+        else
+            label(page,'2 x 2',164,y-7,90)
+        end
         slider(page,'Size',280,y,24,72,function() return settings.size end,function(v) settings.size=v end,170)
     end
     check(page,'Caster names',0,-211,function() return ns.db.showNames end,function(v) ns.db.showNames=v end)

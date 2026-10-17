@@ -2,7 +2,13 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.16-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.17-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Unit-frame side grids in 0.4.17
+
+DR trackers now use a fixed two-row, two-column layout beside the unit frames, inspired by target-of-target debuffs. Player DR sits outside the left portrait edge; target and focus DR sit outside the right edge. An 18-pixel gap leaves room for the PvP badge. Icons fill the first row away from the frame, then the second row below. At most four icons appear, with no extra overflow label. Other active categories remain in the model and diagnostics.
+
+Upgrade moves all three DR bars once; subsequent drag offsets persist. Existing icon size, gap, filters and enemy cooldown settings survive. DR countdown text still appears only at five seconds and below. `/bcc test` previews all four grid positions, and `/bcc unlock` allows moving the grids outside combat.
 
 ## Portrait columns and final-five-second numbers in 0.4.16
 
@@ -127,7 +133,7 @@ Further unconfirmed cast attempts no longer restart a red DR timer. The third ap
 ## Frame anchoring
 
 - Player DR follows `PlayerFrame`, target DR follows `TargetFrame`, and focus DR follows `FocusFrame`.
-- Each uses the visible portrait mask/image for placement, with native-frame fallback, centered above it and growing upward by default. Use `/bcc unlock` outside combat and drag the icons to adjust the offset; `/bcc lock` saves the layout from accidental movement. Offsets persist across reloads.
+- Each uses the visible outer portrait edge for placement, with native-frame fallback, in a fixed 2 x 2 grid beside it. Use `/bcc unlock` outside combat and drag the icons to adjust the offset; `/bcc lock` saves the layout from accidental movement. Offsets persist across reloads.
 - Moving the native unit frame also moves its DR bar. Bars disappear with hidden unit frames during live play; preview/unlock still shows setup handles.
 - The enemy cooldown bar remains independently movable.
 - Target and focus share one observation history when they refer to the same player. Switching targets preserves the old target's DR if that player remains focused.
@@ -169,7 +175,7 @@ The package includes all Lua source; no other addon or library is required. Inst
 | `/bcc cooldown 853 default` | Restore HoJ's default estimate range |
 | `/bcc used 853` | Manually mark HoJ used by the selected hostile player |
 
-The Display panel has enable, size and vertical-layout controls for each of the four bars, plus optional caster names and DR percentages. The cooldown panel offers a current-target filter, optional interrupts, and individual ability toggles. Existing custom spacing, growth direction and icon limits remain saved. Positions and preferences are saved account-wide. Live combat history and test mode are not saved. Anchor changes made in combat apply after combat; combat starting during a drag restores the previously saved offset.
+The Display panel has enable and size controls for each bar, a fixed 2 x 2 label for DR grids, and a vertical-layout control for enemy cooldowns, plus optional caster names and DR percentages. The cooldown panel offers a current-target filter, optional interrupts, and individual ability toggles. Positions and preferences are saved account-wide. Live combat history and test mode are not saved. Anchor changes made in combat apply after combat; combat starting during a drag restores the previously saved offset.
 
 ## Read the bars
 

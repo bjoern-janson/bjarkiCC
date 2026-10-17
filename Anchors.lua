@@ -60,6 +60,10 @@ end
 
 local function placement(key, settings, frame)
     if not frame then return nil, 'CENTER', 'CENTER', 0, 0 end
+    if settings.anchorKind == 'unit-side' then
+        return portrait(key, frame), key == 'player' and 'TOPRIGHT' or 'TOPLEFT',
+            key == 'player' and 'TOPLEFT' or 'TOPRIGHT', 0, 0
+    end
     if settings.anchorKind == 'portrait-top' then
         local region, size = portrait(key, frame), settings.size or 28
         if settings.vertical then
@@ -68,7 +72,7 @@ local function placement(key, settings, frame)
         return region, settings.reverse and 'BOTTOMRIGHT' or 'BOTTOMLEFT', 'TOP', settings.reverse and size/2 or -size/2, 0
     end
     -- Preserve manually positioned v0.3.0 bars in their original coordinate
-    -- system. Reset positions opts them into the current portrait-top layout.
+    -- system. Reset positions opts them into the current unit-side layout.
     if settings.anchorKind == 'frame' then
         return frame, legacyPoint(settings), 'TOPRIGHT', 0, 0
     end

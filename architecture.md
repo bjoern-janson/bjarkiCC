@@ -68,7 +68,7 @@ Record build, spell rank/ID, victim, application time, early-break/removal time,
 
 No implementation code from these projects was copied into bjarkiCC by this research task.
 
-## Implemented architecture in 0.4.16-beta
+## Implemented architecture in 0.4.17-beta
 
 Target client: **WoW Forever beta 1.60.1.70425**, interface **16001**. The user explicitly chose to keep the **application-based display timer** after the Classic distinction above was explained. A new application starts or refreshes the configured timer, default 20 seconds; breaking/removing CC does not restart it. Starting with 0.4.7, the user also explicitly chose to retain stage history separately until the configured interval after CC ends. Version 0.4.8 separates the settings: `resetSeconds` keeps the application countdown (default 20), while `stageResetSeconds` defaults to 18. Missing legacy stage settings receive 18 without changing existing display preferences; explicit overrides survive reload. Both settings are guarded and bounded to 10–30 seconds. Stage coverage/confidence uses the stage interval; cast predictions and confirmations keep the application interval. These are addon estimates, not a verified Forever server-reset rule.
 
@@ -200,11 +200,13 @@ Hostile readable successful casts feed an independent GUID-keyed cooldown model.
 
 ### UI placement and migration
 
-Bars remain addon-owned UIParent children. Since 0.4.16, all three default DR columns attach `BOTTOM` to the corresponding portrait's `TOP`, with `(0,8)` offsets. The bar width is one icon; additional icons anchor upward from its bottom with size-plus-gap spacing. Growing the column leaves the first icon centered above the portrait. Icons remain 28px with 3px gaps.
+Bars remain addon-owned UIParent children. Since 0.4.17, DR grids attach beside the visible portrait edge: player `TOPRIGHT` to portrait `TOPLEFT` with `(-18,0)` offsets, and target/focus `TOPLEFT` to portrait `TOPRIGHT` with `(18,0)`. This mirrors grids outside paired unit frames and leaves a badge gap. Icons remain 28px with 3px gaps.
 
-Portraits resolve through `PlayerFrame.PlayerFrameContainer.PlayerPortraitMask` or `TargetFrameContainer.PortraitMask` on target/focus, then portrait images/globals and finally the named native frame. `anchorFrame` retains native visibility identity; `anchorRegion` supplies geometry. Native frames and regions receive no setters or hooks. Legacy frame, portrait-side and health anchor kinds remain supported for explicit configurations, while new defaults use `portrait-top`.
+Portraits resolve through `PlayerFrame.PlayerFrameContainer.PlayerPortraitMask` or `TargetFrameContainer.PortraitMask` on target/focus, then portrait images/globals and finally the named native frame. `anchorFrame` retains native visibility identity; `anchorRegion` supplies geometry. Native frames and regions receive no setters or hooks. Legacy frame, portrait-side, portrait-top and health anchor kinds remain supported for explicit configurations, while new defaults use `unit-side`.
 
-Schema 6 applies the requested portrait-centered upward layout to all earlier DR bars once, including their previous custom offsets/directions. It preserves icon appearance, enable/filter settings, clocks and cooldown-bar configuration. Subsequent reloads preserve deliberate new offsets and growth choices. `/bcc reset` restores centered upward DR columns. Scale-aware dragging saves the bottom-center offset against portrait top-center and restores native attachment. Combat defers repositioning; missing/replaced regions hide live rows until rebound. Cooldowns remain freely positioned.
+Schema 7 applies the requested side placement to all earlier DR bars once, preserving icon appearance, enable/filter settings, clocks and cooldown-bar configuration. Subsequent reloads preserve deliberate offsets. `/bcc reset` restores the side placements. Scale-aware dragging saves the grid's top corner against the corresponding portrait edge and restores native attachment. Combat defers repositioning; missing/replaced regions hide live rows until rebound. Cooldowns remain freely positioned.
+
+DR rendering is always a fixed 2 x 2 grid, independent of old vertical/growth flags. Its width and height are `2 * size + gap`; row-major offsets use two columns, mirroring horizontal direction for player. Display at most four filtered active rows, even with a larger saved icon limit, and hide the DR overflow marker. Additional categories remain in model/status history. Test mode supplies four DR categories to preview every slot. DR options show a fixed-grid label, while cooldowns retain the vertical control and their existing overflow behavior.
 
 Normal play has no headings or category captions. Empty bars hide. Caster names and DR percentages are optional; uncertain DR rows omit percentage text and explain their evidence on hover. Test mode is synthetic and cannot alter tracking history.
 
