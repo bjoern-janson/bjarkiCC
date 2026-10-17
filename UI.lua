@@ -8,8 +8,10 @@ local stageColors = {{.25,1,.3},{1,.8,.15},{1,.2,.15}}
 
 function UI.FormatTime(seconds)
     if seconds >= 60 then return math.ceil(seconds/60)..'m' end
-    -- Match the native portrait formatter without changing the underlying clock.
-    return string.format('%.0f', math.max(0,seconds))
+    if seconds <= 0 then return '0' end
+    -- Match the updated native-style portrait text without changing either clock.
+    if seconds < 5 then return string.format('%.1f', seconds) end
+    return tostring(math.floor(seconds))
 end
 
 local function demoRows(key, now)
@@ -66,19 +68,27 @@ local function backdrop(frame, alpha)
     frame:SetBackdropBorderColor(.48,.38,.18,1)
 end
 
--- Anchoring to native unit frames can make dimensions secret during CC. Solid
+-- Anchoring to native unit frames can make dimensions secret during CC. These
 -- textures stretch natively; unlike BackdropTemplate they never divide a
 -- GetWidth/GetHeight result in an OnSizeChanged callback.
 local function setBorderColor(frame,r,g,b,a)
-    for _,edge in ipairs(frame.borderTextures) do edge:SetColorTexture(r,g,b,a or 1) end
+    for _,edge in ipairs(frame.borderTextures) do edge:SetVertexColor(r,g,b,a or 1) end
 end
 
-local function solidPanel(frame,alpha)
+local function panelBackground(frame,alpha)
     frame.panelBackground=frame:CreateTexture(nil,'BACKGROUND')
     frame.panelBackground:SetAllPoints(frame)
     frame.panelBackground:SetColorTexture(.045,.04,.035,alpha or 1)
+end
+
+local function solidPanel(frame,alpha,borderParent)
+    panelBackground(frame,alpha)
     frame.borderTextures={}
-    for i=1,4 do frame.borderTextures[i]=frame:CreateTexture(nil,'OVERLAY') end
+    for i=1,4 do
+        local edge=(borderParent or frame):CreateTexture(nil,'OVERLAY')
+        edge:SetColorTexture(1,1,1,1)
+        frame.borderTextures[i]=edge
+    end
     local top,bottom,left,right=unpack(frame.borderTextures)
     top:SetPoint('TOPLEFT',frame,'TOPLEFT',0,0); top:SetPoint('TOPRIGHT',frame,'TOPRIGHT',0,0); top:SetHeight(1)
     bottom:SetPoint('BOTTOMLEFT',frame,'BOTTOMLEFT',0,0); bottom:SetPoint('BOTTOMRIGHT',frame,'BOTTOMRIGHT',0,0); bottom:SetHeight(1)
@@ -151,7 +161,6 @@ end
 
 local function makeIcon(bar)
     local icon = CreateFrame('Frame',nil,bar)
-    solidPanel(icon,1)
     icon.texture = icon:CreateTexture(nil,'ARTWORK')
     icon.texture:SetPoint('TOPLEFT',2,-2); icon.texture:SetPoint('BOTTOMRIGHT',-2,2)
     icon.texture:SetTexCoord(.07,.93,.07,.93)
@@ -163,6 +172,17 @@ local function makeIcon(bar)
     icon.textLayer=CreateFrame('Frame',nil,icon)
     icon.textLayer:SetAllPoints(icon)
     icon.textLayer:SetFrameLevel(icon.swipe:GetFrameLevel()+1)
+    local atlas='UI-HUD-ActionBar-IconFrame'
+    if ns.Safe.Call(C_Texture and C_Texture.GetAtlasInfo,atlas) then
+        panelBackground(icon,1)
+        icon.actionBorder=icon.textLayer:CreateTexture(nil,'OVERLAY')
+        icon.actionBorder:SetAtlas(atlas,false)
+        icon.actionBorder:SetPoint('TOPLEFT',icon,'TOPLEFT',0,0)
+        icon.borderTextures={icon.actionBorder}
+    else
+        -- Keep an outline on clients without the new artwork, without geometry reads.
+        solidPanel(icon,1,icon.textLayer)
+    end
     icon.time=font(icon.textLayer,nil,16); icon.time:SetPoint('CENTER',0,0)
     icon.state=font(icon.textLayer,nil,10); icon.state:SetPoint('TOPRIGHT',-1,-1)
     icon.caption=font(icon.textLayer,nil,10); icon.caption:SetPoint('TOP',icon,'BOTTOM',0,-3)
@@ -252,6 +272,9 @@ function UI.Update(now)
                     if not bar.icons[i] then bar.icons[i]=makeIcon(bar) end
                     local icon=bar.icons[i]
                     icon.row=row; icon:Show(); icon:SetSize(settings.size,settings.size); icon:ClearAllPoints()
+                    -- Native action buttons use a 46x45 bevel on a 45x45 button.
+                    -- Derive it from our saved size, never protected frame dimensions.
+                    if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
                     local offset=(i-1)*step
                     if settings.vertical then
                         icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'BOTTOM' or 'TOP',0,settings.reverse and offset or -offset)
@@ -275,7 +298,7 @@ function UI.Update(now)
                         icon.state:SetTextColor(1,.82,.36)
                         icon.caption:SetText((row.name or 'Enemy'):sub(1,12))
                         icon.caption:SetTextColor(.85,.85,.85)
-                        setBorderColor(icon,.12,.12,.12,1)
+                        setBorderColor(icon,1,1,1,1)
                         icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
                     else
                         icon.time:SetText(row.remaining>0 and UI.FormatTime(row.remaining) or '')

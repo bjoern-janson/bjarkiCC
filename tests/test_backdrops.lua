@@ -56,6 +56,7 @@ function methods:GetTop() return 200 end
 function methods:SetText(value) self.text = value end
 function methods:SetColorTexture(...) self.color = {...} end
 function methods:SetVertexColor(...) self.color = {...} end
+function methods:SetAtlas(atlas) self.atlas = atlas end
 for _, name in ipairs({'SetFont','SetTextColor','SetTexture','SetTexCoord',
     'SetFrameStrata','SetMovable','SetClampedToScreen','RegisterForDrag','EnableMouse',
     'SetDrawEdge','SetHideCountdownNumbers','SetReverse','SetFrameLevel',
@@ -83,6 +84,7 @@ issecretvalue = function(value) return rawequal(value, poison) end
 canaccessvalue = function(value) return not rawequal(value, poison) end
 C_UnitAuras = {GetAuraDataByIndex=function(_, index) if index == 1 then return aura end end}
 C_Spell = {GetSpellTexture=function() return 135963 end}
+C_Texture = {GetAtlasInfo=function() return {} end}
 for _, name in ipairs({'PlayerFrame','TargetFrame','FocusFrame'}) do
     local native = object('Frame', name, UIParent)
     native.native = true
@@ -145,6 +147,20 @@ now = 153
 ns.Observer.Scan(now)
 ns.UI.Update(now)
 assert(not ns.UI.bars.player.shown, 'expired DR hides normally')
+C_Texture=nil
+ns.demo=true
+ns.UI.Update(now)
+local nativeIcon=ns.UI.bars.player.icons[1]
+local fallbackIcon=ns.UI.bars.player.icons[2]
+assert(nativeIcon.actionBorder.atlas=='UI-HUD-ActionBar-IconFrame'
+    and nativeIcon.actionBorder.width==ns.db.bars.player.size*46/45,
+    'native bevel scales from configured size while geometry is restricted')
+assert(#fallbackIcon.borderTextures==4 and not fallbackIcon.actionBorder,
+    'missing atlas API retains an outline for newly created icons')
+assert(fallbackIcon.borderTextures[1].color[1]==1 and fallbackIcon.borderTextures[1].color[2]==.8,
+    'fallback preserves second-stage yellow')
+ns.demo=false
+ns.UI.Update(now)
 assert(restrictedReads == 0, 'anchored bars, icons and their children must not read restricted dimensions or scale')
 for _, frame in ipairs(frames) do
     if frame ~= legacy and anchoredToNative(frame) then

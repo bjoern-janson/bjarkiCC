@@ -31,10 +31,18 @@ ns.db.interrupts=true
 assert(ns.UI.GetRows('cooldown',0)[1].spellID==1766,'enabled interrupts retained')
 ns.Observer.GetUnitState=function() return {} end
 assert(#ns.UI.GetRows('cooldown',0)==0,'target-only with no identity must show no other enemies')
-assert(ns.UI.FormatTime(9.45)=='9' and ns.UI.FormatTime(25)=='25','timers round to nearest whole second like native portrait countdowns')
-assert(ns.UI.FormatTime(12.2)=='12' and ns.UI.FormatTime(12.8)=='13','identical clocks cannot look one second apart because of ceiling')
-assert(ns.UI.FormatTime(12.499)=='12' and ns.UI.FormatTime(12.501)=='13','whole-second text changes at the half-second boundary')
-assert(ns.UI.FormatTime(-.2)=='0' and ns.UI.FormatTime(.2)=='0','rounding never displays a negative countdown')
+assert(ns.UI.FormatTime(12.2)=='12' and ns.UI.FormatTime(12.8)=='12',
+ 'whole seconds truncate like the updated native-style portrait countdown')
+assert(ns.UI.FormatTime(9.999)=='9' and ns.UI.FormatTime(10)=='10',
+ 'whole-second text changes at the integer boundary')
+assert(ns.UI.FormatTime(5)=='5' and ns.UI.FormatTime(5.9)=='5' and ns.UI.FormatTime(4.9)=='4.9',
+ 'decimal precision begins strictly below five seconds')
+assert(ns.UI.FormatTime(4.44)=='4.4' and ns.UI.FormatTime(.24)=='0.2',
+ 'short countdowns display one decimal')
+assert(ns.UI.FormatTime(4.96)=='5.0' and ns.UI.FormatTime(.04)=='0.0',
+ 'decimal text rounds normally without shifting expiry or clamping tenths')
+assert(ns.UI.FormatTime(-.2)=='0' and ns.UI.FormatTime(0)=='0',
+ 'expired countdown text never becomes negative')
 assert(ns.UI.FormatTime(125)=='3m','long cooldowns use compact minutes')
 ns.demo=true
 local demo=ns.UI.GetRows('player',3)

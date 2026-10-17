@@ -2,7 +2,15 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.11-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.12-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Native action-button borders and countdown text in 0.4.12
+
+Icons now use Forever's beveled action-button artwork. DR borders retain green/yellow/red stage colors; enemy cooldown borders use the artwork's neutral color. The border sits above the cooldown sweep so its tint stays visible. Clients without this atlas retain a simple outline. Icon size, saved positions and anchors are preserved.
+
+Countdowns match the updated portrait addon's formatting: whole seconds truncate down (`12.8` displays `12`), with one decimal strictly below five seconds (`4.44` displays `4.4`). Exactly five displays `5`; long cooldowns retain compact minute text. This replaces the old nearest-second presentation without changing the application countdown, separate stage-reset estimate, or when icons disappear. `/bcc test` previews the artwork and the decimal transition.
+
+The exact beta UI source supplies the atlas and its proportions; offline tests cover stage tint, layering, formatter boundaries and the protected-geometry regression. Appearance and readability still need an in-game check.
 
 ## Learn from a complete CC sequence in 0.4.11
 

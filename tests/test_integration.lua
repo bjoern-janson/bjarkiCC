@@ -12,6 +12,8 @@ function frameMethods:SetSize(w,h) self.width=w; self.height=h end
 function frameMethods:SetPoint(...) self.point={...} end
 function frameMethods:SetBackdropBorderColor(...) self.border={...} end
 function frameMethods:SetColorTexture(...) self.color={...} end
+function frameMethods:SetVertexColor(...) self.color={...} end
+function frameMethods:SetAtlas(atlas) self.atlas=atlas end
 function frameMethods:AddLine(text) self.lines=self.lines or {}; self.lines[#self.lines+1]=text end
 function frameMethods:SetScript(event, fn) self.scripts[event]=fn end
 function frameMethods:RegisterEvent(event) self.events[event]=true end
@@ -40,6 +42,7 @@ end
 function frameMethods:CreateFontString() return object('FontString',nil,self) end
 function frameMethods:CreateTexture() return object('Texture',nil,self) end
 CreateFrame=object; UIParent=object('Frame','UIParent'); STANDARD_TEXT_FONT='font.ttf'; UISpecialFrames={}; SlashCmdList={}
+C_Texture={GetAtlasInfo=function(atlas) return atlas=='UI-HUD-ActionBar-IconFrame' and {} or nil end}
 PlayerFrame=object('Frame','PlayerFrame',UIParent)
 TargetFrame=object('Frame','TargetFrame',UIParent)
 FocusFrame=object('Frame','FocusFrame',UIParent)
@@ -105,6 +108,10 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','player')
 ns.UI.Update(now)
 assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='20','application immediately supplies a visible DR timer')
 assert(ns.UI.bars.player.icons[1].swipe.cooldown[1]==100.1,'application supplies the cooldown sweep start')
+local bevel=ns.UI.bars.player.icons[1].borderTextures[1]
+assert(bevel.atlas=='UI-HUD-ActionBar-IconFrame', 'DR icons use the native action-button bevel')
+assert(bevel.parent.frameLevel>ns.UI.bars.player.icons[1].swipe:GetFrameLevel(),
+ 'cooldown swipe cannot darken the DR stage border')
 now=100.15
 C_UnitAuras.GetAuraDataByIndex=function() return nil end
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','player')
@@ -279,7 +286,7 @@ for _,time in ipairs({218,222,234}) do
  ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
  assert(targetIcon.row.stage==3 and targetIcon.row.started==215 and targetIcon.row.remaining==235-now,
   'attempts at the final DR stage must preserve the original deadline')
- assert(targetIcon.swipe.cooldown[1]==215 and targetIcon.time.text==tostring(235-now),
+ assert(targetIcon.swipe.cooldown[1]==215 and targetIcon.time.text==ns.UI.FormatTime(235-now),
   'neither sweep nor number can restart on an unconfirmed immune-stage attempt')
  assert(ns.UI.bars.focus.icons[1].row.started==215,'same-GUID focus shares the preserved deadline')
 end

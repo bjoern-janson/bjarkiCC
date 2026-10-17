@@ -68,7 +68,7 @@ Record build, spell rank/ID, victim, application time, early-break/removal time,
 
 No implementation code from these projects was copied into bjarkiCC by this research task.
 
-## Implemented architecture in 0.4.11-beta
+## Implemented architecture in 0.4.12-beta
 
 Target client: **WoW Forever beta 1.60.1.70425**, interface **16001**. The user explicitly chose to keep the **application-based display timer** after the Classic distinction above was explained. A new application starts or refreshes the configured timer, default 20 seconds; breaking/removing CC does not restart it. Starting with 0.4.7, the user also explicitly chose to retain stage history separately until the configured interval after CC ends. Version 0.4.8 separates the settings: `resetSeconds` keeps the application countdown (default 20), while `stageResetSeconds` defaults to 18. Missing legacy stage settings receive 18 without changing existing display preferences; explicit overrides survive reload. Both settings are guarded and bounded to 10–30 seconds. Stage coverage/confidence uses the stage interval; cast predictions and confirmations keep the application interval. These are addon estimates, not a verified Forever server-reset rule.
 
@@ -129,6 +129,12 @@ The 0.4.6 report contains a 10-second LoC interval at 2656289.250 followed by a 
 The complete recipient trace shows two ordinary 1→2→3 sequences without the earlier timestamp-calibration duplicates. The second sequence ends `a:383` at observed disappearance 2657449.235 (its predicted expiry was 2657449.500). A new `a:385` has explicit start 2657467.250 and end 2657487.250: a full 20-second interval, 18.015 seconds after observed disappearance and 17.750 seconds after the old predicted end. With the old 20-second post-CC window, the model still retains stage three until 2657469.235 and advances/caps it at three again. The model therefore reproduces the reported red full-duration CC without duplicate counts, own-cast estimates or scan gaps.
 
 The independently configured 18-second stage estimate resets the prior stage at 2657467.235 and starts `a:385` at stage one, preserving its 20-second application countdown. This clears the recorded boundary by only 15 milliseconds. The trace establishes that the old conservative model retained history too long for this observed application; it does not establish a universal or exact server threshold. Version 0.4.8 introduced no duration heuristic or special Hibernate override. Version 0.4.9 adds the bounded full-duration correction below. DRList's source documents a dynamic 15–20-second Classic interval and chooses its maximum; that reference does not verify Forever's rule. Keep the new value configurable and validate repeated trials at the boundary. Pure cast estimates retain their existing limitations.
+
+### 0.4.12 native action-button artwork
+
+`UI.lua` uses `UI-HUD-ActionBar-IconFrame`, the normal button bevel in Forever build 70425, rather than the equipped-item glow named `UI-HUD-ActionBar-IconFrame-Border`. The source normal texture is 46 by 45, top-left aligned to a 45 by 45 button; bjarkiCC derives that ratio from its own configured icon size. `SetAtlas(..., false)` uses the atlas UVs, and `SetVertexColor` retains the existing stage palette. Enemy cooldowns use white vertex tint, preserving the artwork's neutral appearance. The existing spell-art inset/crop stays unchanged. [Exact beta action-button template](https://github.com/Gethe/wow-ui-source/blob/b401e0332adfbf0460d319b06d8ea29279a941f1/Interface/AddOns/Blizzard_ActionBar/Mainline/ActionButtonTemplate.xml#L146)
+
+The border is a plain texture on the text layer above the cooldown widget. No native action-button template, input handling or protected geometry read is inherited. A guarded `C_Texture.GetAtlasInfo` lookup falls back to four constant-width edge textures if the asset is unavailable. Unlock handles keep their simple panel borders. Both paths preserve the earlier Backdrop.lua fix and use saved numeric sizes, with no `GetWidth`, `GetHeight` or scale arithmetic. Application/stage model behavior is unchanged. Offline fixtures cover native artwork, stage tint, layer ordering, unavailable-atlas fallback and restricted geometry during repeated CC and layout changes; they do not render the live client.
 
 ### 0.4.11 corroborate a full duration from a complete observed sequence
 
@@ -192,7 +198,7 @@ Schema 5 migrates previous default placement to the health anchors. Customized f
 
 Normal play has no headings or category captions. Empty bars hide. Caster names and DR percentages are optional; uncertain DR rows omit percentage text and explain their evidence on hover. Test mode is synthetic and cannot alter tracking history.
 
-Borders show the counted/estimated stage even when history is incomplete: green, yellow, red. The tooltip explains when the actual next duration is unknown; no DR `?` badge is drawn. Cooldown readiness `?` and manual `M` markers are independent and remain. Whole-second numbers use `string.format('%.0f', seconds)`, matching the installed portrait formatter; no second is subtracted from the underlying clock.
+Borders show the counted/estimated stage even when history is incomplete: green, yellow, red. The tooltip explains when the actual next duration is unknown; no DR `?` badge is drawn. Cooldown readiness `?` and manual `M` markers are independent and remain. Since 0.4.12, positive countdowns below five seconds use `string.format('%.1f', seconds)`; five through less than sixty use `math.floor(seconds)`. This matches the inspected installed bjarkiPortraits 0.1.125-aura-rounding-test formatter in `Core.lua` (decimal breakpoint at zero, downward integer rounding at five). It replaces the older nearest-second convention. Minute text remains compact. Formatting does not shift either deadline: 4.96 can display 5.0, and a positive 0.04 can display 0.0 before actual expiry.
 
 ### Logged backdrop error and rendering boundary
 

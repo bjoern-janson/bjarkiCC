@@ -1,5 +1,13 @@
 # bjarkiCC known issues and validation status
 
+## Visual update in 0.4.12: live appearance pending
+
+**Request and evidence:** the user requested the new action-button border and countdown formatting matching their updated portrait addon, including decimals below five seconds. The exact Forever build 70425 source identifies `UI-HUD-ActionBar-IconFrame`. Installed bjarkiPortraits `Core.lua` explicitly rounds whole seconds down at five seconds and uses `%.1f` below five. The prior nearest-second behavior was correct for the older portrait formatter but is superseded here.
+
+**Change:** native bevel artwork tinted by the existing DR stage, neutral cooldown borders, and floor/decimal text formatting. Plain texture fallback remains for missing artwork. The model, stored clocks, anchor offsets and expiry filtering are unchanged; this is not an additional fix for the previously reported DR-stage mismatches.
+
+**Validation scope:** offline tests check stage colors, artwork layering, size derived from settings, missing-atlas fallback, timer thresholds and no restricted geometry reads on CC transitions. The archive is verified separately. Live artwork appearance and readability at the user's scale remain unverified; use `/bcc test` to preview. The earlier no-BackdropTemplate safeguard remains in place.
+
 ## Current report: red border during quarter CC and later stale red (0.4.10)
 
 **Report and evidence:** the user reports a full-DR border during quarter CC. The screenshot's remaining duration alone cannot identify its original duration or exact log entry. The trace records first-cycle `a:477/479/481` as explicit 20/10/5-second effects and stages 1/2/3. Red on that third five-second effect is the current next-application-immunity convention. A separate real mismatch follows: `a:483` reports 20 seconds at start 2660110.000, then a same-ID 10-second refresh at 2660121.000, but both remain stage three.
@@ -185,6 +193,6 @@ Version 0.4.0 adds guarded per-unit LoC witnesses and optional own-cast estimate
 | Same aura identity prevented all reapplications from advancing | Recognize a later explicit start or a changed derived start/end pair, preserving ambiguity markers | Stable-key refresh, shortened repeated CC, unchanged polling and incomplete-timing regressions |
 | First aura-to-LoC sensor handoff discarded earlier observed DR | Preserve same-GUID stages/deadlines and reconcile identities while invalidating confidence | Same-effect handoff must not duplicate; a second readable CC must advance the retained stage |
 | Gray uncertainty border hid counted DR stage | Always show stage color; explain uncertainty in tooltip/status (on-icon `?` removed in 0.4.3) | First-stage estimate green, second stage yellow and uncertain third-stage red display assertions |
-| Ceiling versus portrait nearest-second formatting differed by one | Match native `%.0f` text without shifting the underlying clock | 12.2 seconds displays 12; 12.8 displays 13; boundary assertions |
+| Ceiling versus the older portrait nearest-second formatting differed by one | 0.4.1 used `%.0f` without shifting the clock; superseded by the updated portrait convention in 0.4.12 | Current checks: 12.8 displays 12, 4.44 displays 4.4, exactly 5 displays 5; expiry is unchanged |
 
 All nine suites pass for 0.4.11: Model 127 cases, Observer 89, OwnCasts 14, plus bootstrap, anchors, UI, event integration, backdrop and diagnostic-history regressions. Replays include the short-startup a:477 through a:483 sequence, earlier full-duration reset and source-handoff cases, rejected cast estimates at the cap, late explicit duration and shared player/target/focus displays. Sequence checks reject incomplete duration evidence, wrong ratios, possible resets, partial coverage, intervening same-category spells, overlaps, cast-inferred elevation and conflicting aura durations. Status tests distinguish pending and learned baseline evidence without polling noise. These are diagnosed source issues with offline regression coverage, not claims of tested in-game fixes.
