@@ -341,6 +341,12 @@ assert(ns.db.bars.cooldown.enabled and ns.UI.bars.cooldown.shown,
  'explicit command enables experimental cooldown preview without altering DR')
 assert(ns.UI.bars.cooldown.title.text=='Enemy cooldowns (SAMPLE)',
  'fake preview must not be confused with detected enemy cooldowns')
+local recordedMessages, oldChatWriter={}, DEFAULT_CHAT_FRAME.AddMessage
+DEFAULT_CHAT_FRAME.AddMessage=function(_,message) recordedMessages[#recordedMessages+1]=message end
+SlashCmdList.BJARKICC('cooldowns status')
+assert(#recordedMessages>=2 and recordedMessages[#recordedMessages]:find('accepted automatic cooldowns=',1,true),
+ 'quick cooldown status reports actual accepted-cast counts, not sample icons')
+DEFAULT_CHAT_FRAME.AddMessage=oldChatWriter
 assert(ns.UI.bars.focus.icons[1].shown,'focus has an independent preview')
 assert(ns.UI.bars.player.title.shown,'test bars identified')
 assert(not ns.UI.bars.player.icons[1].caption.shown,'no category captions in minimal view')
