@@ -172,7 +172,7 @@ local function tooltip(owner, row, key)
         end
         if row.estimated then
             if row.estimateKind == 'aoe' then
-                tip:AddLine('? UNCONFIRMED AoE cast. Target/focus are POSSIBLE victims only.',1,.55,.25,true)
+                tip:AddLine('Unconfirmed AoE cast. Target/focus are POSSIBLE victims only.',1,.55,.25,true)
                 tip:AddLine('War Stomp/Grenade may miss, be immune, or affect another player. This is not observed DR.',1,.55,.25,true)
             else
                 tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
@@ -360,15 +360,12 @@ function UI.Update(now)
                         icon.swipe:Show(); updateNativeClock(icon,row.started,row.duration)
                     else
                         setTextIfChanged(icon.time,row.remaining>0 and row.remaining<=5 and UI.FormatTime(row.remaining) or '')
-                        -- An AoE cast may affect nobody or several players.
-                        -- Unlike ordinary direct-cast guesses, ALWAYS show a
-                        -- '?' on the colored stage: this is a possible victim,
-                        -- not a confirmed stun or measured DR application.
-                        local aoeGuess=row.estimated and row.estimateKind=='aoe'
-                        setTextIfChanged(icon.state,aoeGuess and '?' or
-                            (row.uncertain and '' or ({'50%','25%','IMM'})[row.stage]))
+                        -- Keep all uncertain DR rows visually consistent:
+                        -- color shows the estimated stage; the tooltip and
+                        -- diagnostics distinguish unconfirmed AoE hits.
+                        setTextIfChanged(icon.state,row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])
                         local pctVisible=not row.uncertain and ns.db.showDRText
-                        icon.state:SetShown(aoeGuess or pctVisible)
+                        icon.state:SetShown(pctVisible)
                         if icon._percentLayout ~= pctVisible then
                             icon.state:ClearAllPoints()
                             icon.state:SetPoint(pctVisible and 'BOTTOM' or 'TOPRIGHT',
@@ -378,11 +375,7 @@ function UI.Update(now)
                             icon._percentLayout=pctVisible
                         end
                         local color=stageColors[row.stage]
-                        if aoeGuess then
-                            icon.state:SetTextColor(1,.85,.35)
-                        else
-                            icon.state:SetTextColor(color[1],color[2],color[3])
-                        end
+                        icon.state:SetTextColor(color[1],color[2],color[3])
                         setBorderColor(icon,color[1],color[2],color[3],1)
                         icon.swipe:SetShown(row.remaining>0)
                         if row.remaining>0 then updateNativeClock(icon,row.started,row.duration) end
@@ -495,8 +488,8 @@ function UI.OpenOptions()
             ns.db.stageResetSeconds=v; ns.model=ns.Model.New(ns.db.resetSeconds,v); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
         end
     end,210)
-    label(page,'Green / yellow / red: stages 1 / 2 / 3. ? = AoE guess, never a confirmed hit.',6,-266,450)
-    check(page,'Mark Stomp / Grenade as ? estimates',6,-288,
+    label(page,'Green / yellow / red: stages 1 / 2 / 3. Hover for estimate uncertainty.',6,-266,450)
+    check(page,'Estimate Stomp / Grenade casts',6,-288,
         function() return ns.db.aoeCastEstimates end
         ,function(v) ns.db.aoeCastEstimates=v; ns.OwnCasts.Init(); UI.Update(GetTime()) end)
 
