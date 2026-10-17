@@ -145,6 +145,9 @@ local function prune(now)
     for castID, at in pairs(OwnCasts.aoeCanceled) do
         if now < at or now - at >= PENDING_TTL then OwnCasts.aoeCanceled[castID] = nil end
     end
+    for castID, at in pairs(OwnCasts.aoeSucceeded) do
+        if now < at or now - at >= PENDING_TTL then OwnCasts.aoeSucceeded[castID] = nil end
+    end
 end
 local function enabled()
     if not ns.db or ns.db.ownCastEstimates ~= true then
@@ -197,7 +200,7 @@ local function captureAoE(unit, castGUID, spellID, now, source)
     castGUID, spellID, now = identity(castGUID), spell(spellID), Safe.Number(now)
     if not castGUID or not spellID or not areaStuns[spellID] or not now then return false end
     prune(now)
-    if OwnCasts.aoeCanceled[castGUID] then return false end
+    if OwnCasts.aoeCanceled[castGUID] or OwnCasts.aoeSucceeded[castGUID] then return false end
     local old = OwnCasts.pending[castGUID]
     if old then return old.aoe == true and old.spellID == spellID end
     trimPending()
@@ -217,6 +220,7 @@ end
 function OwnCasts.Init()
     OwnCasts.pending = {}
     OwnCasts.aoeCanceled = {}
+    OwnCasts.aoeSucceeded = {}
     OwnCasts.recentAoESuccess = {}
     OwnCasts.aoeCounter = 0
     OwnCasts.lastAoE = nil
@@ -269,10 +273,10 @@ function OwnCasts.Succeeded(unit, castGUID, spellID, now)
             local last = OwnCasts.recentAoESuccess[spellID]
             if last and now >= last and now - last < .8 then return false end
             OwnCasts.aoeCounter = OwnCasts.aoeCounter + 1
-            castGUID = "AoE-"..spellID.."-"..OwnCasts.aoeCounter
+            castGUID = "Cast-AoE-"..spellID.."-"..OwnCasts.aoeCounter
             OwnCasts.stats.aoeNoCastGUID = OwnCasts.stats.aoeNoCastGUID + 1
         end
-        if OwnCasts.aoeCanceled[castGUID] then return false end
+        if OwnCasts.aoeCanceled[castGUID] or OwnCasts.aoeSucceeded[castGUID] then return false end
         local record = OwnCasts.pending[castGUID]
         if record and (not record.aoe or record.spellID ~= spellID) then return false end
         if not record then
@@ -284,6 +288,7 @@ function OwnCasts.Succeeded(unit, castGUID, spellID, now)
         end
         if not record then return false end
         OwnCasts.pending[castGUID] = nil
+        OwnCasts.aoeSucceeded[castGUID] = now
         OwnCasts.recentAoESuccess[spellID] = now
         OwnCasts.stats.aoeSuccess = OwnCasts.stats.aoeSuccess + 1
         local estimated = false
