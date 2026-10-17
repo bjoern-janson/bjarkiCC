@@ -980,6 +980,9 @@ assert(ns.BuildStatus():find('Last AoE guess: spell=4068',1,true)
  'diagnostics show the candidate count without claiming a landed grenade')
 SlashCmdList.BJARKICC('aoe off')
 assert(not ns.db.aoeCastEstimates,'AoE estimate toggle stays independent of existing DR')
+assert(#ns.UI.GetRows('target',now)==0 and #ns.UI.GetRows('focus',now)==0
+ and not ns.UI.bars.target.shown and not ns.UI.bars.focus.shown,
+ 'opt-out must immediately hide possible-victim guesses without erasing model evidence')
 SlashCmdList.BJARKICC('aoe on')
 assert(ns.db.aoeCastEstimates,'AoE estimates can be re-enabled without changing DR layout')
 
