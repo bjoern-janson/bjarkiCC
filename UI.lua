@@ -163,7 +163,7 @@ end
 local function makeIcon(bar)
     local icon = CreateFrame('Frame',nil,bar)
     icon.texture = icon:CreateTexture(nil,'ARTWORK')
-    icon.texture:SetPoint('TOPLEFT',2,-2); icon.texture:SetPoint('BOTTOMRIGHT',-2,2)
+    icon.texture:SetAllPoints(icon)
     icon.texture:SetTexCoord(.07,.93,.07,.93)
     icon.swipe = CreateFrame('Cooldown',nil,icon,'CooldownFrameTemplate')
     icon.swipe:SetAllPoints(icon.texture)
@@ -175,14 +175,14 @@ local function makeIcon(bar)
     icon.textLayer:SetFrameLevel(icon.swipe:GetFrameLevel()+1)
     local atlas='UI-HUD-ActionBar-IconFrame'
     if ns.Safe.Call(C_Texture and C_Texture.GetAtlasInfo,atlas) then
-        panelBackground(icon,1)
+        panelBackground(icon,0)
         icon.actionBorder=icon.textLayer:CreateTexture(nil,'OVERLAY')
         icon.actionBorder:SetAtlas(atlas,false)
         icon.actionBorder:SetPoint('TOPLEFT',icon,'TOPLEFT',0,0)
         icon.borderTextures={icon.actionBorder}
     else
         -- Keep an outline on clients without the new artwork, without geometry reads.
-        solidPanel(icon,1,icon.textLayer)
+        solidPanel(icon,0,icon.textLayer)
     end
     icon.time=font(icon.textLayer,nil,16); icon.time:SetPoint('CENTER',0,0)
     icon.state=font(icon.textLayer,nil,10); icon.state:SetPoint('TOPRIGHT',-1,-1)

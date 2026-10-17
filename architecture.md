@@ -68,7 +68,7 @@ Record build, spell rank/ID, victim, application time, early-break/removal time,
 
 No implementation code from these projects was copied into bjarkiCC by this research task.
 
-## Implemented architecture in 0.4.17-beta
+## Implemented architecture in 0.4.18-beta
 
 Target client: **WoW Forever beta 1.60.1.70425**, interface **16001**. The user explicitly chose to keep the **application-based display timer** after the Classic distinction above was explained. A new application starts or refreshes the configured timer, default 20 seconds; breaking/removing CC does not restart it. Starting with 0.4.7, the user also explicitly chose to retain stage history separately until the configured interval after CC ends. Version 0.4.8 separates the settings: `resetSeconds` keeps the application countdown (default 20), while `stageResetSeconds` defaults to 18. Missing legacy stage settings receive 18 without changing existing display preferences; explicit overrides survive reload. Both settings are guarded and bounded to 10–30 seconds. Stage coverage/confidence uses the stage interval; cast predictions and confirmations keep the application interval. These are addon estimates, not a verified Forever server-reset rule.
 
@@ -199,6 +199,8 @@ Hostile readable successful casts feed an independent GUID-keyed cooldown model.
 `Data.lua` explicitly selects the Classic-derived profile instead of trusting an unknown project-ID fallback. Cast and aura/effect IDs have separate mappings. There are 120 aura/effect IDs, 85 cooldown cast IDs and 27 cooldown families. Spammable CC can contribute to DR without receiving a fabricated cooldown. War Stomp's 90-second cooldown already reflects the cited beta note. [Data attribution and assumptions](THIRD_PARTY_NOTICES.txt)
 
 ### UI placement and migration
+
+Version 0.4.18 removes the two-pixel artwork inset and opaque icon matte. Spell textures use `SetAllPoints(icon)` under the existing tinted native bevel; both native-artwork and plain-outline branches use alpha-zero backing. The cooldown sweep follows the artwork's bounds. This changes presentation only and adds no geometry reads, masks or backdrop callbacks. Native bevel shading and dark pixels within spell art remain part of those textures.
 
 Bars remain addon-owned UIParent children. Since 0.4.17, DR grids attach beside the visible portrait edge: player `TOPRIGHT` to portrait `TOPLEFT` with `(-18,0)` offsets, and target/focus `TOPLEFT` to portrait `TOPRIGHT` with `(18,0)`. This mirrors grids outside paired unit frames and leaves a badge gap. Icons remain 28px with 3px gaps.
 

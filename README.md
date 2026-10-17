@@ -2,7 +2,11 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.17-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.18-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Icon padding removed in 0.4.18
+
+Spell artwork now fills the icon beneath the native bevel, removing the two-pixel inset and opaque dark backing. The stage-colored bevel, 2 x 2 layout and final-five-second countdown text remain. The plain-outline fallback also has transparent backing. This visual change does not alter tracking or either clock.
 
 ## Unit-frame side grids in 0.4.17
 
