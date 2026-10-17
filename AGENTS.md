@@ -27,6 +27,11 @@ These rules preserve the 0.4.17 baseline while improving correctness on the WoW 
 - **Do not reintroduce the AoE `?` HUD badge.** The same colored stage border and countdown as other uncertain DR predictions are desired. The tooltip and `/bcc status` must still identify AoE applications as unconfirmed *possible recipients*. Individual target/focus candidates have independent counters; duplicate GUID aliases count once. Real aura/LoC evidence retains priority, and turning AoE estimates OFF must not hide observed history underneath.
 - Avoid further secure native aura duplication unless explicitly requested. `/bcc aura off` hides the optional STUN AURA widget; `/bcc aoe on` handles AoE DR estimates without the separate widget.
 
+
+- Goblin Mortar 13237 is included in the **existing** successful-own-cast AoE estimate allowlist with War Stomp 20549 and Iron Grenade 4068. Preserve the clean no-`?` icon preference, and keep its predicted target/focus stages explicitly unconfirmed in tooltip and status.
+- Goblin Mortar item charges are limited. Do not require wasteful live test casts. Offline regression checks and passive `ownMortarSent`/`ownMortarSucceeded` diagnostics should precede any proposed naturally occurring live validation.
+- The Forever 13237 **spell/effect ID** is supported by published spell data, but successful item-cast event delivery of that ID is **not live confirmed**. Do not add undocumented aliases or imply guaranteed casting-side coverage without a readable event.
+
 ## Timer and HUD invariants
 
 - `resetSeconds` is the visible application-based countdown, default 20s. CC ending/removal does not restart it.
