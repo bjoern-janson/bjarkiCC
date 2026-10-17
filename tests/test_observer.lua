@@ -1412,7 +1412,7 @@ test("non-secret exact War Stomp aura confirms a hit when enumeration is blocked
     equal(ns.Observer.GetUnitState("target").auraComplete,false,"one hit cannot prove full aura coverage")
     equal(ns.Observer.GetUnitState("target").byUnitCount,0)
     ns.Observer.Scan(10.2); equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,2)
-    equal(calls,14,"shared target/focus identity queries seven reviewed effects once per scan")
+    equal(calls,16,"shared target/focus identity queries eight reviewed effects once per scan")
     fixture.locByUnit.target={{spellID=20549,auraInstanceID=900,startTime=10,duration=2}}
     ns.Observer.Scan(10.3)
     equal(ns.model:GetDR("Player-1-A",10.3)[1].stage,2,"matching LoC cannot count the exact aura twice")
@@ -1478,13 +1478,13 @@ test("exact Grasp observes the root immediately and later indexed discovery dedu
     equal(state.graspLookup,"confirmed"); equal(state.stompLookup,"none")
     equal(state.status,"restricted"); equal(state.auraComplete,false)
     equal(state.sensor,"aura+exact"); equal(state.byUnitAvailable,false)
-    equal(calls,7,"shared target/focus GUID is queried once")
-    ns.Observer.Scan(10.2); equal(calls,14)
+    equal(calls,8,"shared target/focus GUID is queried once")
+    ns.Observer.Scan(10.2); equal(calls,16)
     fixture.auraError=false; fixture.auras.target={current}
     ns.Observer.Scan(10.4)
     row=ns.model:GetDR("Player-1-A",10.4)[1]
     equal(row.observedStage,1); equal(row.started,10)
-    equal(calls,14,"complete enumeration skips every exact query")
+    equal(calls,16,"complete enumeration skips every exact query")
     equal(size(ns.Observer.GetUnitState("target").witnesses),1)
     ns.Data=fixtureData
 end)
@@ -1496,12 +1496,12 @@ test("all six Grasp proc ranks have bounded exact lookup support", function()
         reset(); fixture.guid.player=nil; fixture.auraError=true
         local queried={}
         C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
-            truth(id==20549 or (id>=19970 and id<=19975),"never query a self-buff cast ID")
+            truth(id==20549 or id==4068 or (id>=19970 and id<=19975),"never query a self-buff cast ID")
             queried[id]=(queried[id] or 0)+1
             if id==procID then return {spellId=id,auraInstanceID=960,expirationTime=20,duration=10} end
         end
         ns.Observer.Scan(10)
-        equal(size(queried),7)
+        equal(size(queried),8)
         for _,count in pairs(queried) do equal(count,1) end
         equal(size(last("Player-1-A").effects),1)
         equal(effect(last("Player-1-A")).spellID,procID)
@@ -1591,9 +1591,9 @@ test("exact lookups remain bounded per distinct readable target and focus identi
         calls[unit]=(calls[unit] or 0)+1
     end
     ns.Observer.Scan(10)
-    equal(calls.target,7); equal(calls.focus,7); equal(calls.player,nil)
+    equal(calls.target,8); equal(calls.focus,8); equal(calls.player,nil)
     fixture.guid.focus=secret; calls={}; ns.Observer.Scan(10.2)
-    equal(calls.target,7); equal(calls.focus,nil)
+    equal(calls.target,8); equal(calls.focus,nil)
 end)
 
 test("same-GUID focus recovers complete aura enumeration when target is restricted", function()
@@ -1716,6 +1716,123 @@ test("enemy cast telemetry separates delivery from model acceptance", function()
     truth(ns.Observer.OnCast("target","Cast-2",853,10.1)==false)
     equal(ns.Observer.stats.castNameUnavailable,1)
     equal(ns.Observer.stats.castPlayerGuidFallback,1)
+end)
+
+
+test("exact Iron Grenade identifies the harmful stun only on a readable instance", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    local calls=0
+    C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
+        if id==4068 then
+            equal(unit,"target"); calls=calls+1
+            return {spellId=4068,auraInstanceID=1201,expirationTime=13,duration=3}
+        end
+    end
+    ns.Observer.Scan(10.02)
+    local row=ns.model:GetDR("Player-1-A",10.02)[1]
+    truth(row,"a confirmed Grenade instance must reach the model")
+    equal(row.category,"stun"); equal(row.spellID,4068)
+    equal(row.stage,1); equal(row.started,10)
+    equal(row.estimated,false)
+    equal(ns.Observer.GetUnitState("target").grenadeLookup,"confirmed")
+    equal(ns.Observer.GetUnitState("target").auraComplete,false)
+    equal(calls,1)
+    ns.Observer.Scan(10.2)
+    equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,1,"stable instance cannot replay")
+    ns.Data=original
+end)
+
+test("Iron Grenade negative and restricted exact queries never create a hit", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    for _,case in ipairs({
+        {status="none"}, {status="blocked",value=secret},
+        {status="identity-unavailable",value={spellId=4068,auraInstanceID=secret}},
+        {status="mismatch",value={spellId=20549,auraInstanceID=1220}},
+        {status="expired",value={spellId=4068,auraInstanceID=1220,expirationTime=9}},
+    }) do
+        reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+        C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+            if id==4068 then return case.value end
+        end
+        ns.Observer.Scan(10)
+        equal(ns.Observer.GetUnitState("target").grenadeLookup,case.status)
+        equal(#ns.model:GetDR("Player-1-A",10),0)
+    end
+    ns.Data=original
+end)
+
+test("guarded UNIT_AURA addedAuras confirms War Stomp and Grenade only as harmful positive records", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    for _,spellID in ipairs({20549,4068}) do
+        reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+        local event={addedAuras={{spellId=spellID, auraInstanceID=1250,
+            isHarmful=true, expirationTime=13, duration=3}}}
+        ns.Observer.OnAuraEvent("target",event,10.02)
+        local row=ns.model:GetDR("Player-1-A",10.02)[1]
+        truth(row,"positive AoE event witness must be retained")
+        equal(row.spellID,spellID); equal(row.stage,1); equal(row.started,10)
+        equal(row.estimated,false)
+        equal(ns.Observer.GetUnitState("target").eventWitnesses,1)
+        equal(ns.Observer.stats.auraEventPositives,1)
+        ns.Observer.OnAuraEvent("target",event,10.2)
+        equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,1,"repeated event identity cannot advance")
+    end
+    ns.Data=original
+end)
+
+test("event witness disagrees with complete indexed absence without hiding the AoE application", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil
+    local event={addedAuras={{spellId=20549,auraInstanceID=1280,
+        isHarmful=true,expirationTime=13,duration=3}}}
+    ns.Observer.OnAuraEvent("target",event,10.01)
+    local row=ns.model:GetDR("Player-1-A",10.01)[1]
+    equal(row.spellID,20549); equal(row.started,10)
+    equal(ns.Observer.GetUnitState("target").status,"restricted")
+    equal(ns.Observer.GetUnitState("target").eventConflict,true)
+    equal(ns.Observer.stats.auraEventConflicts,1)
+    ns.Observer.Scan(10.1)
+    row=ns.model:GetDR("Player-1-A",10.1)[1]
+    equal(row.stage,1); equal(row.started,10,"later absence ends coverage but not the application clock")
+    ns.Data=original
+end)
+
+test("secret malformed helpful and unknown aura deltas cannot fabricate AoE applications", function()
+    local original=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    ns.Observer.OnAuraEvent("target",secret,10)
+    equal(ns.Observer.stats.auraEventRestricted,1)
+    equal(#ns.model:GetDR("Player-1-A",10),0)
+    for i,record in ipairs({
+        {spellId=4068,auraInstanceID=1290,isHarmful=false},
+        {spellId=20549,auraInstanceID=secret,isHarmful=true},
+        {spellId=4068,auraInstanceID=1290,isHarmful=secret},
+        {spellId=999999,auraInstanceID=1290,isHarmful=true},
+        {spellId=4068,auraInstanceID=1290,isHarmful=true,expirationTime=9},
+    }) do
+        ns.Observer.OnAuraEvent("target",{addedAuras={record}},10+i*.01)
+        equal(#ns.model:GetDR("Player-1-A",10+i*.01),0,"no fabricated hit from rejected event")
+    end
+    equal(ns.Observer.stats.auraEventPositives,0)
+    ns.Data=original
+end)
+
+test("native diminishing-return event telemetry never interprets an opaque category as a hit", function()
+    reset()
+    ns.Observer.OnNativeDR("target",secret)
+    ns.Observer.OnNativeDR("target",{category=0})
+    ns.Observer.OnNativeDR("target",{category=2})
+    ns.Observer.OnNativeDR("target",{category=secret})
+    equal(ns.Observer.stats.nativeDREvents,4)
+    equal(ns.Observer.stats.nativeDRRestricted,2)
+    equal(ns.Observer.stats.nativeDRReadable,2)
+    equal(#observed,0,"native secret/private DR state must not reach the model")
 end)
 
 local failures={}
