@@ -145,6 +145,12 @@ test('item-use success without normal cast GUID is deduplicated and remains unce
     eq(ns.OwnCasts.Succeeded('player',nil,4068,11),true)
     eq(rows(nil,11)[1].stage,2)
     eq(ns.OwnCasts.stats.aoeNoCastGUID,2)
+    -- An item cast ID may be private. Ignore its identity entirely and
+    -- still display only a clearly marked success-only possible victim.
+    eq(ns.OwnCasts.Succeeded('player',secret,4068,12),true)
+    eq(rows(nil,12)[1].stage,3)
+    eq(rows(nil,12)[1].estimateKind,'aoe')
+    eq(ns.OwnCasts.stats.aoeNoCastGUID,3)
 end)
 
 test('AoE failure, cancellation and orphan stale successes cannot make a guess',function()
