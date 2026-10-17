@@ -1,5 +1,18 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.3 AoE caster-witness test (still requires in-game verification)
+
+**Reported:** War Stomp and Iron Grenade do not advance caster-side stun DR reliably despite visible hits on the opponent.
+
+The 0.4.17.2 evidence-first baseline already checked exact War Stomp aura 20549, with previous live trials returning no readable positive on the caster. It did **not** explicitly query Iron Grenade's harmful stun effect 4068. This update adds an exact 4068 query whenever target/focus indexed harmful-aura enumeration is incomplete. Only a readable matching spell **and real aura instance** advances observed DR; nil, secret, mismatched, expired or missing-ID results prove neither a hit nor a removal.
+
+`UNIT_AURA` now has a separate, **positive-only** path for readable `updateInfo.addedAuras` containing harmful spell 20549/4068 with a valid instance. This can retain a very short hit when a subsequent indexed snapshot loses access. It does **not** process arbitrary event data, use expired events, trust friendly auras or infer that a cast landed. If the event's payload is secret, it is ignored and logged as restricted. A positive event conflicting with an empty complete scan preserves the hit while marking coverage incomplete. The native `UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED` event is **diagnostics only**: its secret payload is never decoded into a category/stage/hit.
+
+`/bcc status` exposes `lookup20549`, `grenadeLookup`, `auraEventCalls`, `auraEventRestricted`, `auraEventPositives`, `auraEventConflicts`, `nativeDREvents`, `nativeDRRestricted`, and `nativeDRReadable`. Capture status **while War Stomp or Iron Grenade is active on a selected opponent**, preferably also focusing them. Have the recipient capture the same duel to distinguish actual hits from unreadable caster evidence.
+
+**Evidence ceiling:** WoW Forever marks `UNIT_AURA` updates secret when auras are restricted; `GetUnitAuraBySpellID` may return nil for a secret aura. Therefore this change is not a guarantee of automatic caster-side tracking during restricted duels. Neither area cast is allowed to guess the victim. The native DR event cannot safely be used to infer a stun category from a secret tracker. If all three positive paths fail, a correct confirmed DR stage cannot be reconstructed from permitted addon data alone. Defaults, timers, display and persistent settings remain unchanged.
+
+
 ## 0.4.17.2: evidence-first test candidate (not yet live verified)
 
 This build retains the original 0.4.17 side-grid artwork, colors, controls, application clock (20s), separate provisional stage retention (18s), own-cast setting default, and SavedVariables schema. It is **not** a demonstrated fix for every restricted combat event. A GitHub Actions Lua test workflow builds an installable candidate ZIP after tests pass.
