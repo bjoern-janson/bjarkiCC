@@ -596,8 +596,9 @@ function Model:PruneEstimates(now)
     end
 end
 
-function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
+function Model:EstimateDR(guid, spellID, category, now, castID, sentAt, estimateKind)
     if not guid or not castID or not self.categoryOrder[category] then return false end
+    if estimateKind ~= nil and estimateKind ~= "aoe" then return false end
     self:PruneEstimates(now)
     local prediction = self.estimates[guid]
     if not prediction then
@@ -624,7 +625,7 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     if base and (base.inferredStage or base.stage) >= 3 then return false end
     prediction.categories[category] = {
         spellID = spellID, appliedAt = now, stage = math.min(3, (base and (base.inferredStage or base.stage) or 0) + 1),
-        sentAt = sentAt or now,
+        sentAt = sentAt or now, estimateKind = estimateKind,
     }
     return true
 end
@@ -706,6 +707,7 @@ function Model:GetDR(guid, now, includeEstimates)
             uncertain = estimated or stageEstimated or state.uncertain
                 or (not active and state.stageResetSource == "predicted-end"),
             estimated = estimated,
+            estimateKind = estimated and state.estimateKind or nil,
             timeEstimated = state.timeEstimated == true,
         }
     end
