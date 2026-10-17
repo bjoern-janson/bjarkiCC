@@ -187,7 +187,7 @@ Further unconfirmed cast attempts no longer restart a red DR timer. The third ap
 - Player DR follows `PlayerFrame`, target DR follows `TargetFrame`, and focus DR follows `FocusFrame`.
 - Each uses the visible outer portrait edge for placement, with native-frame fallback, in a fixed 2 x 2 grid beside it. Use `/bcc unlock` outside combat and drag the icons to adjust the offset; `/bcc lock` saves the layout from accidental movement. Offsets persist across reloads.
 - Moving the native unit frame also moves its DR bar. Bars disappear with hidden unit frames during live play; preview/unlock still shows setup handles.
-- The enemy cooldown bar remains independently movable.
+- The experimental enemy cooldown bar is disabled by default, independently movable if enabled, and does not follow cast-bar geometry automatically.
 - Target and focus share one observation history when they refer to the same player. Switching targets preserves the old target's DR if that player remains focused.
 
 Upgrading initializes frame-relative DR offsets once, preserving size, filters and the cooldown bar's position. `/bcc reset` restores the default offsets. The anchors use Blizzard's named unit frames, including addons that reposition those frames. Replacement unit-frame addons with different frame names are not automatically detected. If a native frame is missing, a setup-only handle appears at the old screen position; its live DR bar stays hidden until the native frame exists.
@@ -208,7 +208,7 @@ Previous default sizes and spacing migrate once to the compact defaults. Diagnos
 1. Exit WoW and extract the ZIP into `World of Warcraft/_classic_beta_/Interface/AddOns/`.
 2. The resulting file must be `Interface/AddOns/bjarkiCC/bjarkiCC.toc`, with no extra nested folder.
 3. Start the beta, enable **bjarkiCC (Forever)** in AddOns and log in.
-4. Select a target and set a focus so both frames are visible. Outside combat, run `/bcc test`, then `/bcc unlock`. Drag the three DR bars beside their frames and place the cooldown bar where you prefer.
+4. Select a target and set a focus so both frames are visible. Outside combat, run `/bcc test`, then `/bcc unlock`. Drag the three DR grids beside their frames. The experimental enemy cooldown bar is hidden by default; use `/bcc cooldowns on` only if you want to test it, then drag it well clear of your cast bar.
 5. Run `/bcc lock`, then `/bcc test` again to return to live observation.
 
 The package includes all Lua source; no other addon or library is required. Installation does not replace bjarkiUI or bjarkiPortraits.
@@ -218,11 +218,13 @@ The package includes all Lua source; no other addon or library is required. Inst
 | Command | Action |
 | --- | --- |
 | `/bcc` | Open settings: bars, DR categories, cooldown filters |
-| `/bcc test` | Toggle clearly labeled synthetic preview icons |
+| `/bcc test` | Toggle synthetic preview icons (never proof of live tracking) |
 | `/bcc unlock` / `/bcc lock` | Adjust DR offsets and cooldown position outside combat, or lock bars |
 | `/bcc reset` | Restore default frame offsets and cooldown position; preserve other settings |
 | `/bcc clear` | Clear observation history and restart the sensors |
 | `/bcc status` | Open a copyable build/API diagnostic report |
+| `/bcc cooldowns on` / `off` | Opt into or hide the experimental enemy cooldown bar |
+| `/bcc cooldowns status` | Check the experimental bar's current visibility setting |
 | `/bcc cooldown 853 45` | Use a 45-second HoJ estimate for future observations |
 | `/bcc cooldown 853 default` | Restore HoJ's default estimate range |
 | `/bcc used 853` | Manually mark HoJ used by the selected hostile player |
@@ -245,7 +247,7 @@ Forever restricts combat-log access, so bjarkiCC never registers combat-log even
 
 Own-cast estimates correlate the intended name at cast-send time with a visible player target/focus, then require matching successful cast and spell identifiers. Switching target after sending cannot redirect that estimate. Failed/interrupted casts are discarded; area effects, traps, procs and pet orders are excluded. Same-name ambiguity between target and focus is rejected, but a different same-name mouseover/outside unit cannot be ruled out because the event supplies a name, not a victim GUID. Resistance and immunity can still leave a false-positive estimate. This fallback cannot reconstruct other players' hidden CC.
 
-An enemy timer requires a visible event plus readable spell ID, unit identity, name and hostility. Off-screen enemies, late target selection, secret casts and unobserved resets can be missed. Player pets are tracked under their own identity. The target-only filter does not attribute a pet's cooldown to its owner. Hidden empty bars do not mean the data is available; check `/bcc status` if expected icons never appear.
+An automatically observed enemy timer requires a readable successful enemy spellcast event, a tracked spell ID, confirmed hostile unit identity and a valid cooldown rule; the caster name is optional. Off-screen enemies, secret casts and unobserved resets can be missed. The experimental cooldown bar is OFF until enabled; no visible timer is never proof of readiness. Player pets are tracked under their own identity. The target-only filter does not attribute a pet's cooldown to its owner. Hidden empty bars do not mean the data is available; check `/bcc status` if expected icons never appear.
 
 Loss of Control can omit debuffs such as Frost Shock. Once a readable player fallback is selected, it remains selected until `/bcc clear`, world entry, or reload. Target/focus accept readable per-unit witnesses alongside partial auras, but an empty LoC list cannot establish that all effects ended. An unavailable or partial scan remains restricted in diagnostics. Target and focus DR are PvP player tracking; NPC targets do not produce DR bars.
 
