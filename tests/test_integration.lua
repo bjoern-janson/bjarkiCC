@@ -8,7 +8,7 @@ local generic = {'SetSize','SetWidth','SetHeight','SetPoint','ClearAllPoints','S
  'SetValueStep','SetObeyStepOnDrag','SetThumbTexture','StartMoving','StopMovingOrSizing','SetAutoFocus',
  'SetMultiLine','SetFontObject','HighlightText','SetFocus','SetScrollChild','SetMaxLetters'}
 for _,key in ipairs(generic) do frameMethods[key]=function() end end
-function frameMethods:SetSize(w,h) self.width=w; self.height=h end
+function frameMethods:SetSize(w,h) self.width=w; self.height=h; self.sizeWrites=(self.sizeWrites or 0)+1 end
 function frameMethods:SetPoint(...) self.point={...} end
 function frameMethods:SetBackdropBorderColor(...) self.border={...} end
 function frameMethods:SetColorTexture(...) self.color={...} end
@@ -34,7 +34,10 @@ function frameMethods:IsVisible() return self.shown end
 function frameMethods:Hide() self.shown=false end
 function frameMethods:Show() local changed=not self.shown; self.shown=true; if changed and self.scripts.OnShow then self.scripts.OnShow(self) end end
 function frameMethods:SetShown(v) if v then self:Show() else self:Hide() end end
-function frameMethods:SetCooldown(start,duration) assert(type(start)=='number' and type(duration)=='number'); self.cooldown={start,duration} end
+function frameMethods:SetCooldown(start,duration)
+ assert(type(start)=='number' and type(duration)=='number')
+ self.cooldown={start,duration}; self.cooldownWrites=(self.cooldownWrites or 0)+1
+end
 local function object(kind,name,parent,template)
  local f=setmetatable({kind=kind,name=name,parent=parent,template=template,scripts={},events={},shown=true},{__index=frameMethods})
  frames[#frames+1]=f; if name then _G[name]=f end; return f
@@ -99,6 +102,11 @@ assert(ns.UI.bars.player.anchorFrame==PlayerFrame and ns.UI.bars.focus.anchorFra
 assert(ns.eventFrame.events.PLAYER_FOCUS_CHANGED and ns.eventFrame.events.PLAYER_REGEN_ENABLED,'focus and anchor recovery events registered')
 assert(ns.eventFrame.events.UNIT_SPELLCAST_SENT and ns.eventFrame.events.UNIT_SPELLCAST_SUCCEEDED
  and ns.eventFrame.events.UNIT_SPELLCAST_FAILED and ns.eventFrame.events.UNIT_SPELLCAST_INTERRUPTED,'outgoing cast correlation and cancellation events registered')
+assert(ns.eventFrame.events.UNIT_SPELLCAST_START and ns.eventFrame.events.UNIT_SPELLCAST_CHANNEL_START,
+ 'non-authoritative cast-start telemetry registers without creating cooldowns')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_START','target','Cast-start',853)
+assert(ns.Observer.stats.castStartsOther==1 and #ns.model:GetCooldowns(100)==0,
+ 'cast-start evidence never starts speculative enemy cooldowns')
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.3)
 assert(not ns.UI.bars.player.shown and not ns.UI.bars.cooldown.shown,'empty bars hidden in normal play')
 -- CC can apply and be removed between render ticks; event callbacks must sample it.
@@ -110,6 +118,14 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','player')
 ns.UI.Update(now)
 assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='','application shows its DR icon while long countdown text stays hidden')
 assert(ns.UI.bars.player.icons[1].swipe.cooldown[1]==100.1,'application supplies the cooldown sweep start')
+local initialIcon=ns.UI.bars.player.icons[1]
+local firstClockWrites=initialIcon.swipe.cooldownWrites
+local firstSizeWrites=initialIcon.sizeWrites
+local firstBarSizeWrites=ns.UI.bars.player.sizeWrites
+ns.UI.Update(now+0.05)
+assert(initialIcon.swipe.cooldownWrites==firstClockWrites and initialIcon.sizeWrites==firstSizeWrites
+ and ns.UI.bars.player.sizeWrites==firstBarSizeWrites,
+ 'identical presentation updates must leave native cooldown clock and geometry alone')
 local bevel=ns.UI.bars.player.icons[1].borderTextures[1]
 assert(bevel.atlas=='UI-HUD-ActionBar-IconFrame', 'DR icons use the native action-button bevel')
 assert(bevel.parent.frameLevel>ns.UI.bars.player.icons[1].swipe:GetFrameLevel(),
