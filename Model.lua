@@ -650,7 +650,7 @@ function Model:GetPendingExactSpellIDs(guid, now)
     return result
 end
 
-function Model:GetDR(guid, now, includeEstimates)
+function Model:GetDR(guid, now, includeEstimates, includeAoE)
     local rows = {}
     local unit = guid and self.units[guid]
     self:PruneEstimates(now)
@@ -660,7 +660,10 @@ function Model:GetDR(guid, now, includeEstimates)
     end
     local prediction = includeEstimates ~= false and guid and self.estimates[guid]
     for category, state in pairs(prediction and prediction.categories or {}) do
-        if not states[category] or state.appliedAt > states[category].appliedAt then
+        -- UI may hide only unconfirmed AoE guesses. Do not let a hidden
+        -- prediction shadow an independently observed application.
+        if (includeAoE ~= false or state.estimateKind ~= "aoe")
+            and (not states[category] or state.appliedAt > states[category].appliedAt) then
             states[category] = state
         end
     end
