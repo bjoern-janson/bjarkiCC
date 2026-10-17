@@ -10,7 +10,7 @@ The new caster report identifies the failed source: `GetAuraDataByIndex` raises 
 
 When target/focus aura enumeration is incomplete, the addon now also queries the documented `GetUnitAuraBySpellID(unit, 20549)` non-secret-aura endpoint. A positive must contain readable matching War Stomp and aura-instance IDs. It then advances stun DR with the normal aura path. Hidden, mismatched, expired, failed or empty results cannot invent a hit; empty results cannot prove removal or complete coverage. This is one bounded lookup per tracked victim per scan, with target/focus aliases shared. War Stomp cast events still do not estimate a victim.
 
-`/bcc status` retains lookup outcomes and per-unit LoC counts in the recent observation history, including after the stun ends. No `/run` probes are required. After installing and reloading, test Bash then War Stomp and copy the casting client's status. The fallback and rejection paths pass offline tests; live readability of this endpoint for War Stomp remains unverified.
+`/bcc status` retains lookup outcomes and per-unit LoC counts in the recent observation history, including after the stun ends. No `/run` probes are required. The first supplied 0.4.15 live caster report shows the fallback running but returning no aura, with zero ByUnit LoC records and blocked indexed scanning. Offensive War Stomp confirmation still fails in that reported trial; passing offline fallback/rejection tests does not establish live coverage. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the captured result and its limits. Cast-only War Stomp estimates remain excluded by request.
 
 ## Confirmed War Stomp and API diagnostics in 0.4.14
 

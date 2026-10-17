@@ -1,6 +1,14 @@
 # bjarkiCC known issues and validation status
 
-## Current report: War Stomp still absent on the caster (0.4.14)
+## Current live result: no caster War Stomp witness in 0.4.15
+
+The user reports that War Stomp still appears only on the recipient. The caster's new 0.4.15 trace proves the exact fallback ran: at 2664973.138 it reports `lookup20549=none; ByUnit=complete; records=0`, with incomplete indexed aura coverage and no confirmed effects. Indexed access raises 56 aura-access exceptions. At 2664982.854 indexed scanning becomes complete and empty again. The only displayed stun remains an own-cast estimate, observed stage zero; no positive War Stomp witness is captured.
+
+**Conclusion and limits:** the exact-lookup implementation is running, but did not supply a confirmed hit in this reported trial. The ByUnit fallback likewise returned no record in the retained restricted observation. Nil is not proof that the spell missed or that no aura existed. This trace does not retain the War Stomp cast's own timestamp, so it cannot independently align that attempt with every scan or establish that these APIs can never expose it. The recipient's readable own-player LoC data does not provide the caster with its identity or spell evidence.
+
+The confirmed-hit requirement remains in force. No cast-only War Stomp estimate is added, and no timer or category change is justified by this result. Offensive confirmation remains unresolved for this beta. Another implementation change needs a demonstrated readable positive hit source; repeating the same empty lookup is not a fix. The separate enemy cooldown path also remains unvalidated live (`acceptedCasts=0`); these aura results do not diagnose why enemy cast observations were not accepted.
+
+## Previous report: War Stomp still absent on the caster (0.4.14)
 
 **Report and evidence:** the receiving player displays stun DR, while the caster does not record a War Stomp application. The new status report attributes all 96 caught exceptions to `C_UnitAuras.GetAuraDataByIndex`: `Auras cannot be accessed when secret while tainted by 'bjarkiCC'`. Focus identity and direct-cast name resolution are readable. Focus alternates between incomplete and complete empty aura scans; the stun at 2664014.948 is a cast estimate, not a confirmed aura. The latest snapshot has complete empty focus auras and no current ByUnit sample. The report does not retain ByUnit counts during the stun. Manual probes produced no visible output, which does not establish what those APIs returned.
 
