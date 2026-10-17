@@ -85,6 +85,44 @@ assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
 assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
 assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+-- Probe the Blizzard-native DR option without modifying addon DR model state.
+local nativeCVar="0"
+local nativeSupported=true
+C_SpellDiminish={IsSystemSupported=function() return nativeSupported end}
+C_EventUtils={IsEventValid=function(event)
+ assert(event=="UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED")
+ return true
+end}
+C_CVar={
+ GetCVar=function(key) assert(key=="spellDiminishPVPEnemiesEnabled"); return nativeCVar end,
+ SetCVar=function(key,value)
+  assert(key=="spellDiminishPVPEnemiesEnabled")
+  nativeCVar=value
+  return true
+ end,
+}
+SlashCmdList.BJARKICC('native status')
+assert(ns.BuildStatus():find('Native DR feed: supported=true; cvar=0; eventValid=true',1,true),
+ 'status reports off client-native DR option, independent of addon predictions')
+SlashCmdList.BJARKICC('native on')
+assert(nativeCVar=="1" and ns.BuildStatus():find('cvar=1',1,true),
+ 'explicit out-of-combat command enables supported Blizzard DR CVar')
+SlashCmdList.BJARKICC('native off')
+assert(nativeCVar=="0",'off restores off client-native DR option')
+combat=true; SlashCmdList.BJARKICC('native on'); combat=false
+assert(nativeCVar=="0",'native settings never changed in combat')
+nativeSupported=false; SlashCmdList.BJARKICC('native on')
+assert(nativeCVar=="0",'unsupported native DR system is not force-enabled')
+nativeSupported=true
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','TargetEnemy','Cast-bash-probe',5211)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-bash-probe',5211)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','TargetEnemy','Cast-grenade-probe',4068)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-grenade-probe',4068)
+assert(ns.Observer.stats.ownBashSent==1 and ns.Observer.stats.ownBashSucceeded==1
+ and ns.Observer.stats.ownGrenadeSent==1 and ns.Observer.stats.ownGrenadeSucceeded==1,
+ 'real Main cast routing records useful Bash and grenade diagnostics independently of hits')
+assert(#ns.model:GetDR('Player-1-A',100)==0,'a cast event alone is still not a DR witness')
+
 assert(ns.db.bars.cooldown.enabled==false and ns.db.bars.cooldown.y==-170,
  'fresh enemy cooldown bar is opt-in and no longer overlaps the old castbar position')
 assert(ns.BuildStatus():find('Enemy cooldown HUD: OFF by default',1,true),
