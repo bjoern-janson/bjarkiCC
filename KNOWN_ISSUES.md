@@ -1,5 +1,14 @@
 # bjarkiCC known issues and validation status
 
+## Caster-side AoE stuns: 0.4.17.3 candidate (live outcome pending)
+
+**Reported:** the recipient is actually stunned by War Stomp/Iron Grenade, but caster-side `bjarkiCC` does not show the resulting stun DR.
+
+**Implementation:** Iron Grenade's 4068 harmful stun now has an exact-spell lookup equivalent to the existing War Stomp 20549 path. The observer also accepts explicitly readable, harmful, instance-identified 20549/4068 additions from `UNIT_AURA`. Native DR event delivery is counted, never interpreted if secret. Contradictory complete-index and positive-event observations remain partial rather than losing the hit. All previous confirmed-hit restrictions remain.
+
+**Live verification needed:** Previous War Stomp trials already recorded `lookup20549=none` during restricted aura access. Indexed restrictions and fully secret UNIT_AURA payloads can also block the new path. Current offline fixtures demonstrate safe behavior *if* new evidence is readable, not that the beta makes it available. In `/bcc status`, compare `grenadeLookup`, `lookup20549`, `auraEventPositives`, `auraEventRestricted` and `nativeDREvents` during an actual caster-side hit. If all are absent/restricted, do not fabricate a confirmed victim or stage from the successful area cast.
+
+
 ## 0.4.17.2 evidence-first candidate: live verification required
 
 This branch adds guarded Target/Focus alias scanning, positive-only exact verification for outstanding direct-cast estimates, and more truthful enemy-cast delivery diagnostics. These are **proposed source remedies**, not reported in-client fixes.
