@@ -983,6 +983,35 @@ assert(guessedT.estimated and guessedT.spellID==4068 and guessedT.stage==2
 assert(ns.BuildStatus():find('Last AoE guess: spell=4068',1,true)
  and ns.BuildStatus():find('candidatePlayers=2',1,true),
  'diagnostics show the candidate count without claiming a landed grenade')
+-- Goblin Mortar uses the same candidate-DR lane as Bash/Stomp/Grenade.
+-- The item is NOT consumed here: all spell events are mock client input.
+now=4000004
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_START',
+ 'player','Cast-AoE-mortar',13237)
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT',
+ 'player','', 'Cast-AoE-mortar',13237)
+assert(ns.model:GetDR('Player-1-AoE-T',now)[1].stage==2,
+ 'Mortar START and SENT only snapshot a possible victim, not DR')
+now=4000004.3
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED',
+ 'player','Cast-AoE-mortar',13237)
+ns.UI.Update(now)
+local mortarT=ns.model:GetDR('Player-1-AoE-T',now)[1]
+local mortarF=ns.model:GetDR('Player-1-AoE-F',now)[1]
+assert(mortarT and mortarF and mortarT.spellID==13237 and mortarF.spellID==13237
+ and mortarT.stage==3 and mortarF.stage==3 and mortarT.estimated and mortarT.uncertain
+ and mortarT.estimateKind=='aoe',
+ 'Mortar follows shared controlled-stun estimates for both possible recipients')
+assert(ns.UI.bars.target.icons[1].row.spellID==13237
+ and ns.UI.bars.target.icons[1].state.text==''
+ and not ns.UI.bars.target.icons[1].state.shown
+ and not ns.UI.bars.focus.icons[1].state.shown,
+ 'Mortar keeps the proven 0.4.17.8 clean icon with no question mark')
+assert(ns.BuildStatus():find('Last AoE guess: spell=13237',1,true)
+ and ns.BuildStatus():find('candidatePlayers=2',1,true)
+ and ns.Observer.stats.ownMortarSent==1
+ and ns.Observer.stats.ownMortarSucceeded==1,
+ 'Mortar cast diagnostics are readable while a successful cast remains an estimate')
 SlashCmdList.BJARKICC('aoe off')
 assert(not ns.db.aoeCastEstimates,'AoE estimate toggle stays independent of existing DR')
 assert(#ns.UI.GetRows('target',now)==0 and #ns.UI.GetRows('focus',now)==0

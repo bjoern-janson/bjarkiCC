@@ -5,9 +5,12 @@ ns.OwnCasts = OwnCasts
 local PENDING_TTL, MAX_PENDING = 15, 32
 
 -- Direct CC estimates resolve an intended victim by SENT name.
--- Opt-in AoE estimates only snapshot possible target/focus victims; they NEVER
--- assert a landed stun. The UI marks this distinction with a visible '?'.
-local areaStuns = {[20549] = true, [4068] = true} -- War Stomp, Iron Grenade
+-- Opt-in AoE estimates snapshot possible target/focus victims; they NEVER
+-- assert a landed stun. Uncertainty remains in tooltips/diagnostics, not an icon badge.
+-- Goblin Mortar (13237) is the Forever item-use spell and stun aura; the
+-- exact cast-event identity on this beta still needs a natural-use observation.
+local areaStuns = {[20549] = true, [4068] = true, [13237] = true}
+-- War Stomp, Iron Grenade, Goblin Mortar
 local direct = {}
 for _, id in ipairs({
     339,1062,5195,5196,9852,9853, -- Entangling Roots
@@ -281,7 +284,7 @@ function OwnCasts.Succeeded(unit, castGUID, spellID, now)
         local record = OwnCasts.pending[castGUID]
         if record and (not record.aoe or record.spellID ~= spellID) then return false end
         if not record then
-            -- Casts with no SENT/START event still get an explicit '?' guess
+            -- Casts with no SENT/START event still get an unconfirmed guess
             -- for currently selected player(s), never a confirmed hit.
             captureAoE(unit,castGUID,spellID,now,"success-only")
             record = OwnCasts.pending[castGUID]

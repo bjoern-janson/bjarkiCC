@@ -1,5 +1,14 @@
 # bjarkiCC known issues and validation status
 
+## 0.4.17.9 Goblin Mortar caster estimate — cast-event ID not yet live validated
+
+The Forever Goblin Mortar item 10577 uses the `Goblin Mortar` stun effect/spell `13237` in published client spell data, and this ID is already in bjarkiCC's Classic Controlled Stun aura map. Its **own-player UNIT_SPELLCAST_SUCCEEDED spellID** on the current Forever beta is not yet confirmed. To avoid consuming limited item charges for a test, 0.4.17.9 adds 13237 to the same existing optional, unconfirmed War Stomp/Iron Grenade `OwnCasts` AoE-estimate route, without modifying any DR model logic or visual geometry.
+
+Regression fixtures cover Bash→Mortar→Grenade shared-stage progression, both target/focus identities, same-GUID dedup, target swaps, failed or duplicate casts, nil/secret item cast GUIDs, disabled estimates, full Main event routing and the existing no-question-mark DR icon. **These are not proof that live item-use events provide ID 13237.**
+
+Observe `ownMortarSent`, `ownMortarSucceeded` and `Last AoE guess` through `/bcc status` during normal gameplay when the item is used anyway. If counters remain zero despite the item firing, investigate the actual spell event identity using permitted read-only logging; do not invent a hit or repeatedly expend charges. The Mortar stun's DR category is provisionally assumed to match Classic `stun`; only Bash/War Stomp/Iron Grenade shared DR has been verified on the live Forever server.
+
+
 ## 0.4.17.8: AoE guess indicator hidden by user request
 
 The 0.4.17.7 War Stomp/Grenade candidate-DR estimate path was confirmed working in a first live test. The user requested removal of the extra `?` glyph, retaining the inferred DR state. 0.4.17.8 restores clean DR icon presentation while keeping `estimateKind=aoe`, possible-recipient uncertainty, shared-stun stages, separate observed evidence, tooltip qualification, and `/bcc aoe on|off`.

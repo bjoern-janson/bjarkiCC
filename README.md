@@ -1,5 +1,16 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.9: Goblin Mortar caster-side DR estimates (no charges needed for offline tests)
+
+The user requested **Goblin Mortar** tracking through the same already-live-tested *caster-side AoE guess* path as War Stomp and Iron Grenade, while preserving the clean DR icon with no `?`. The Forever Goblin Mortar item (10577) has spell `13237` as its stun/effect record. That exact spell ID is already classified as `stun` in `Data.lua`; this release adds only `13237` to `OwnCasts.lua`'s small AoE cast-estimate allowlist and the passive cast-delivery diagnostics.
+
+When the client supplies a readable `UNIT_SPELLCAST_SENT` or `UNIT_SPELLCAST_START`, Goblin Mortar snapshots possible hostile target/focus player GUIDs. A successful `UNIT_SPELLCAST_SUCCEEDED` for spell 13237 then produces **unconfirmed** estimates in the existing shared Controlled Stun DR category. The established success-only fallback, private/missing cast GUID handling, duplicate/failure protection, independent target/focus candidates and confirmed-aura precedence apply unchanged. No new cooldown or tracking frame is created, and the `/bcc aoe on|off` control remains the same.
+
+**Live evidence ceiling:** The exact spell ID delivered through Forever's **item cast events** has not been captured in an actual Mortar use, so this build is **source- and fixture-tested, not live-verified for Mortar**. The name and effect ID in the client database are not proof that `UNIT_SPELLCAST_SUCCEEDED` exposes the same ID. The addon now reports `ownMortarSent`/`ownMortarSucceeded` and `Last AoE guess: spell=13237` in `/bcc status`. These can be checked **the next time you naturally use the Mortar**; no ammunition/charges need to be spent specifically for testing.
+
+**No hit confirmation:** A successful Mortar cast may miss or hit unselected opponents. All caster-side AoE entries remain speculative, no `?` is drawn by request, and tooltip/status retains the distinction from actual observed DR. Only Bash, War Stomp and Iron Grenade sharing stun DR has been directly tested by the user; the historical Classic categorization of Mortar as Controlled Stun is still provisionally assumed for Forever.
+
+
 ## 0.4.17.8: Clean AoE estimate icons (no question mark)
 
 Following a successful live test of 0.4.17.7, the user requested **removing the visible `?` badge** from caster-side War Stomp and Iron Grenade DR estimates. This is a **presentation-only change**: the same target/focus possible-victim estimation, shared stun DR progression, 20-second application countdown, stage-reset policy, deduplication, optional on/off control, and color-coded borders are preserved.

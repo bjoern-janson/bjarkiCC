@@ -729,7 +729,8 @@ function Observer.Init()
         nativeDRReadable = 0,
         ownBashSent = 0, ownBashSucceeded = 0,
         ownGrenadeSent = 0, ownGrenadeSucceeded = 0,
-        ownStompSent = 0, ownStompSucceeded = 0}
+        ownStompSent = 0, ownStompSucceeded = 0,
+        ownMortarSent = 0, ownMortarSucceeded = 0}
     Observer.castRejects = {}
     Observer.nativeLast = nil
     Observer.ownCCLast = nil
@@ -825,10 +826,10 @@ end
 
 local observedOwnCCSpell = {
     [5211]="Bash", [6798]="Bash", [8983]="Bash",
-    [20549]="Stomp", [4068]="Grenade",
+    [20549]="Stomp", [4068]="Grenade", [13237]="Mortar",
 }
 -- Cast events are not successful hits. This lets duel reports identify whether
--- Bash or the thrown grenade even arrived as readable player spell events.
+-- Bash or a particular engineering stun even arrived as a readable player spell event.
 function Observer.NoteOwnCCCast(phase, unit, spellID, now)
     if Safe.String(unit) ~= "player" or (phase ~= "Sent" and phase ~= "Succeeded") then return end
     local id = identifier(spellID)

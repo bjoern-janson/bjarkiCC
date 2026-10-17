@@ -1,5 +1,14 @@
 # bjarkiCC architecture and DR research
 
+## 0.4.17.9 Goblin Mortar support via existing AoE estimate architecture
+
+No new subsystem is introduced. `OwnCasts.areaStuns` now includes 13237 (Goblin Mortar), so its previously proven generic `Started/Sent/Succeeded/Failed` path takes care of possible-target GUID snapshots, event identity deduplication, optional success-only fallback and `Model:EstimateDR(guid,13237,"stun",..., "aoe")`. It never mutates `Model:Observe` or guarantees a landed stun. `Data.auraCategory[13237]` was already `stun`; this patch does not change the verified Bash/War Stomp/Grenade categories, 20-second countdown or the provisional 18-second stage retention.
+
+Observer adds only passive `ownMortarSent` and `ownMortarSucceeded` counters for the exact spell ID 13237; these help resolve the remaining uncertainty about whether item-use events actually contain that ID on Forever 1.60.1.70425. There are no additional periodic aura probes, cast GUID guesses beyond the existing guarded AoE implementation, secure frames, or `?` badges. The existing clean icon, tooltip caveat and `/bcc aoe` flag apply to Mortar without new user settings.
+
+All tests are in the repository and run without interacting with the game or consuming any Goblin Mortar charges. Until item-use event delivery is observed in-game, it is an **unverified integration claim**, even if all offline suites pass.
+
+
 ## 0.4.17.8 visual consistency: no AoE question-mark badge
 
 This release removes only the HUD state glyph specific to `row.estimated and row.estimateKind=="aoe"`. UI now uses the original uncertain DR presentation for **all** inferred rows: colored stage border, shared countdown, no badge/percentage. The source metadata (`estimateKind`), per-GUID estimate history and strict separation from `Model:Observe` are unchanged.

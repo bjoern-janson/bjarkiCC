@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.17.8-no-badge-test'
+ns.name, ns.version = addonName, '0.4.17.9-mortar-estimate-test'
 ns.Safe = {}
 local S = ns.Safe
 
