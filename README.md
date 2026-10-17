@@ -1,5 +1,21 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.5: Native DR support probe for urgent Bash/Grenade duel testing
+
+A supplied **0.4.17.3 live status report** showed 1,186 `C_UnitAuras.GetAuraDataByIndex` access errors, `auraEventPositives=0`, `nativeDREvents=0`, target/focus exact War Stomp/Grenade lookups returning `none`, and complete per-unit LoC lists with zero mapped hits. However, the **receiving player** had a confirmed LoC Bash (5211), proving the spell mapping worked on the receiving side. `ownCast.captured=14`, `ownCast.estimated=11`, and no unresolved cast destinations show that the general direct-cast correlation runs. **There is no proof of a victim-specific caster-side Bash or Grenade application** in that report. Do not turn successful casts into confirmed stun stages.
+
+A community WoW Forever DR addon reports using Blizzard's built-in `C_SpellDiminish` system after enabling `spellDiminishPVPEnemiesEnabled`, but our prior `nativeDREvents=0` log does not establish whether the native feed is available on this client. This test adds an **explicit opt-in probe**:
+
+- `/bcc native status` — reports `C_SpellDiminish.IsSystemSupported()`, the native `spellDiminishPVPEnemiesEnabled` CVar, native-event validity if inspectable, native event counts/readable category/secret payload counts, and your own Bash/Iron Grenade/War Stomp cast event counts.
+- `/bcc native on` — only out of combat and only when `IsSystemSupported()` returns true, requests native DR CVar `1`, then rereads it. This changes a **client-global Blizzard option**, not just this addon. It is **never enabled automatically**.
+- `/bcc native off` — out of combat, returns the same CVar to `0`. Since it is a client CVar, it may persist through reloads unless manually reverted.
+- `/bcc status` — also shows the last **separately readable** native tracker fields (category number, start time, duration, showCountdown, isImmune) with unreadable fields explicitly shown as unknown, plus the last readable own Bash/Grenade/Stomp cast event. An event is *never* promoted to a confirmed stun or an observed DR count on its own.
+
+**Fast live protocol:** Install, run `/bcc native status`. If `supported=true`, leave combat and run `/bcc native on`; make a targeted/focused opponent cast/receive Bash or Iron Grenade; run `/bcc native status`, then copy `/bcc status` during the CC if possible. If `nativeDREvents` increments but payload is restricted, the event exists but still does not authorize a caster-side stage. If `supported=false`, do not keep debugging the native feed: it is not supported through this API on this client. Finally, run `/bcc native off` if you do not want the native Blizzard option left enabled.
+
+**No automatic DR breakthrough claimed:** This changes diagnostics and a controlled native UI setting only. It does not decode protected native events, bypass secret aura restrictions, conflate item use with a victim-specific hit, rewrite stage timers, add visual clutter, or change the 2×2 DR grid. The 0.4.17.4 experimental enemy cooldown opt-in remains.
+
+
 ## 0.4.17.4: Experimental enemy cooldown bar opt-in
 
 The three "Enemy cooldowns (test)" icons shown by `/bcc test` are **synthetic Paladin/Rogue/Mage examples**, not evidence of live enemy casts. Earlier caster reports recorded `acceptedCasts=0`; there is still **no verified automatic enemy cooldown feed on Forever**. A live timer is created only after a readable enemy `UNIT_SPELLCAST_SUCCEEDED` event satisfies identity/hostility requirements (or `/bcc used <spellID>` is manually invoked). Cast START alone does not start a timer.
