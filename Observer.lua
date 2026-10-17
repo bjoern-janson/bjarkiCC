@@ -123,6 +123,18 @@ local function auraSnapshot(unit, now)
     end
     local complete = true
     for index = 1, 255 do
+        -- Forever can tell us up front that reading this index will be
+        -- forbidden. Skip the known-error call, but NEVER treat the omitted
+        -- aura (or the remaining list) as an absence witness.
+        local predicate = C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret
+        if type(predicate) == "function" then
+            local ok, secret = pcall(predicate, unit, index, "HARMFUL")
+            if ok and Safe.Boolean(secret) == true then
+                Observer.stats.predictedSecretAuraIndexes =
+                    Observer.stats.predictedSecretAuraIndexes + 1
+                return auraResult(effects, false, unmapped)
+            end
+        end
         local aura, readable = call("C_UnitAuras.GetAuraDataByIndex", unit, api.GetAuraDataByIndex, unit, index, "HARMFUL")
         if not readable then return auraResult(effects, false, unmapped) end
         if aura == nil then return auraResult(effects, complete, unmapped) end
@@ -707,6 +719,7 @@ function Observer.Init()
     Observer.units = {}
     for _, unit in ipairs(trackedUnits) do Observer.units[unit] = unavailableState() end
     Observer.stats = {scans = 0, restricted = 0, casts = 0, acceptedCasts = 0, apiErrors = 0, missingApis = 0,
+        predictedSecretAuraIndexes = 0,
         scanCaps = 0, scanGaps = 0, handoffsPreserved = 0, handoffsInvalidated = 0,
         aliasRecoveries = 0, castStartsPlayer = 0, castStartsOther = 0, castStartsUnknown = 0,
         castSuccessPlayer = 0, castSuccessOther = 0, castSuccessUnknown = 0,
