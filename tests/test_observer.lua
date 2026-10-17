@@ -1835,6 +1835,51 @@ test("native diminishing-return event telemetry never interprets an opaque categ
     equal(#observed,0,"native secret/private DR state must not reach the model")
 end)
 
+test("own Bash, grenade and War Stomp cast telemetry is diagnostic not landing proof", function()
+    reset()
+    ns.Observer.NoteOwnCCCast("Sent","player",5211,10)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",6798,10.1)
+    ns.Observer.NoteOwnCCCast("Sent","player",4068,11)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",4068,12)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",20549,13)
+    ns.Observer.NoteOwnCCCast("Succeeded","target",20549,13)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",secret,13)
+    ns.Observer.NoteOwnCCCast("Succeeded","player",999999,13)
+    equal(ns.Observer.stats.ownBashSent,1)
+    equal(ns.Observer.stats.ownBashSucceeded,1)
+    equal(ns.Observer.stats.ownGrenadeSent,1)
+    equal(ns.Observer.stats.ownGrenadeSucceeded,1)
+    equal(ns.Observer.stats.ownStompSent,0)
+    equal(ns.Observer.stats.ownStompSucceeded,1)
+    equal(ns.Observer.ownCCLast.family,"Stomp")
+    equal(ns.Observer.ownCCLast.spellID,20549)
+    equal(#observed,0,"own cast events never count a hit")
+end)
+
+test("native DR probe retains only individually readable fields, including category zero", function()
+    reset()
+    ns.Observer.OnNativeDR("target", {
+        category=0, startTime=100, duration=18, showCountdown=true, isImmune=false
+    })
+    local data=ns.Observer.nativeLast
+    equal(data.reason,"category-readable")
+    equal(data.category,0); equal(data.start,100); equal(data.duration,18)
+    equal(data.countdown,true); equal(data.immune,false)
+    ns.Observer.OnNativeDR("focus", {
+        category=2, startTime=secret, duration=secret, showCountdown=secret, isImmune=secret
+    })
+    data=ns.Observer.nativeLast
+    equal(data.category,2)
+    equal(data.start,nil); equal(data.duration,nil)
+    equal(data.countdown,nil); equal(data.immune,nil)
+    ns.Observer.OnNativeDR("target",{category=secret})
+    equal(ns.Observer.nativeLast.reason,"category-unreadable")
+    equal(ns.Observer.stats.nativeDREvents,3)
+    equal(ns.Observer.stats.nativeDRReadable,2)
+    equal(ns.Observer.stats.nativeDRRestricted,1)
+    equal(#observed,0,"native event cannot fabricate observed DR")
+end)
+
 local failures={}
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2])
