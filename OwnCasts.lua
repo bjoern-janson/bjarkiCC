@@ -138,6 +138,21 @@ local function destination(targetName)
     resolution(selected and 'resolved' or 'nameMismatch', targetName, aliases)
     return selected
 end
+local function prune(now)
+    for castID, record in pairs(OwnCasts.pending) do
+        if now < record.sentAt or now - record.sentAt >= PENDING_TTL then OwnCasts.pending[castID] = nil end
+    end
+    for castID, at in pairs(OwnCasts.aoeCanceled) do
+        if now < at or now - at >= PENDING_TTL then OwnCasts.aoeCanceled[castID] = nil end
+    end
+end
+local function enabled()
+    if not ns.db or ns.db.ownCastEstimates ~= true then
+        OwnCasts.pending = {}
+        return false
+    end
+    return true
+end
 -- A successful AoE cast has no recipient GUID. We can offer clearly
 -- marked *possible-target* estimates for the players already selected via
 -- target and focus when the cast began. No range/hit/LOS inference is made.
@@ -199,21 +214,6 @@ function OwnCasts.Started(unit, castGUID, spellID, now)
     return captureAoE(unit,castGUID,spellID,now,"start")
 end
 
-local function prune(now)
-    for castID, record in pairs(OwnCasts.pending) do
-        if now < record.sentAt or now - record.sentAt >= PENDING_TTL then OwnCasts.pending[castID] = nil end
-    end
-    for castID, at in pairs(OwnCasts.aoeCanceled) do
-        if now < at or now - at >= PENDING_TTL then OwnCasts.aoeCanceled[castID] = nil end
-    end
-end
-local function enabled()
-    if not ns.db or ns.db.ownCastEstimates ~= true then
-        OwnCasts.pending = {}
-        return false
-    end
-    return true
-end
 function OwnCasts.Init()
     OwnCasts.pending = {}
     OwnCasts.aoeCanceled = {}
