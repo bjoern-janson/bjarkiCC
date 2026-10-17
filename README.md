@@ -1,5 +1,18 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.4: Experimental enemy cooldown bar opt-in
+
+The three "Enemy cooldowns (test)" icons shown by `/bcc test` are **synthetic Paladin/Rogue/Mage examples**, not evidence of live enemy casts. Earlier caster reports recorded `acceptedCasts=0`; there is still **no verified automatic enemy cooldown feed on Forever**. A live timer is created only after a readable enemy `UNIT_SPELLCAST_SUCCEEDED` event satisfies identity/hostility requirements (or `/bcc used <spellID>` is manually invoked). Cast START alone does not start a timer.
+
+- **Cooldown bar defaults OFF**, without disabling any player/target/focus DR displays. Use `/bcc cooldowns on` to opt in, `/bcc cooldowns off` to hide, or `/bcc` → Display → **Enemy CDs (beta)**. The feature stays experimental and can still miss real enemy casts.
+- The default position moves from **screen center (0,-280)**, which overlaps the user's Healing Touch cast bar, to **(0,-170)**. One-time schema 8 migration updates that old untouched default and disables an uncustomized legacy default-on bar. Explicitly customized/dragged positions and nondefault appearance/enable choices are preserved. The cooldown bar remains independently draggable when enabled and unlocked.
+- When enabled, `/bcc test` titles the three fake examples **Enemy cooldowns (SAMPLE)** and explains the simulation on hover. Turning preview off returns to actual observations. The settings panel and tooltips explicitly warn of the unverified enemy event feed.
+- `/bcc status` identifies whether the experimental cooldown HUD is enabled and already reports `castStartsOther`, `castSuccessOther`, `acceptedCasts`, and `castReject.*` counters. These allow diagnosis of absent events versus rejected readable events.
+- **No change** to stun/root observation, War Stomp/Iron Grenade probes, the 2×2 DR grids, stage colors, application or reset clocks, manual cooldown marks, or the actual enemy cooldown model. This is a presentation/default-policy correction, not an invented fix for inaccessible enemy casts.
+
+For live verification, disable preview, opt in only if you want to test automatic enemy tracking, and copy `/bcc status` immediately after a known enemy ability. If `castSuccessOther=0`, the addon has not seen a usable successful enemy cast event; if successful events arrive but `acceptedCasts=0`, inspect the rejection reasons.
+
+
 ## 0.4.17.3 AoE caster-witness test (still requires in-game verification)
 
 **Reported:** War Stomp and Iron Grenade do not advance caster-side stun DR reliably despite visible hits on the opponent.
