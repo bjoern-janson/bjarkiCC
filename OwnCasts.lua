@@ -4,8 +4,10 @@ local OwnCasts = {}
 ns.OwnCasts = OwnCasts
 local PENDING_TTL, MAX_PENDING = 15, 32
 
--- Only targeted, direct CC. AoE, ground effects, procs, traps and pet orders
--- cannot identify their victims from the player's SENT target name.
+-- Direct CC estimates resolve an intended victim by SENT name.
+-- Opt-in AoE estimates only snapshot possible target/focus victims; they NEVER
+-- assert a landed stun. The UI marks this distinction with a visible '?'.
+local areaStuns = {[20549] = true, [4068] = true} -- War Stomp, Iron Grenade
 local direct = {}
 for _, id in ipairs({
     339,1062,5195,5196,9852,9853, -- Entangling Roots
@@ -136,9 +138,73 @@ local function destination(targetName)
     resolution(selected and 'resolved' or 'nameMismatch', targetName, aliases)
     return selected
 end
+-- A successful AoE cast has no recipient GUID. We can offer clearly
+-- marked *possible-target* estimates for the players already selected via
+-- target and focus when the cast began. No range/hit/LOS inference is made.
+-- Readable negative hostility or friendly relation rules a candidate out;
+-- unknown relation stays eligible ONLY as an explicitly uncertain guess.
+local function possibleAoEVictims()
+    local out, seen = {}, {}
+    local selfGuid = playerGUID(Safe.Call(UnitGUID, "player"))
+    for _, unit in ipairs({"target","focus"}) do
+        local guid = playerGUID(Safe.Call(UnitGUID,unit))
+        if guid and guid ~= selfGuid and not seen[guid] then
+            local isPlayer = Safe.Boolean(Safe.Call(UnitIsPlayer,unit))
+            local canAttack = Safe.Boolean(Safe.Call(UnitCanAttack,"player",unit))
+            local canAssist = Safe.Boolean(Safe.Call(UnitCanAssist,"player",unit))
+            if isPlayer ~= false and canAttack ~= false and canAssist ~= true then
+                seen[guid] = true
+                out[#out+1] = guid
+            end
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+local function trimPending()
+    local count, oldestID, oldestTime = 0, nil, nil
+    for key, record in pairs(OwnCasts.pending) do
+        count = count + 1
+        if not oldestTime or record.sentAt < oldestTime then
+            oldestID, oldestTime = key, record.sentAt
+        end
+    end
+    if count >= MAX_PENDING then OwnCasts.pending[oldestID] = nil end
+end
+
+local function areaEnabled()
+    return enabled() and ns.db.aoeCastEstimates == true
+end
+
+local function captureAoE(unit, castGUID, spellID, now, source)
+    if Safe.String(unit) ~= "player" or not areaEnabled() then return false end
+    castGUID, spellID, now = identity(castGUID), spell(spellID), Safe.Number(now)
+    if not castGUID or not spellID or not areaStuns[spellID] or not now then return false end
+    prune(now)
+    if OwnCasts.aoeCanceled[castGUID] then return false end
+    local old = OwnCasts.pending[castGUID]
+    if old then return old.aoe == true and old.spellID == spellID end
+    trimPending()
+    local victims = possibleAoEVictims()
+    OwnCasts.pending[castGUID] = {
+        aoe=true, victims=victims, spellID=spellID, effectID=spellID,
+        category="stun", sentAt=now, source=source,
+    }
+    OwnCasts.stats.aoeCaptured = OwnCasts.stats.aoeCaptured + 1
+    return #victims > 0
+end
+
+function OwnCasts.Started(unit, castGUID, spellID, now)
+    return captureAoE(unit,castGUID,spellID,now,"start")
+end
+
 local function prune(now)
     for castID, record in pairs(OwnCasts.pending) do
         if now < record.sentAt or now - record.sentAt >= PENDING_TTL then OwnCasts.pending[castID] = nil end
+    end
+    for castID, at in pairs(OwnCasts.aoeCanceled) do
+        if now < at or now - at >= PENDING_TTL then OwnCasts.aoeCanceled[castID] = nil end
     end
 end
 local function enabled()
@@ -150,13 +216,24 @@ local function enabled()
 end
 function OwnCasts.Init()
     OwnCasts.pending = {}
-    OwnCasts.stats = {captured = 0, estimated = 0, unresolved = 0, failed = 0}
+    OwnCasts.aoeCanceled = {}
+    OwnCasts.recentAoESuccess = {}
+    OwnCasts.aoeCounter = 0
+    OwnCasts.lastAoE = nil
+    OwnCasts.stats = {captured = 0, estimated = 0, unresolved = 0, failed = 0,
+        aoeCaptured=0, aoeSuccess=0, aoeEstimated=0, aoeSuccessOnly=0,
+        aoeNoCandidates=0, aoeFailed=0, aoeNoCastGUID=0}
     OwnCasts.resolutionCounts = {resolved=0, guidUnavailable=0, nameUnavailable=0, nameMismatch=0, notPlayer=0, ambiguous=0}
     OwnCasts.lastResolution = nil
 end
 function OwnCasts.Sent(unit, targetName, castGUID, spellID, now)
     if Safe.String(unit) ~= 'player' or not enabled() then return false end
-    targetName, castGUID, spellID, now = Safe.String(targetName), identity(castGUID), spell(spellID), Safe.Number(now)
+    local readID = spell(spellID)
+    if readID and areaStuns[readID] then
+        -- Ground-targeted casts can have an empty or misleading SENT name.
+        return captureAoE(unit,castGUID,readID,now,"sent")
+    end
+    targetName, castGUID, spellID, now = Safe.String(targetName), identity(castGUID), readID, Safe.Number(now)
     if not targetName or targetName == '' or #targetName > 256 or not castGUID or not spellID or not now then return false end
     prune(now)
     local effectID = direct[spellID]
@@ -177,11 +254,56 @@ function OwnCasts.Sent(unit, targetName, castGUID, spellID, now)
 end
 function OwnCasts.Succeeded(unit, castGUID, spellID, now)
     if Safe.String(unit) ~= 'player' or not enabled() then return false end
+    local rawGUID = castGUID
     castGUID, spellID, now = identity(castGUID), spell(spellID), Safe.Number(now)
-    if not castGUID or not spellID or not now then return false end
+    if not spellID or not now then return false end
+    if areaStuns[spellID] then
+        if not areaEnabled() then return false end
+        prune(now)
+        local noGuid = castGUID == nil
+        if noGuid then
+            -- Some item activations omit a normal cast GUID. Use only the
+            -- readable successful SPELL event and de-duplicate close repeats;
+            -- the synthetic ID is LOCAL, never an inferred aura identity.
+            if rawGUID ~= nil and not Safe.Readable(rawGUID) then return false end
+            local last = OwnCasts.recentAoESuccess[spellID]
+            if last and now >= last and now - last < .8 then return false end
+            OwnCasts.aoeCounter = OwnCasts.aoeCounter + 1
+            castGUID = "AoE-"..spellID.."-"..OwnCasts.aoeCounter
+            OwnCasts.stats.aoeNoCastGUID = OwnCasts.stats.aoeNoCastGUID + 1
+        end
+        if OwnCasts.aoeCanceled[castGUID] then return false end
+        local record = OwnCasts.pending[castGUID]
+        if record and (not record.aoe or record.spellID ~= spellID) then return false end
+        if not record then
+            -- Casts with no SENT/START event still get an explicit '?' guess
+            -- for currently selected player(s), never a confirmed hit.
+            captureAoE(unit,castGUID,spellID,now,"success-only")
+            record = OwnCasts.pending[castGUID]
+            OwnCasts.stats.aoeSuccessOnly = OwnCasts.stats.aoeSuccessOnly + 1
+        end
+        if not record then return false end
+        OwnCasts.pending[castGUID] = nil
+        OwnCasts.recentAoESuccess[spellID] = now
+        OwnCasts.stats.aoeSuccess = OwnCasts.stats.aoeSuccess + 1
+        local estimated = false
+        for _,guid in ipairs(record.victims or {}) do
+            if ns.model:EstimateDR(guid,spellID,"stun",now,castGUID,record.sentAt,"aoe") then
+                estimated = true
+                OwnCasts.stats.aoeEstimated = OwnCasts.stats.aoeEstimated + 1
+            end
+        end
+        if #record.victims == 0 then
+            OwnCasts.stats.aoeNoCandidates = OwnCasts.stats.aoeNoCandidates + 1
+        end
+        OwnCasts.lastAoE = {spellID=spellID,source=record.source,
+            candidates=#record.victims,estimated=estimated,time=now}
+        return estimated
+    end
+    if not castGUID then return false end
     prune(now)
     local record = OwnCasts.pending[castGUID]
-    if not record or record.spellID ~= spellID then return false end
+    if not record or record.aoe or record.spellID ~= spellID then return false end
     OwnCasts.pending[castGUID] = nil
     local estimated = ns.model:EstimateDR(record.guid, record.effectID, record.category, now, castGUID, record.sentAt)
     if estimated then OwnCasts.stats.estimated = OwnCasts.stats.estimated + 1 end
@@ -193,7 +315,14 @@ function OwnCasts.Failed(unit, castGUID, spellID, now)
     if not castGUID or not spellID or not now then return false end
     prune(now)
     local record = OwnCasts.pending[castGUID]
-    if not record or record.spellID ~= spellID then return false end
+    if areaStuns[spellID] then
+        if record and (not record.aoe or record.spellID ~= spellID) then return false end
+        OwnCasts.pending[castGUID] = nil
+        OwnCasts.aoeCanceled[castGUID] = now
+        OwnCasts.stats.aoeFailed = OwnCasts.stats.aoeFailed + 1
+        return true
+    end
+    if not record or record.aoe or record.spellID ~= spellID then return false end
     OwnCasts.pending[castGUID] = nil
     OwnCasts.stats.failed = OwnCasts.stats.failed + 1
     return true
