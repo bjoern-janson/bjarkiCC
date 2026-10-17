@@ -26,6 +26,8 @@ now=101
 aura={spellId=2637,auraInstanceID=10,expirationTime=121,duration=20}
 frame.scripts.OnEvent(frame,'UNIT_AURA','player')
 local report=ns.BuildStatus()
+assert(report:find('DR stage reset: 20s after CC ends',1,true),
+ 'status distinguishes retained stage history from the application countdown')
 assert(report:find('Recent DR observations',1,true),'status includes recent transition evidence')
 assert(report:find('a:10 spell=2637 start=101.000 end=121.000',1,true),'trace preserves the actual guarded witness identity and application timing')
 assert(report:find('incapacitate observed=1 shown=1 start=101.000',1,true),'trace records counted stage next to input evidence')
@@ -44,7 +46,7 @@ end
 assert(#ns.drTrace==48,'diagnostic history is bounded independently of polling time')
 local traceLines=0
 for line in ns.BuildStatus():gmatch('[^\n]+') do if line:find('  t=',1,true)==1 then traceLines=traceLines+1 end end
-assert(traceLines==8,'copyable status includes only eight recent changes')
+assert(traceLines==24,'copyable status retains enough changes to include the earlier full-duration application')
 SlashCmdList.BJARKICC('clear')
 assert(#ns.drTrace==0,'clear resets diagnostic history alongside tracking')
 local secret=setmetatable({}, {__tostring=function() error('protected payload was formatted') end})

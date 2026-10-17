@@ -9,7 +9,7 @@ ns.drTrace = {}
 -- Keep changes rather than polling noise; no raw API values enter this log.
 function ns.RecordDRObservation(guid, effects, now, complete, sensor)
     local function stamp(value) return value and string.format('%.3f',value) or 'unknown' end
-    local keys, witnesses, identities, stages = {}, {}, {}, {}
+    local keys, witnesses, identities, stages, stageDetails = {}, {}, {}, {}, {}
     for key in pairs(effects) do keys[#keys+1]=key end
     table.sort(keys)
     for i=1,math.min(6,#keys) do
@@ -22,9 +22,11 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor)
     for _,row in ipairs(ns.model:GetDR(guid,now,true)) do
         stages[#stages+1]=row.category..' observed='..(row.observedStage or row.stage)..' shown='..row.stage
             ..' start='..stamp(row.started)..(row.estimated and ' cast-estimate' or (row.stageEstimated and ' inferred-history' or ' observed'))
+        stageDetails[#stageDetails+1]=stages[#stages]..' stageReset='..stamp(row.stageResetAt)
+            ..(row.stageResetSource and (' '..row.stageResetSource) or '')
     end
     local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')
-        ..' | DR='..(#stages>0 and table.concat(stages,'; ') or 'none')
+        ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
     -- A fallback end computed as now + timeRemaining can drift on every poll.
     -- Include it as context, but only identity/start/stage/coverage changes log.
@@ -64,6 +66,7 @@ function ns.BuildStatus()
         'Client: '..version..' build '..build..' / interface '..interface,
         'Rules: '..ns.Data.profile..'; reset '..ns.db.resetSeconds..'s',
         'DR timer: last observed application; removal does not restart it',
+        'DR stage reset: '..ns.db.resetSeconds..'s after CC ends (Classic estimate; separate from countdown)',
         'Mode: '..(ns.demo and 'TEST (synthetic display)' or 'live observation'),
         'Combat log: deliberately not registered (restricted on Forever)',
     }
@@ -92,6 +95,11 @@ function ns.BuildStatus()
                     lines[#lines+1]=string.format('    Observed stage %d; displayed stage %d includes earlier inferred applications.',row.observedStage,row.stage)
                 end
                 if row.timeEstimated then lines[#lines+1]='    Application observed; timing retained from own-cast estimate.' end
+                if not row.estimated then
+                    lines[#lines+1]=row.stageResetAt and string.format('    Stage reset: %.3f; remaining %.3f (%s; Classic estimate).',
+                        row.stageResetAt,row.stageRemaining or 0,row.stageResetSource or 'unknown end')
+                        or '    Stage reset: awaiting readable CC end.'
+                end
             end
         end
         local bar=ns.UI.bars[unit]
@@ -110,8 +118,8 @@ function ns.BuildStatus()
     end
     if ns.OwnCasts.lastResolution then lines[#lines+1]='ownCast.lastResolution: '..ns.OwnCasts.lastResolution end
     if #ns.drTrace>0 then
-        lines[#lines+1]='Recent DR observations (latest 8 changes; guarded evidence):'
-        for i=math.max(1,#ns.drTrace-7),#ns.drTrace do
+        lines[#lines+1]='Recent DR observations (latest 24 changes; guarded evidence):'
+        for i=math.max(1,#ns.drTrace-23),#ns.drTrace do
             local entry, aliases=ns.drTrace[i],{}
             for _,unit in ipairs({'player','target','focus'}) do
                 if ns.Observer.GetUnitState(unit).guid==entry.guid then aliases[#aliases+1]=unit end

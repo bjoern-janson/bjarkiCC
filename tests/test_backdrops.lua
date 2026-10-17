@@ -137,6 +137,11 @@ ns.UI.ApplyLayout()
 now = 151
 ns.Observer.Scan(now)
 ns.UI.Update(now)
+assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='',
+    'retained stage renders safely after the application countdown ends')
+now = 153
+ns.Observer.Scan(now)
+ns.UI.Update(now)
 assert(not ns.UI.bars.player.shown, 'expired DR hides normally')
 assert(restrictedReads == 0, 'anchored bars, icons and their children must not read restricted dimensions or scale')
 for _, frame in ipairs(frames) do

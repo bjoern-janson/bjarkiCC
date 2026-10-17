@@ -281,11 +281,14 @@ for _,time in ipairs({218,222,234}) do
 end
 assert(ns.OwnCasts.stats.estimated==3,'suppressed cap attempts are not accepted DR estimates')
 now=235; ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.2)
-assert(not ns.UI.bars.target.shown and not ns.UI.bars.focus.shown,'red icons expire on the third application deadline')
+assert(ns.UI.bars.target.shown and targetIcon.row.stage==2 and targetIcon.time.text=='',
+ 'expired cast prediction reveals the still-retained observed stage instead of claiming readiness')
+now=240; ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.2)
+assert(not ns.UI.bars.target.shown and not ns.UI.bars.focus.shown,'known prior aura end bounds the retained observed stage')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-after-cap',2637)
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-after-cap',2637)
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
-assert(targetIcon.row.stage==1 and targetIcon.row.started==235 and targetIcon.time.text=='20',
+assert(targetIcon.row.stage==1 and targetIcon.row.started==240 and targetIcon.time.text=='20',
  'a new cast after expiry begins a fresh first cycle')
 UnitName=originalUnitName
 issecretvalue=function() return false end
@@ -371,6 +374,16 @@ local hovered=ns.UI.bars.cooldown.icons[1]
 hovered.row.remaining=125
 hovered.scripts.OnEnter(hovered)
 assert(ns.UI.tip.lines[3]=='Estimated remaining: 125s','long tooltip timers keep correct seconds unit')
+ns.model.GetDR=function() return {{category='stun',spellID=853,stage=3,active=false,uncertain=true,
+ started=now-20,duration=20,remaining=0,stageRemaining=7,stageResetAt=now+7}} end
+ns.UI.Update(now)
+local retainedIcon=ns.UI.bars.player.icons[1]
+assert(retainedIcon.shown and retainedIcon.time.text=='' and not retainedIcon.swipe.shown,
+ 'after the application countdown, retain the stage icon without a number or sweep')
+assert(retainedIcon.borderTextures[1].color[2]==.2,'retained immunity stage stays red')
+retainedIcon.scripts.OnEnter(retainedIcon)
+assert(table.concat(ns.UI.tip.lines,'\n'):find('Application countdown finished',1,true),
+ 'tooltip distinguishes the finished application clock from retained DR history')
 ns.model=realModel
 -- Replay the recipient's 0.4.5 Hibernate trace through events, observation,
 -- shared GUID state and rendered colors. The first clock comes from aura data;
@@ -398,7 +411,8 @@ local function handoffEvent(at,event,stage,start)
     'Hibernate source handoff must not invent a stage on '..unit)
    assert(icon.row.started==start and icon.swipe.cooldown[1]==start,
     'numeric countdown and sweep share the calibrated application time')
-   assert(icon.time.text==ns.UI.FormatTime(start+20-now),'countdown retains the application policy')
+   assert(icon.time.text==(start+20>now and ns.UI.FormatTime(start+20-now) or ''),
+    'countdown retains the application policy without showing a zero after it finishes')
    local color=({{.25,1,.3},{1,.8,.15},{1,.2,.15}})[stage]
    for _,edge in ipairs(icon.borderTextures) do
     assert(edge.color[1]==color[1] and edge.color[2]==color[2] and edge.color[3]==color[3],
@@ -426,5 +440,42 @@ handoffLoC=nil
 handoffEvent(2655647.495,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
 handoffEvent(2655652.402,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
 assert(ns.OwnCasts.stats.estimated==0,'recipient regression is entirely observed history')
-handoffEvent(2655657.750,'LOSS_OF_CONTROL_UPDATE')
+handoffEvent(2655657.750,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
+handoffEvent(2655667.495,'LOSS_OF_CONTROL_UPDATE')
+-- With stage retention separate from the visible application clock, a full
+-- 20-second Hibernate followed after 22 seconds must not lose the first stage.
+SlashCmdList.BJARKICC('clear')
+local chainStart=3000000
+handoffLoC={spellID=2637,auraInstanceID=401,startTime=chainStart,duration=20,timeRemaining=20}
+handoffEvent(chainStart,'LOSS_OF_CONTROL_ADDED',1,chainStart)
+handoffLoC=nil
+now=chainStart+20
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'LOSS_OF_CONTROL_UPDATE','player')
+ns.UI.Update(now)
+for _,unit in ipairs({'player','target','focus'}) do
+ local icon=ns.UI.bars[unit].icons[1]
+ assert(ns.UI.bars[unit].shown and icon.row.stage==1 and icon.time.text=='' and not icon.swipe.shown,
+  'full Hibernate ending retains its stage after the application countdown finishes')
+end
+handoffLoC={spellID=2637,auraInstanceID=403,startTime=chainStart+22,duration=10,timeRemaining=10}
+handoffEvent(chainStart+22,'LOSS_OF_CONTROL_ADDED',2,chainStart+22)
+handoffLoC=nil
+handoffEvent(chainStart+32,'LOSS_OF_CONTROL_UPDATE',2,chainStart+22)
+handoffLoC={spellID=2637,auraInstanceID=405,startTime=chainStart+34,duration=5,timeRemaining=5}
+handoffEvent(chainStart+34,'LOSS_OF_CONTROL_ADDED',3,chainStart+34)
+handoffLoC=nil
+handoffEvent(chainStart+39,'LOSS_OF_CONTROL_UPDATE',3,chainStart+34)
+now=chainStart+54
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'LOSS_OF_CONTROL_UPDATE','player')
+ns.UI.Update(now)
+for _,unit in ipairs({'player','target','focus'}) do
+ local icon=ns.UI.bars[unit].icons[1]
+ assert(ns.UI.bars[unit].shown and icon.row.stage==3 and icon.time.text=='' and not icon.swipe.shown,
+  'red stage remains visible after the 20-second application countdown')
+ assert(icon.row.stageResetAt==chainStart+59,'stage reset is measured from the final CC ending')
+ assert(icon.row.stageRemaining==5,'stage clock is separate from the finished display countdown')
+end
+handoffEvent(chainStart+59,'LOSS_OF_CONTROL_UPDATE')
+handoffLoC={spellID=2637,auraInstanceID=407,startTime=chainStart+60,duration=20,timeRemaining=20}
+handoffEvent(chainStart+60,'LOSS_OF_CONTROL_ADDED',1,chainStart+60)
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')

@@ -111,8 +111,17 @@ local function tooltip(owner, row, key)
                 and ('Border shows estimated stage '..row.stage..'; actual DR is unknown.')
                 or ('Border shows observed stage '..row.stage..'; earlier CC may be missing.'),1,.55,.25,true)
         end
-        tip:AddLine('DR timer: '..UI.FormatTime(row.remaining)..'s',1,.85,.4,true)
+        tip:AddLine(row.remaining>0 and ('Application countdown: '..UI.FormatTime(row.remaining)..'s')
+            or 'Application countdown finished; DR stage is still retained.',1,.85,.4,true)
         tip:AddLine('Starts on application. Breaking or removing CC does not restart it.',.7,.7,.7,true)
+        if not row.estimated then
+            if row.stageRemaining then
+                local basis=row.stageResetSource=='observed-end' and 'observed disappearance' or 'predicted CC end'
+                tip:AddLine('Estimated stage reset in '..math.ceil(row.stageRemaining)..'s ('..basis..').',1,.85,.4,true)
+            else
+                tip:AddLine('Stage reset waits for a readable CC end.',.7,.7,.7,true)
+            end
+        end
         if row.estimated then
             tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
         else
@@ -125,7 +134,7 @@ local function tooltip(owner, row, key)
                 tip:AddLine('Observation started late or data was unavailable.',1,.55,.25,true)
             end
         end
-        tip:AddLine('Classic groups; '..ns.db.resetSeconds..'s application timer.',.7,.7,.7,true)
+        tip:AddLine('Classic estimate: stage resets '..ns.db.resetSeconds..'s after CC ends.',.7,.7,.7,true)
     end
     tip:Show()
 end
@@ -259,7 +268,7 @@ function UI.Update(now)
                         setBorderColor(icon,.12,.12,.12,1)
                         icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
                     else
-                        icon.time:SetText(UI.FormatTime(row.remaining))
+                        icon.time:SetText(row.remaining>0 and UI.FormatTime(row.remaining) or '')
                         -- Keep uncertainty in the tooltip and status report. An
                         -- inferred stage cannot supply an exact percentage.
                         icon.state:SetText(row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])
@@ -270,7 +279,8 @@ function UI.Update(now)
                         end
                         local color=stageColors[row.stage]
                         icon.state:SetTextColor(color[1],color[2],color[3]); setBorderColor(icon,color[1],color[2],color[3],1)
-                        icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
+                        icon.swipe:SetShown(row.remaining>0)
+                        if row.remaining>0 then icon.swipe:SetCooldown(row.started,row.duration) end
                     end
                 end
                 for i=count+1,#bar.icons do bar.icons[i]:Hide(); bar.icons[i].row=nil end
@@ -365,7 +375,7 @@ function UI.OpenOptions()
     end
     check(page,'Estimate my CC casts when auras are hidden',6,-183,
         function() return ns.db.ownCastEstimates end,function(v) ns.db.ownCastEstimates=v; ns.OwnCasts.Init() end)
-    slider(page,'DR timer (seconds)',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
+    slider(page,'Application / stage reset seconds',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
         if v~=ns.db.resetSeconds then
             ns.db.resetSeconds=v; ns.model=ns.Model.New(v); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
         end

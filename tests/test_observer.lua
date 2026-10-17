@@ -767,7 +767,11 @@ test("player handoff of the same application cannot double count or restart", fu
         equal(row.stage,1); equal(row.started,21); equal(row.remaining,18)
         fixture.loc={}; ns.Observer.Scan(24)
         equal(size(ns.model.units["Player-1-Self"].effects),0)
-        ns.Observer.Scan(41); equal(#ns.model:GetDR("Player-1-Self",41),0)
+        ns.Observer.Scan(41)
+        row=ns.model:GetDR("Player-1-Self",41)[1]
+        truth(row,"stage survives the expired application timer")
+        equal(row.stage,1); equal(row.remaining,0); equal(row.stageResetAt,44)
+        ns.Observer.Scan(44); equal(#ns.model:GetDR("Player-1-Self",44),0)
     end
 end)
 
@@ -790,7 +794,11 @@ test("no-instance LoC refresh retains canonical identity and newer application t
     truth(ns.model.units["Player-1-Self"].effects["a:19"])
     fixture.loc={}; ns.Observer.Scan(27)
     equal(size(ns.Observer.GetUnitState("player").witnesses),0)
-    ns.Observer.Scan(45); equal(#ns.model:GetDR("Player-1-Self",45),0)
+    ns.Observer.Scan(45)
+    row=ns.model:GetDR("Player-1-Self",45)[1]
+    truth(row,"stage survives the expired application timer")
+    equal(row.stage,2); equal(row.remaining,0); equal(row.stageResetAt,47)
+    ns.Observer.Scan(47); equal(#ns.model:GetDR("Player-1-Self",47),0)
 end)
 
 test("a simultaneous aura cannot overwrite canonical explicit LoC timing", function()
@@ -869,9 +877,9 @@ test("live Hibernate timing becoming admissible corrects one application across 
                 equal(#rows,1); equal(rows[1].stage,stage,"one count per landed Hibernate")
                 equal(rows[1].observedStage,stage)
                 equal(rows[1].started,expectedStart,"clock calibrated from the same application")
-                truth(math.abs(rows[1].remaining-(expectedStart+20-at))<0.000001)
+                truth(math.abs(rows[1].remaining-math.max(0,expectedStart+20-at))<0.000001)
             else
-                equal(#rows,0,"original application window expired")
+                equal(#rows,0,"stage window after observed removal expired")
             end
         end
     end
@@ -882,13 +890,108 @@ test("live Hibernate timing becoming admissible corrects one application across 
         "future start stays rejected at the API boundary")
     scan(2655121.778,315,2655121.750,20,1,2655121.750)
     scan(2655138.995,nil,nil,nil,1,2655121.750)
-    scan(2655141.879,nil,nil,nil,nil)
+    scan(2655141.879,nil,nil,nil,1,2655121.750)
+    equal(ns.model:GetDR("Player-1-Self",2655141.879)[1].stageResetAt,2655158.995)
+    scan(2655159.000,nil,nil,nil,nil)
     scan(2655176.779,317,2655176.750,20,1,2655176.750)
     scan(2655186.431,nil,nil,nil,1,2655176.750)
     scan(2655186.838,319,2655187.000,10,2,2655186.838)
     scan(2655187.034,319,2655187.000,10,2,2655187.000)
     scan(2655187.234,319,2655187.000,10,2,2655187.000)
     scan(2655188.034,321,2655188.000,5,3,2655188.000)
+end)
+
+test("full half and quarter Hibernate preserve stage across expired application countdowns", function()
+    reset(); realModel(); C_UnitAuras=nil
+    fixture.guid.target="Player-1-Self"; fixture.guid.focus="Player-1-Self"
+    for now=80,99 do ns.Observer.Scan(now) end
+    local function rows(at, stage, started, resetAt)
+        for _,unit in ipairs({"player","target","focus"}) do
+            local guid=ns.Observer.GetUnitState(unit).guid
+            equal(guid,"Player-1-Self")
+            local row=ns.model:GetDR(guid,at)[1]
+            truth(row,"stage must survive the separate application countdown")
+            equal(row.stage,stage); equal(row.observedStage,stage)
+            equal(row.started,started)
+            equal(row.remaining,math.max(0,started+20-at))
+            equal(row.applicationExpired,at>=started+20)
+            equal(row.stageResetAt,resetAt); equal(row.stageRemaining,resetAt-at)
+        end
+    end
+    fixture.loc={{spellID=2637,auraInstanceID=401,startTime=100,duration=20}}
+    for now=100,119 do ns.Observer.Scan(now) end
+    fixture.loc={}; ns.Observer.Scan(120)
+    rows(120,1,100,140)
+    ns.Observer.Scan(121)
+    fixture.loc={{spellID=2637,auraInstanceID=402,startTime=122,duration=10}}
+    ns.Observer.Scan(122); rows(122,2,122,152)
+    for now=123,131 do ns.Observer.Scan(now) end
+    fixture.loc={}; ns.Observer.Scan(132); ns.Observer.Scan(133)
+    fixture.loc={{spellID=2637,auraInstanceID=403,startTime=134,duration=5}}
+    ns.Observer.Scan(134); rows(134,3,134,159)
+    for now=135,138 do ns.Observer.Scan(now) end
+    fixture.loc={}
+    for now=139,154 do ns.Observer.Scan(now) end
+    rows(154,3,134,159)
+    for now=155,158 do ns.Observer.Scan(now) end
+    rows(158,3,134,159)
+    ns.Observer.Scan(159)
+    equal(#ns.model:GetDR("Player-1-Self",159),0,"stage expires twenty seconds after final CC end")
+end)
+
+test("early Hibernate removal sets the stage boundary without restarting its application countdown", function()
+    for _,nextStart in ipairs({123,124}) do
+        reset(); realModel(); C_UnitAuras=nil; fixture.guid.target=nil
+        fixture.loc={{spellID=2637,auraInstanceID=410,startTime=100,duration=20}}
+        for now=100,103 do ns.Observer.Scan(now) end
+        fixture.loc={}; ns.Observer.Scan(104)
+        local row=ns.model:GetDR("Player-1-Self",104)[1]
+        equal(row.started,100); equal(row.remaining,16); equal(row.active,false)
+        equal(row.stageResetAt,124,"early break overrides the original full expiry")
+        for now=105,120 do ns.Observer.Scan(now) end
+        row=ns.model:GetDR("Player-1-Self",120)[1]
+        truth(row); equal(row.remaining,0); equal(row.stage,1); equal(row.stageRemaining,4)
+        for now=121,nextStart-1 do ns.Observer.Scan(now) end
+        fixture.loc={{spellID=2637,auraInstanceID=411,startTime=nextStart,duration=nextStart<124 and 10 or 20}}
+        ns.Observer.Scan(nextStart)
+        row=ns.model:GetDR("Player-1-Self",nextStart)[1]
+        equal(row.stage,nextStart<124 and 2 or 1,"new cast uses CC end rather than old application deadline")
+        equal(row.remaining,20); equal(row.started,nextStart)
+    end
+end)
+
+test("partial LoC absence cannot start an early stage reset", function()
+    reset(); realModel(); C_UnitAuras=nil; fixture.guid.target=nil
+    fixture.loc={{spellID=2637,auraInstanceID=420,startTime=100,duration=20}}
+    ns.Observer.Scan(100)
+    fixture.loc={secret}
+    for now=101,121 do ns.Observer.Scan(now) end
+    local row=ns.model:GetDR("Player-1-Self",121)[1]
+    truth(row,"restricted absence must retain known stage")
+    equal(row.stage,1); equal(row.remaining,0); equal(row.stageResetAt,140)
+    truth(row.uncertain)
+    fixture.loc={{spellID=2637,auraInstanceID=421,startTime=122,duration=10}}
+    ns.Observer.Scan(122)
+    row=ns.model:GetDR("Player-1-Self",122)[1]
+    equal(row.stage,2); equal(row.started,122); equal(row.remaining,20)
+end)
+
+test("unknown LoC end waits for complete removal before stage reset", function()
+    reset(); realModel(); C_UnitAuras=nil; fixture.guid.target=nil
+    fixture.loc={{spellID=2637,auraInstanceID=430,startTime=100}}
+    ns.Observer.Scan(100)
+    fixture.loc={secret}
+    for now=101,125 do ns.Observer.Scan(now) end
+    local row=ns.model:GetDR("Player-1-Self",125)[1]
+    truth(row,"unknown end cannot become an application-based stage reset")
+    equal(row.stage,1); equal(row.remaining,0); equal(row.stageResetAt,nil)
+    equal(row.stageResetPending,true)
+    fixture.loc={}; ns.Observer.Scan(126)
+    row=ns.model:GetDR("Player-1-Self",126)[1]
+    equal(row.stageResetAt,146); equal(row.stageResetPending,false); equal(row.remaining,0)
+    for now=127,145 do ns.Observer.Scan(now) end
+    equal(ns.model:GetDR("Player-1-Self",145)[1].stageResetAt,146,"empty polling cannot slide the deadline")
+    ns.Observer.Scan(146); equal(#ns.model:GetDR("Player-1-Self",146),0)
 end)
 
 local failures={}

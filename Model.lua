@@ -44,6 +44,48 @@ local function inWindow(state, now, resetSeconds)
     return state and now < state.appliedAt + resetSeconds
 end
 
+local function stageInWindow(state, now)
+    return state and (state.stageResetPending or (state.stageResetAt and now < state.stageResetAt))
+end
+
+local function recordEnd(state, effect, now)
+    if not state then return end
+    local endedAt = effect.endedAt or math.min(now, effect.expires or now)
+    if not state.lastEndedAt or endedAt > state.lastEndedAt then state.lastEndedAt = endedAt end
+    return endedAt
+end
+
+local function updateStageClocks(unit, effects, now, resetSeconds)
+    for _, state in pairs(unit.categories) do
+        state.activeCount = 0
+        state.stageResetPending = false
+        state.stageEndAt = state.lastEndedAt
+        state.stageResetSource = state.lastEndedAt and "observed-end" or nil
+    end
+    for _, effect in pairs(effects) do
+        local state = unit.categories[effect.category]
+        if state then
+            local endedAt = effect.endedAt or effect.expires
+            if not effect.endedAt and (not effect.expires or now < effect.expires) then
+                state.activeCount = state.activeCount + 1
+            end
+            if endedAt then
+                if not state.stageEndAt or endedAt > state.stageEndAt then
+                    state.stageEndAt = endedAt
+                    state.stageResetSource = effect.endedAt and "observed-end" or "predicted-end"
+                end
+            else
+                state.stageResetPending = true
+            end
+        end
+    end
+    for _, state in pairs(unit.categories) do
+        state.stageResetAt = not state.stageResetPending and state.stageEndAt
+            and state.stageEndAt + resetSeconds or nil
+        if state.stageResetPending then state.stageResetSource = nil end
+    end
+end
+
 local function predecessor(state)
     if not state then return nil end
     -- One flat predecessor lets a later readable timestamp repair the latest
@@ -57,6 +99,9 @@ local function predecessor(state)
         confirmationSentAt = state.confirmationSentAt,
         confirmationAppliedAt = state.confirmationAppliedAt,
         witness = state.witness,
+        lastEndedAt = state.lastEndedAt, stageEndAt = state.stageEndAt,
+        stageResetAt = state.stageResetAt, stageResetPending = state.stageResetPending,
+        stageResetSource = state.stageResetSource,
     }
 end
 
@@ -94,8 +139,8 @@ function Model:Observe(guid, effects, now, complete)
         self.units[guid] = unit
     end
     unit.seen = now
-    -- Keep the last application per category even after its visible timer ends.
-    -- A delayed readable witness chains by application time, not arrival time.
+    -- Keep the application clock separate from stage reset after the last CC
+    -- ends. A delayed readable witness chains by application time, not arrival.
     -- Each category also has at most one flat predecessor for timing correction.
     -- Category count is fixed by Data; retained GUIDs have the MAX_UNITS cap.
 
@@ -109,6 +154,29 @@ function Model:Observe(guid, effects, now, complete)
             state.uncertain = true
         end
     end
+
+    -- Only complete absence establishes a removal. A readable expiration can
+    -- bound a missing observer later, but partial absence never supplies an end.
+    -- Retain a closed witness so stale returns cannot slide a recorded end.
+    local stageEffects = {}
+    for key, previous in pairs(unit.effects) do
+        local incoming = effects and effects[key]
+        local removed = (complete and not incoming) or (incoming
+            and (incoming.category ~= previous.category or incoming.spellID ~= previous.spellID))
+        if removed then
+            local state = unit.categories[previous.category]
+            local endedAt = recordEnd(state, previous, now)
+            if state and state.witness == previous then
+                local closed = {}
+                for field, value in pairs(previous) do closed[field] = value end
+                closed.endedAt = endedAt
+                state.witness = closed
+            end
+        else
+            stageEffects[key] = previous
+        end
+    end
+    updateStageClocks(unit, stageEffects, now, self.resetSeconds)
 
     local nextEffects = {}
     if not complete then
@@ -136,7 +204,7 @@ function Model:Observe(guid, effects, now, complete)
             and retained.spellID == effect.spellID and preciseStart and retained.appliedAt
             and math.abs(preciseStart - retained.appliedAt) <= APPLICATION_EPSILON
         if retained and state.applicationKey ~= key and not sameFallback then retained = nil end
-        if retained and not retained.appliedAt and not preciseStart and not inWindow(state, now, self.resetSeconds) then
+        if retained and not retained.appliedAt and not preciseStart and not stageInWindow(state, now) then
             retained = nil
         end
         local previous = unit.effects[key] or retained
@@ -155,8 +223,15 @@ function Model:Observe(guid, effects, now, complete)
                 -- or confidently reconstruct intervening application order.
                 state.uncertain = true
             else
+                if refreshed then
+                    -- A positive refresh replaces the preceding application on
+                    -- this identity. Its old predicted end must not outlive it.
+                    recordEnd(state, previous, appliedAt)
+                    stageEffects[key] = nil
+                    updateStageClocks(unit, stageEffects, now, self.resetSeconds)
+                end
                 local prior = predecessor(state)
-                if not inWindow(state, appliedAt, self.resetSeconds) then
+                if not stageInWindow(state, appliedAt) then
                     state = {
                         stage = 0,
                         activeCount = 0,
@@ -196,7 +271,7 @@ function Model:Observe(guid, effects, now, complete)
                 prior.uncertain = true
                 unit.categories[category] = prior
             else
-                local continuing = inWindow(prior, preciseStart, self.resetSeconds)
+                local continuing = stageInWindow(prior, preciseStart)
                 if prior then
                     state.stage = math.min(3, (continuing and prior.stage or 0) + 1)
                     local inferredStage = continuing and prior.inferredStage and math.min(3, prior.inferredStage + 1)
@@ -233,8 +308,16 @@ function Model:Observe(guid, effects, now, complete)
                     and math.abs(effect.expires - previous.expires) > APPLICATION_EPSILON)) then
             state.uncertain = true
         end
+        local expires = retainTiming and previous.expires or effect.expires or (same and previous.expires or nil)
+        local endedAt = same and not refreshed and previous.endedAt or nil
+        if endedAt and expires and expires > now then
+            -- A still-live identical witness can repair a transient empty
+            -- snapshot. It restores coverage, never another application.
+            endedAt = nil
+            if state then state.uncertain = true end
+        end
         nextEffects[key] = {category = category, spellID = effect.spellID,
-            expires = retainTiming and previous.expires or effect.expires or (same and previous.expires or nil),
+            expires = expires, endedAt = endedAt,
             appliedAt = retainTiming and previous.appliedAt or preciseStart or (same and previous.appliedAt or nil),
             applicationSource = retainTiming and previous.applicationSource
                 or (preciseStart and effect.applicationSource) or (same and previous.applicationSource or nil),
@@ -242,13 +325,11 @@ function Model:Observe(guid, effects, now, complete)
             firstSeenAt = same and not refreshed and previous.firstSeenAt or now}
         local current = unit.categories[category]
         if current and current.applicationKey == key then current.witness = nextEffects[key] end
+        stageEffects[key] = nextEffects[key]
+        updateStageClocks(unit, stageEffects, now, self.resetSeconds)
     end
 
-    for _, state in pairs(unit.categories) do state.activeCount = 0 end
-    for _, effect in pairs(nextEffects) do
-        local state = unit.categories[effect.category]
-        if state then state.activeCount = state.activeCount + 1 end
-    end
+    updateStageClocks(unit, nextEffects, now, self.resetSeconds)
     unit.effects = nextEffects
     trimOldest(self.units, MAX_UNITS)
 end
@@ -285,7 +366,7 @@ function Model:EstimateDR(guid, spellID, category, now, castID, sentAt)
     trimOldest(self.estimates, MAX_UNITS)
     local unit = self.units[guid]
     local actual = unit and unit.categories[category]
-    if not inWindow(actual, now, self.resetSeconds) then actual = nil end
+    if not stageInWindow(actual, now) then actual = nil end
     -- Prefer an application already observed during this cast. This does not
     -- claim to identify its caster; it merely avoids stacking a guess on it.
     if actual and actual.appliedAt >= (sentAt or now) then return false end
@@ -310,7 +391,7 @@ function Model:GetDR(guid, now, includeEstimates)
     self:PruneEstimates(now)
     local states = {}
     for category, state in pairs(unit and unit.categories or {}) do
-        if inWindow(state, now, self.resetSeconds) then states[category] = state end
+        if stageInWindow(state, now) then states[category] = state end
     end
     local prediction = includeEstimates ~= false and guid and self.estimates[guid]
     for category, state in pairs(prediction and prediction.categories or {}) do
@@ -320,7 +401,12 @@ function Model:GetDR(guid, now, includeEstimates)
     end
     for category, state in pairs(states) do
         local estimated = prediction and prediction.categories[category] == state or false
-        local active = not estimated and state.activeCount > 0
+        local active = false
+        for _, effect in pairs(not estimated and unit and unit.effects or {}) do
+            if effect.category == category and not effect.endedAt and (not effect.expires or now < effect.expires) then
+                active = true
+            end
+        end
         local inferredStage = includeEstimates ~= false and not estimated and state.inferredStage
         local stageEstimated = inferredStage ~= nil and inferredStage ~= false and inferredStage > state.stage
         local observed = unit and unit.categories[category]
@@ -328,13 +414,19 @@ function Model:GetDR(guid, now, includeEstimates)
             category = category,
             spellID = state.spellID,
             stage = stageEstimated and inferredStage or state.stage,
-            observedStage = estimated and (inWindow(observed, now, self.resetSeconds) and observed.stage or 0) or state.stage,
+            observedStage = estimated and (stageInWindow(observed, now) and observed.stage or 0) or state.stage,
             stageEstimated = stageEstimated,
             remaining = math.max(0, self.resetSeconds - (now - state.appliedAt)),
             duration = self.resetSeconds,
             started = state.appliedAt,
+            applicationExpired = now >= state.appliedAt + self.resetSeconds,
+            stageResetAt = not estimated and state.stageResetAt or nil,
+            stageRemaining = not estimated and state.stageResetAt and math.max(0, state.stageResetAt - now) or nil,
+            stageResetPending = not estimated and state.stageResetPending or false,
+            stageResetSource = not estimated and state.stageResetSource or nil,
             active = active,
-            uncertain = estimated or stageEstimated or state.uncertain,
+            uncertain = estimated or stageEstimated or state.uncertain
+                or (not active and state.stageResetSource == "predicted-end"),
             estimated = estimated,
             timeEstimated = state.timeEstimated == true,
         }
