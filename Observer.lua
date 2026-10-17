@@ -473,34 +473,6 @@ local function scanGuid(unit, guid, previous, now, aliases)
         diagnostics.mappedAuras = auraInfo.mappedAuras
         diagnostics.unmappedSpellIDs = auraInfo.unmappedSpellIDs
         sensor, limited = "aura", false
-        -- Target and focus can expose different readable data for the SAME
-        -- player. Probe a verified alias only if the owner's enumeration failed.
-        -- Prefer a complete alias snapshot; otherwise merge positive instance
-        -- witnesses and preserve incomplete coverage. Commit to the model ONCE.
-        if unit ~= "player" and not complete then
-            for _, alias in ipairs(aliases or {}) do
-                if alias ~= unit and readIdentity(alias) == guid then
-                    local other, otherComplete, otherInfo = auraSnapshot(alias, now)
-                    diagnostics.aliasUnit = alias
-                    diagnostics.aliasCoverage = otherComplete and "complete" or "partial"
-                    diagnostics.aliasMapped = otherInfo.mappedAuras
-                    if otherComplete then
-                        effects, complete, auraInfo = other, true, otherInfo
-                        diagnostics.auraComplete = true
-                        diagnostics.mappedAuras = otherInfo.mappedAuras
-                        diagnostics.unmappedSpellIDs = otherInfo.unmappedSpellIDs
-                        diagnostics.authoritativeUnit = alias
-                        sensor, limited = "aura-alias", false
-                        Observer.stats.aliasRecoveries = Observer.stats.aliasRecoveries + 1
-                        break
-                    end
-                    mergeEffects(effects, other)
-                    diagnostics.mappedAuras = countEffects(effects)
-                    diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, otherInfo.unmappedSpellIDs)
-                    if next(other) then sensor = "aura+alias" end
-                end
-            end
-        end
         if unit == "player" and not complete then
             local locUnmapped
             effects, complete, locUnmapped = lossOfControlSnapshot(now)
@@ -557,6 +529,49 @@ local function scanGuid(unit, guid, previous, now, aliases)
             -- list must not turn this restricted aura scan into absence proof.
         end
     end
+    -- Only after collecting every positive from the owning token (including
+    -- exact aura and LoC fallbacks), probe another readable alias for this GUID.
+    -- A complete Focus scan is valuable absence evidence ONLY if it does not
+    -- contradict any simultaneously readable positive from Target. Never let
+    -- an apparently empty alias erase a distinct LoC or exact witness.
+    if unit ~= "player" and not complete then
+        for _, alias in ipairs(aliases or {}) do
+            if alias ~= unit and readIdentity(alias) == guid then
+                local other, otherComplete, otherInfo = auraSnapshot(alias, now)
+                diagnostics.aliasUnit = alias
+                diagnostics.aliasCoverage = otherComplete and "complete" or "partial"
+                diagnostics.aliasMapped = otherInfo.mappedAuras
+                diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, otherInfo.unmappedSpellIDs)
+                if otherComplete then
+                    local contradiction = false
+                    for key in pairs(effects) do
+                        if not other[key] then contradiction = true; break end
+                    end
+                    mergeEffects(other, effects)
+                    effects = other
+                    diagnostics.mappedAuras = countEffects(effects)
+                    if contradiction then
+                        -- An observed hit beats a second token's empty snapshot.
+                        -- Treat the relation as incomplete until a new complete
+                        -- uncontested observation establishes removal.
+                        diagnostics.aliasCoverage = "conflicting-positive"
+                        limited = true
+                    else
+                        complete = true
+                        diagnostics.auraComplete = true
+                        diagnostics.authoritativeUnit = alias
+                        limited, sensor = false, "aura-alias"
+                        Observer.stats.aliasRecoveries = Observer.stats.aliasRecoveries + 1
+                    end
+                    break
+                end
+                mergeEffects(effects, other)
+                diagnostics.mappedAuras = countEffects(effects)
+                if next(other) then sensor = "aura+alias" end
+            end
+        end
+    end
+
     local ambiguous
     effects, ambiguous = reconcileWitnesses(effects, previous)
     if ambiguous then complete, limited = false, true end
