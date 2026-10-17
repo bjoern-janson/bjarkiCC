@@ -783,7 +783,8 @@ function Observer.OnNativeDR(unit, trackerInfo)
         return
     end
     local category, readable = field(trackerInfo, "category", "NativeDR.category", unit)
-    if not readable or not identifier(category) then
+    local categoryID = number(category)
+    if not readable or not categoryID or categoryID < 0 or categoryID ~= math.floor(categoryID) then
         Observer.stats.nativeDRRestricted = Observer.stats.nativeDRRestricted + 1
     else
         Observer.stats.nativeDRReadable = Observer.stats.nativeDRReadable + 1
@@ -796,7 +797,12 @@ function Observer.OnAuraEvent(unit, updateInfo, now)
     Observer.stats.auraEventCalls = Observer.stats.auraEventCalls + 1
     local token = unitToken(unit)
     now = number(now)
-    if not now or not token then return end
+    if not now then return end
+    if not token then
+        Observer.stats.auraEventRestricted = Observer.stats.auraEventRestricted + 1
+        Observer.Scan(now)
+        return
+    end
     local guid = (token == "player" or token == "target" or token == "focus")
         and readIdentity(token) or nil
     local effects, status, positive = addedAoEEvent(token, updateInfo, now)
