@@ -223,9 +223,9 @@ function ns.BuildStatus()
         end
     end
     lines[#lines+1]='Own-cast DR estimates: '..(ns.db.ownCastEstimates and 'enabled (always uncertain)' or 'disabled')
-    lines[#lines+1]='Own AoE guesses (War Stomp/Iron Grenade): '
+    lines[#lines+1]='Own AoE guesses (War Stomp/Iron Grenade/Goblin Mortar): '
         ..(ns.db.aoeCastEstimates and 'enabled; unconfirmed (check tooltip/status for source)' or 'disabled')
-    lines[#lines+1]='Shared Controlled Stun: Bash, War Stomp, Iron Grenade (live user-tested).'
+    lines[#lines+1]='Shared Controlled Stun: Bash, War Stomp, Iron Grenade (live-tested); Goblin Mortar mapped (unverified cast feed).'
     local lastAoE=ns.OwnCasts.lastAoE
     if lastAoE then
         lines[#lines+1]='Last AoE guess: spell='..lastAoE.spellID
@@ -305,13 +305,13 @@ function ns.Command(message)
             ns.db.aoeCastEstimates=option=='on'
             ns.OwnCasts.Init()
             ns.UI.Update(GetTime())
-            ns.Print('War Stomp/Grenade candidate ? estimates '..(option=='on' and 'ON' or 'OFF')
+            ns.Print('War Stomp/Grenade/Mortar candidate estimates '..(option=='on' and 'ON' or 'OFF')
                 ..'; actual hits remain unconfirmed by successful AoE casts.')
         elseif option=='status' or option=='' then
-            ns.Print('Candidate AoE stun ? estimates: '
+            ns.Print('Candidate AoE stun estimates: '
                 ..(ns.db.aoeCastEstimates and 'ON' or 'OFF')
                 ..'; master own-cast guesses: '..(ns.db.ownCastEstimates and 'ON' or 'OFF'))
-            ns.Print('A target/focus is only a POSSIBLE victim. The ? badge never denotes observed DR.')
+            ns.Print('A target/focus is only a POSSIBLE victim. Clean borders are not proof of a landed AoE stun.')
         else
             ns.Print('Usage: /bcc aoe on|off|status')
         end
@@ -365,7 +365,8 @@ function ns.Command(message)
                 ..'; restricted='..(stats.nativeDRRestricted or 0)
                 ..'; player Bash sent/succeeded='..(stats.ownBashSent or 0)..'/'..(stats.ownBashSucceeded or 0)
                 ..'; Iron Grenade='..(stats.ownGrenadeSent or 0)..'/'..(stats.ownGrenadeSucceeded or 0)
-                ..'; War Stomp='..(stats.ownStompSent or 0)..'/'..(stats.ownStompSucceeded or 0))
+                ..'; War Stomp='..(stats.ownStompSent or 0)..'/'..(stats.ownStompSucceeded or 0)
+                ..'; Goblin Mortar='..(stats.ownMortarSent or 0)..'/'..(stats.ownMortarSucceeded or 0))
             local last=ns.Observer.nativeLast
             if last then ns.Print('Last native event: unit='..nativeLabel(last.unit)
                 ..' category='..nativeLabel(last.category)
