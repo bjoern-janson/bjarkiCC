@@ -25,6 +25,7 @@ function ns.Safe.Call(fn, ...) local ok,v=pcall(fn,...); if ok and ns.Safe.Reada
 
 local fixture, observed, forgotten, casts
 local function reset()
+    C_Secrets = nil -- prevent cross-case mock secrecy probes from leaking
     fixture = {
         guid = {player = "Player-1-Self", target = "Player-1-A", nameplate1 = "Player-1-A"},
         name = {player = "Self", target = "Enemy", nameplate1 = "Enemy"},
@@ -1878,6 +1879,48 @@ test("native DR probe retains only individually readable fields, including categ
     equal(ns.Observer.stats.nativeDRReadable,2)
     equal(ns.Observer.stats.nativeDRRestricted,1)
     equal(#observed,0,"native event cannot fabricate observed DR")
+end)
+
+test("public aura secrecy predicate avoids a known-error scan but never proves absence", function()
+    reset()
+    local called=0
+    C_Secrets={ShouldUnitAuraIndexBeSecret=function(unit,index,filter)
+        equal(filter,"HARMFUL")
+        return unit=="target" and index==1
+    end}
+    C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+        if unit=="target" then called=called+1; error("secret index should have been skipped") end
+        return nil
+    end
+    ns.Observer.Scan(10)
+    equal(called,0,"known-secret index is never passed into restricted API")
+    equal(last("Player-1-A").complete,false)
+    equal(size(last("Player-1-A").effects),0)
+    equal(ns.Observer.stats.apiErrors,0)
+    equal(ns.Observer.stats.predictedSecretAuraIndexes,1)
+end)
+
+test("secrecy predicate retains earlier positive identities and marks the rest unknown", function()
+    reset()
+    fixture.auras.target={{spellId=853,auraInstanceID=3001,expirationTime=15},secret}
+    local visited={}
+    C_Secrets={ShouldUnitAuraIndexBeSecret=function(unit,index)
+        if unit=="target" then return index==2 end
+        return false
+    end}
+    C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+        if unit=="target" then
+            visited[#visited+1]=index
+            if index==2 then error("private index") end
+        end
+        return fixture.auras[unit] and fixture.auras[unit][index]
+    end
+    ns.Observer.Scan(10)
+    equal(#visited,1); equal(visited[1],1)
+    equal(last("Player-1-A").complete,false)
+    equal(size(last("Player-1-A").effects),1)
+    equal(effect(last("Player-1-A")).spellID,853)
+    equal(ns.Observer.stats.predictedSecretAuraIndexes,1)
 end)
 
 local failures={}

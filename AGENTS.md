@@ -17,6 +17,11 @@ These rules preserve the 0.4.17 baseline while improving correctness on the WoW 
 - The native `C_SpellDiminish` feed is a separate **explicit client-CVar opt-in experiment** via `/bcc native on|off|status`. Native events have secret payloads; preserve readable/unknown distinction and do not turn their mere arrival or own cast delivery into a confirmed DR application. Do not set the global CVar automatically.
 
 
+
+- `NativeStuns.lua` is a **secure native visual-only witness**. Never inspect its slot/button visibility, duration, identity or cooldown in addon Lua, and never adapt its presence into `Model:Observe` or a confirmed DR stage. Aura containers preallocate frames specifically to avoid revealing secure aura presence through construction counts.
+- Keep the native stun witness off by default and out-of-combat only. The successful creation of a CustomAuraContainer does *not* establish live ability to display secret stuns on this client. Test its effect in actual combat before claiming the feature works.
+- `C_Secrets.ShouldUnitAuraIndexBeSecret` may safely advise **not to query** an inaccessible aura index. Skipping its lookup must always yield partial/unknown coverage, never `complete=true` or a missing-stun conclusion.
+
 ## Timer and HUD invariants
 
 - `resetSeconds` is the visible application-based countdown, default 20s. CC ending/removal does not restart it.

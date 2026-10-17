@@ -1,5 +1,16 @@
 # bjarkiCC architecture and DR research
 
+## 0.4.17.6 native secure stun presentation experiment
+
+This addition is intentionally a **visual-only, opt-in native plane**, not an adapter from secret Blizzard aura data to addon Lua state. `NativeStuns.lua` creates two secure `AuraContainer` slots after `PLAYER_ENTERING_WORLD`; each filters `HARMFUL|INCLUDE_NAME_PLATE_ONLY` to Bash's three ranks, War Stomp 20549, and Iron Grenade 4068. `AuraInstanceIDOnly/Reverse` ordering and `CooldownFrameTemplate` are owned by Blizzard's secure aura system. It uses the documented `CustomAuraContainerTemplate` callback, `DisableUntrustedLayoutScriptsTemplate` on layout-sensitive frames and no protected unit-frame reparenting.
+
+The visual host is a sibling of the Target/Focus DR grid, 15 UI units below its bottom edge, and follows user drag/scale without reading native aura frame geometry. The text STUN AURA belongs to the selected native button only. The chosen aura, its shown state, aura-instance ID, timing, or hidden identity are **never read back** into addon Lua, used to infer `Model:Observe`, or used as a proxy for private information. When the exact secure filter has no eligible member, no stun icon is expected. A *positive native display* would prove only that Blizzard displayed one of the listed harmful stuns at that time, not how many previous stuns share the DR category or when the server will reset it.
+
+`/bcc aura on|off|status` is explicit; default-off `db.nativeStunWitness` adds one boolean with no SavedVariables schema migration. Host construction is delayed to world entry, out of combat. Secure toggles/rebuilds requested during combat defer to `PLAYER_REGEN_ENABLED`. The observable construction/error state is reported without checking forbidden selected-aura visibility. The test fixture only verifies construction, filter membership, lifecycle, fail-closed APIs, and absence of model mutations. A live client is necessary to establish actual secure presentation through opposing-faction secrecy.
+
+`Observer.auraSnapshot` now consults `C_Secrets.ShouldUnitAuraIndexBeSecret` when present. A readable true result skips the forbidden GetAuraDataByIndex call and returns incomplete observation, preserving any earlier positives. Unknown or unavailable predicate results follow the previous guarded indexed access path. `predictedSecretAuraIndexes` counts avoided queries, not inferred hits. No API restriction is bypassed.
+
+
 ## 0.4.17.5 native Blizzard DR availability experiment
 
 Blizzard's `C_SpellDiminish` API is a potential native server DR source, not interchangeable with the addon-owned observed-aura state machine. The `UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED` event declares secret payloads. Never assume event delivery means an observable hit, a category, or a count. The native feed has to be tested under a supported `IsSystemSupported()` result and explicit player `spellDiminishPVPEnemiesEnabled=1` opt-in.

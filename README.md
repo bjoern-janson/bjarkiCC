@@ -1,5 +1,20 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.6: Native, secure hostile-stun visual experiment (optional)
+
+This experimental branch uses **Blizzard's `CustomAuraContainerTemplate`**, the same native secure aura presentation family used by bjarkiPortraits. Blizzard's own code permits spell-ID matching on harmful auras on non-assistable enemies. Unlike `GetAuraDataByIndex`, the native aura widget can sometimes display an actual aura without granting Lua access to the selected spell or its duration. Whether it does so for hidden Forever stun effects still requires a *real in-game test*.
+
+- `/bcc aura on` creates/enables one compact native aura slot below **Target** and **Focus** DR grids, matching **only** Bash (5211, 6798, 8983), War Stomp (20549), and Iron Grenade (4068). The effect icon and native cooldown are **drawn by Blizzard**. The label **STUN AURA** is attached to the aura button itself, so no persistent extra label occupies the screen when no matching aura is visible.
+- `/bcc aura off` disables this visual. `/bcc aura status` reports initialization/creation errors and whether the visual is requested. It deliberately **does not inspect the native aura slot's shown state**, which may be restricted.
+- The widget is OFF by default and never reads protected aura information back into `Model.lua`. A genuine aura indicator is useful *visual confirmation* only; it is **not** an automatic DR application count. The existing DR stage, green/yellow/red borders, 20s application timer and provisional reset logic do not change.
+- Creation is delayed to `PLAYER_ENTERING_WORLD`, all structural changes are out of combat, and requested changes during combat reconcile afterward. Each widget stays attached to the corresponding addon-owned DR bar and follows its placement.
+- When `C_Secrets.ShouldUnitAuraIndexBeSecret(unit,index,"HARMFUL")` explicitly confirms an indexed aura would be secret, the observer now **skips that known-throwing query** and marks the snapshot *partial/unknown*. This reduces repeated taint errors without inventing a missing or present stun. `/bcc status` reports `predictedSecretAuraIndexes`.
+
+**Fast test:** reload, target/focus your duel opponent, run `/bcc aura on` out of combat, Bash the opponent then test Iron Grenade/War Stomp separately. Look **just below the Target/Focus DR grids** for a small stun icon with the caption STUN AURA while the opponent is visibly stunned. If the native witness icon appears while `/bcc status` still reports unconfirmed DR, we have visually useful information but cannot automatically count a DR stage. If no native icon appears, tell us whether `/bcc aura status` reports constructed or unavailable; do **not** make a claim of a confirmed victim-specific hit.
+
+The user has directly tested Bash, War Stomp and Iron Grenade sharing DR on Forever (2026-10-17). All remain in `Controlled Stun`, not `Incapacitate`. The game's `C_SpellDiminish.IsSystemSupported()` reported false on the tested client, so native Blizzard DR stage events remain unavailable independently of this custom aura-container attempt.
+
+
 ## 0.4.17.5: Native DR support probe for urgent Bash/Grenade duel testing
 
 A supplied **0.4.17.3 live status report** showed 1,186 `C_UnitAuras.GetAuraDataByIndex` access errors, `auraEventPositives=0`, `nativeDREvents=0`, target/focus exact War Stomp/Grenade lookups returning `none`, and complete per-unit LoC lists with zero mapped hits. However, the **receiving player** had a confirmed LoC Bash (5211), proving the spell mapping worked on the receiving side. `ownCast.captured=14`, `ownCast.estimated=11`, and no unresolved cast destinations show that the general direct-cast correlation runs. **There is no proof of a victim-specific caster-side Bash or Grenade application** in that report. Do not turn successful casts into confirmed stun stages.

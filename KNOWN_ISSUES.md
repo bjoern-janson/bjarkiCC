@@ -1,5 +1,16 @@
 # bjarkiCC known issues and validation status
 
+## 0.4.17.6 native hostile-stun aura witness: unverified display
+
+The tested 1.60.1.70425 client denies indexed harmful aura access during combat and `C_SpellDiminish.IsSystemSupported()` returns false. Caster-side Bash is an own-cast estimate; Grenade/War Stomp don't supply readable affected-victim records. **A correct automatic confirmed DR-stage tracker is impossible from those sources alone.**
+
+Candidate 0.4.17.6 adds an isolated native `CustomAuraContainerTemplate` slot below target/focus DR grids, explicitly matching known harmful controlled stun aura IDs (Bash ranks 5211/6798/8983, War Stomp 20549, Iron Grenade 4068). This exploits the documented native permission to filter harmful spells on hostile units without calling the tainted indexed Lua reader. Whether the secure engine displays these specific effects remains an in-game question. The addon never inspects the protected native aura-slot visibility/identity/number and cannot use it as DR hit confirmation in `Model.lua`.
+
+Run `/bcc aura on` outside combat, stun a selected/focused opponent, and look below the DR grid for an icon captioned STUN AURA; use `/bcc aura status` to report native-frame construction errors if no icon appears. No icon is not proof the stun missed, and a native icon is not proof of DR stage or reset time.
+
+Optional `C_Secrets.ShouldUnitAuraIndexBeSecret` preflight now avoids known-failing indexed queries, preserving incomplete/unknown semantics. `predictedSecretAuraIndexes` and `apiErrors` are separate diagnostics. Existing caster-side secrecy limitation remains unresolved. Default-off so no tournament layout changes without user opt-in.
+
+
 ## 2026-10-17 actual caster/receiver Bash and Iron Grenade report (0.4.17.5)
 
 **Client:** Forever beta 1.60.1.70425. **Native Blizzard DR feed:** `C_SpellDiminish.IsSystemSupported() = false` even though the global CVar `spellDiminishPVPEnemiesEnabled=1` and the event is valid; `nativeDREvents=0`. Stop treating the native tracker as a plausible source on this client unless support changes.
