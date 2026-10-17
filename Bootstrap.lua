@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.17.5-native-probe'
+ns.name, ns.version = addonName, '0.4.17.6-secure-stun-experiment'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -74,6 +74,8 @@ function ns.InitializeDB()
     db.targetOnly = bool(db.targetOnly, false)
     db.interrupts = bool(db.interrupts, false)
     db.ownCastEstimates = bool(db.ownCastEstimates, true)
+    -- Off unless explicitly enabled. This native visual witness does not feed DR.
+    db.nativeStunWitness = bool(db.nativeStunWitness, false)
     db.showNames = bool(db.showNames, false)
     db.showDRText = bool(db.showDRText, false)
     db.resetSeconds = bounded(db.resetSeconds, 20, 10, 30)
