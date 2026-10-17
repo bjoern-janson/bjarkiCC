@@ -2,7 +2,15 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.9-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.10-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Preserve the first full-duration sample in 0.4.10
+
+The new 0.4.9 report exposes a source transition missed by the earlier replay. The first Hibernate was read through auras, then Loss of Control reported that same aura. The addon treated the switch itself as lost coverage and discarded the preceding quiet history. It therefore never learned the full-duration baseline, and the next full/half/quarter sequence remained red.
+
+Version 0.4.10 preserves that history only for a complete player aura-to-LoC transition with the same nonempty set of exact aura IDs, spells and categories, and readable prior aura timing. Real observation gaps, partial data, ambiguous identities and mismatched effect sets still invalidate it. The original aura duration is only a consistency check: a conflicting later LoC duration cannot be learned as full. Only explicit LoC duration supplies a baseline.
+
+The supplied sequence is covered through real event handling, observation, stage tracking and all three displays: the second full 20-second Hibernate should return to green, the following 10-second one to yellow, and the 5-second one to red. This is offline replay coverage; live retesting remains necessary. Application countdown and configured stage-reset interval are unchanged. `/bcc status` includes source-handoff counters alongside the existing duration evidence.
 
 ## Full-duration evidence correction in 0.4.9
 

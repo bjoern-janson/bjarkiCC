@@ -345,6 +345,23 @@ local function readIdentity(unit)
     return guid
 end
 
+local function exactPlayerHandoff(unit, previous, effects, complete, sensor, ambiguous, capped)
+    if unit ~= "player" or not previous or previous.sensor ~= "aura" or sensor ~= "loc"
+        or previous.status ~= "readable" or not complete or ambiguous or capped
+        or not next(effects) then return false end
+    local prior = previous.witnesses or {}
+    for key, effect in pairs(effects) do
+        local old = prior[key]
+        if not key:match("^a:%d+$") or effect.fallbackIdentity or not old or old.fallbackIdentity
+            or old.spellID ~= effect.spellID or old.category ~= effect.category
+            or old.applicationSource ~= "aura" then return false end
+        local start, expires = number(old.appliedAt), number(old.expires)
+        if not start or not expires or expires <= start or expires - start > 120 then return false end
+    end
+    for key in pairs(prior) do if not effects[key] then return false end end
+    return true
+end
+
 local function scanGuid(unit, guid, previous, now)
     local effects, complete, sensor, limited
     local diagnostics = {mappedAuras = 0, unmappedSpellIDs = {}, mappedLoC = 0,
@@ -386,17 +403,24 @@ local function scanGuid(unit, guid, previous, now)
             -- list must not turn this restricted aura scan into absence proof.
         end
     end
-    if previous and (previous.sensor == "loc") ~= (sensor == "loc") then
-        -- Coverage changed, but positively observed applications still happened.
-        -- Invalidate confidence without erasing stages, clocks or identities;
-        -- reconciliation below withholds ambiguous cross-sensor duplicates.
-        ns.model:Observe(guid, {}, now, false)
-    end
     local ambiguous
     effects, ambiguous = reconcileWitnesses(effects, previous)
     if ambiguous then complete, limited = false, true end
     local witnesses, capped = retainWitnesses(effects, previous, complete)
     if capped then complete, limited = false, true end
+    if previous and (previous.sensor == "loc") ~= (sensor == "loc") then
+        if exactPlayerHandoff(unit, previous, effects, complete, sensor, ambiguous, capped) then
+            -- The same complete real aura identities bridge the player's first
+            -- LoC selection. Preserve the pre-application quiet context so late
+            -- raw duration can be evaluated; never repair an actual scan gap.
+            Observer.stats.handoffsPreserved = Observer.stats.handoffsPreserved + 1
+        else
+            -- Changed or incomplete coverage invalidates confidence without
+            -- erasing the applications already observed.
+            ns.model:Observe(guid, {}, now, false)
+            Observer.stats.handoffsInvalidated = Observer.stats.handoffsInvalidated + 1
+        end
+    end
     if sensor == "loc" then
         diagnostics.reason = complete and "Player Loss of Control fallback; debuff coverage is limited."
             or "Player Loss of Control data is unavailable or restricted."
@@ -431,7 +455,8 @@ function Observer.Init()
     Observer.lastScan = nil
     Observer.units = {}
     for _, unit in ipairs(trackedUnits) do Observer.units[unit] = unavailableState() end
-    Observer.stats = {scans = 0, restricted = 0, casts = 0, acceptedCasts = 0, apiErrors = 0, missingApis = 0, scanCaps = 0, scanGaps = 0}
+    Observer.stats = {scans = 0, restricted = 0, casts = 0, acceptedCasts = 0, apiErrors = 0, missingApis = 0,
+        scanCaps = 0, scanGaps = 0, handoffsPreserved = 0, handoffsInvalidated = 0}
 end
 
 function Observer.GetUnitState(unit)

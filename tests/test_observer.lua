@@ -1097,6 +1097,135 @@ test("a current aura handoff cannot reuse a prior LoC reported duration", functi
     equal(effect(last("Player-1-A")).reportedDuration,nil)
 end)
 
+test("exact player aura to LoC handoff preserves full duration learning and later reset correction", function()
+    for _,lateStart in ipairs({false,true}) do
+        reset(); realModel(); fixture.guid.target="Player-1-Self"; fixture.guid.focus="Player-1-Self"
+        for now=0,20 do ns.Observer.Scan(now) end
+        fixture.auras.player={{spellId=2637,auraInstanceID=700,expirationTime=41,duration=20}}
+        ns.Observer.Scan(21)
+        fixture.auras.player={{spellId=secret,auraInstanceID=700}}
+        fixture.loc={{spellID=2637,auraInstanceID=700,startTime=lateStart and 21.25 or 21,
+            duration=20,timeRemaining=20}}
+        ns.Observer.Scan(21)
+        if lateStart then
+            equal(ns.model.units["Player-1-Self"].durationBaselines[2637],nil,
+                "unknown explicit start cannot teach duration")
+            ns.Observer.Scan(21.3)
+        end
+        local tracked=ns.model.units["Player-1-Self"]
+        truth(tracked.durationBaselines[2637],"same complete identity must retain pre-CC quiet evidence")
+        equal(tracked.durationBaselines[2637].duration,20)
+        equal(ns.Observer.stats.handoffsPreserved,1)
+        equal(ns.Observer.stats.handoffsInvalidated,0)
+        fixture.loc={}; ns.Observer.Scan(22)
+        fixture.loc={{spellID=2637,auraInstanceID=701,startTime=23,duration=10}}
+        ns.Observer.Scan(23); equal(ns.model:GetDR("Player-1-Self",23)[1].stage,2)
+        fixture.loc={}; ns.Observer.Scan(24)
+        fixture.loc={{spellID=2637,auraInstanceID=702,startTime=25,duration=5}}
+        ns.Observer.Scan(25); equal(ns.model:GetDR("Player-1-Self",25)[1].stage,3)
+        fixture.loc={}
+        for now=26,41 do ns.Observer.Scan(now) end
+        fixture.loc={{spellID=2637,auraInstanceID=703,startTime=41.25,duration=20}}
+        ns.Observer.Scan(41.25)
+        for _,unit in ipairs({"player","target","focus"}) do
+            local row=ns.model:GetDR(ns.Observer.GetUnitState(unit).guid,41.25)[1]
+            equal(row.stage,1,"matching full duration corrects retained immunity")
+            equal(row.started,41.25); equal(row.resetEvidence,"matching-full-duration")
+        end
+        fixture.loc={}; ns.Observer.Scan(42)
+        fixture.loc={{spellID=2637,auraInstanceID=704,startTime=43,duration=10}}
+        ns.Observer.Scan(43)
+        equal(ns.model:GetDR("Player-1-Self",43)[1].stage,2,"next half-duration application advances from corrected stage")
+    end
+end)
+
+test("unmatched incomplete and ambiguous handoffs cannot inherit old quiet duration evidence", function()
+    local cases={"previous-empty","current-empty","new-id","missing-id","extra-id","missing-prior-id",
+        "changed-spell","partial","missing-prior-time","invalid-prior-duration","oversized-prior-duration"}
+    for _,case in ipairs(cases) do
+        reset(); realModel(); fixture.guid.target=nil
+        for now=0,20 do ns.Observer.Scan(now) end
+        fixture.auras.player={{spellId=2637,auraInstanceID=700,expirationTime=41,duration=20}}
+        if case=="previous-empty" then fixture.auras.player={}
+        elseif case=="missing-prior-id" then
+            fixture.auras.player[2]={spellId=853,auraInstanceID=701,expirationTime=41,duration=20}
+        elseif case=="missing-prior-time" then fixture.auras.player[1].duration=nil
+        elseif case=="invalid-prior-duration" then fixture.auras.player[1].duration=0
+        elseif case=="oversized-prior-duration" then
+            fixture.auras.player[1].duration=121; fixture.auras.player[1].expirationTime=142
+        end
+        ns.Observer.Scan(21)
+        local before=ns.model.units["Player-1-Self"].durationEpoch
+        fixture.auras.player={{spellId=secret,auraInstanceID=700}}
+        fixture.loc={{spellID=2637,auraInstanceID=700,startTime=21,duration=20}}
+        if case=="current-empty" then fixture.loc={}
+        elseif case=="new-id" then fixture.loc[1].auraInstanceID=702
+        elseif case=="missing-id" then fixture.loc[1].auraInstanceID=nil
+        elseif case=="extra-id" then fixture.loc[2]={spellID=853,auraInstanceID=701,startTime=21,duration=20}
+        elseif case=="changed-spell" then fixture.loc[1].spellID=118
+        elseif case=="partial" then fixture.loc[2]=secret end
+        ns.Observer.Scan(21.1)
+        local tracked=ns.model.units["Player-1-Self"]
+        truth(tracked.durationEpoch>before,case .. " must invalidate prior coverage")
+        equal(tracked.durationBaselines[2637],nil,case .. " cannot teach full duration from stale quiet")
+        equal(ns.Observer.stats.handoffsPreserved,0,case)
+        equal(ns.Observer.stats.handoffsInvalidated,1,case)
+    end
+end)
+
+test("an actual scan gap stays invalid even when exact aura and LoC identities match", function()
+    reset(); realModel(); fixture.guid.target=nil
+    for now=0,20 do ns.Observer.Scan(now) end
+    fixture.auras.player={{spellId=2637,auraInstanceID=700,expirationTime=41,duration=20}}
+    ns.Observer.Scan(21)
+    local before=ns.model.units["Player-1-Self"].durationEpoch
+    fixture.auras.player={{spellId=secret,auraInstanceID=700}}
+    fixture.loc={{spellID=2637,auraInstanceID=700,startTime=21,duration=20}}
+    ns.Observer.Scan(23)
+    local tracked=ns.model.units["Player-1-Self"]
+    truth(tracked.durationEpoch>before,"identity bridge cannot restore pre-gap coverage")
+    equal(tracked.durationBaselines[2637],nil)
+    equal(ns.Observer.stats.scanGaps,1)
+end)
+
+test("restricted prior aura coverage cannot become a readable player handoff proof", function()
+    reset(); realModel(); fixture.guid.player=nil
+    for now=0,20 do ns.Observer.Scan(now) end
+    fixture.auras.target={{spellId=2637,auraInstanceID=700,expirationTime=41,duration=20},
+        {spellId=secret,auraInstanceID=701}}
+    ns.Observer.Scan(21)
+    equal(ns.Observer.GetUnitState("target").status,"restricted")
+    local before=ns.model.units["Player-1-A"].durationEpoch
+    fixture.guid.player="Player-1-A"; fixture.guid.target=nil
+    fixture.auras.player={{spellId=secret,auraInstanceID=700}}
+    fixture.loc={{spellID=2637,auraInstanceID=700,startTime=21,duration=20}}
+    ns.Observer.Scan(21.1)
+    local tracked=ns.model.units["Player-1-A"]
+    truth(tracked.durationEpoch>before)
+    equal(tracked.durationBaselines[2637],nil)
+    equal(ns.Observer.stats.handoffsPreserved,0); equal(ns.Observer.stats.handoffsInvalidated,1)
+end)
+
+test("reverse LoC to aura handoffs still invalidate learned duration evidence", function()
+    reset(); realModel(); fixture.guid.target=nil; C_UnitAuras=nil
+    for now=0,21 do ns.Observer.Scan(now) end
+    fixture.loc={{spellID=2637,auraInstanceID=700,startTime=22,duration=20}}
+    ns.Observer.Scan(22)
+    truth(ns.model.units["Player-1-Self"].durationBaselines[2637])
+    local before=ns.model.units["Player-1-Self"].durationEpoch
+    fixture.guid.player=nil; fixture.guid.target="Player-1-Self"
+    C_UnitAuras={GetAuraDataByIndex=function(unit,index)
+        if unit=="target" and index==1 then
+            return {spellId=2637,auraInstanceID=700,expirationTime=42,duration=20}
+        end
+    end}
+    ns.Observer.Scan(22.1)
+    local tracked=ns.model.units["Player-1-Self"]
+    truth(tracked.durationEpoch>before); equal(tracked.durationBaselines[2637],nil)
+    equal(ns.Observer.stats.handoffsPreserved,0)
+    equal(ns.Observer.stats.handoffsInvalidated,1,"reverse switch still invalidates")
+end)
+
 local failures={}
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2])

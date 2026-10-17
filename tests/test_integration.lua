@@ -573,6 +573,54 @@ assert(correctedStatus:find('reportedDuration=20.000',1,true),
  'trace distinguishes raw reported duration from remaining-time expiry')
 handoffEvent(2657980.800,'LOSS_OF_CONTROL_UPDATE',1,2657980.500)
 
+-- The 0.4.9 live sequence begins with readable aura coverage, unlike the
+-- preceding fixture which entered LoC during its empty baseline. The first
+-- positive application crosses sensors before explicit duration is available.
+SlashCmdList.BJARKICC('clear')
+handoffAura=nil; handoffLoC=nil
+handoffEvent(2659009.170,'UNIT_AURA')
+advanceObserved(2659029.859)
+handoffAura={spellId=2637,auraInstanceID=421,expirationTime=2659049.859,duration=20}
+handoffEvent(2659029.859,'UNIT_AURA',1,2659029.859)
+handoffAura={spellId=handoffSecret,auraInstanceID=421}
+handoffLoC={spellID=2637,auraInstanceID=421,startTime=2659030,duration=20,timeRemaining=20}
+handoffEvent(2659029.859,'LOSS_OF_CONTROL_ADDED',1,2659029.859)
+handoffEvent(2659030.143,'LOSS_OF_CONTROL_UPDATE',1,2659030)
+advanceObserved(2659048.138); handoffLoC=nil
+handoffEvent(2659048.138,'LOSS_OF_CONTROL_UPDATE',1,2659030)
+advanceObserved(2659050.047)
+handoffLoC={spellID=2637,auraInstanceID=423,startTime=2659050,duration=10,timeRemaining=9.953}
+handoffEvent(2659050.047,'LOSS_OF_CONTROL_ADDED',2,2659050)
+advanceObserved(2659060.205); handoffLoC=nil
+handoffEvent(2659060.205,'LOSS_OF_CONTROL_UPDATE',2,2659050)
+handoffLoC={spellID=2637,auraInstanceID=425,startTime=2659060.250,duration=5,timeRemaining=5}
+handoffEvent(2659060.205,'LOSS_OF_CONTROL_ADDED',3,2659060.205)
+handoffEvent(2659060.356,'LOSS_OF_CONTROL_UPDATE',3,2659060.250)
+advanceObserved(2659065.120); handoffLoC=nil
+handoffEvent(2659065.120,'LOSS_OF_CONTROL_UPDATE',3,2659060.250)
+advanceObserved(2659080.707)
+handoffLoC={spellID=2637,auraInstanceID=427,startTime=2659080.750,duration=20,timeRemaining=19.999}
+handoffEvent(2659080.707,'LOSS_OF_CONTROL_ADDED',3,2659080.707)
+handoffEvent(2659080.760,'LOSS_OF_CONTROL_UPDATE',1,2659080.750)
+local handoffCorrected=ns.UI.bars.player.icons[1].row
+assert(handoffCorrected.resetEvidence=='matching-full-duration'
+ and handoffCorrected.resetBaselineDuration==20 and handoffCorrected.uncertain,
+ 'the original quiet aura history supports a bounded baseline after exact-identity LoC handoff')
+advanceObserved(2659100.714); handoffLoC=nil
+handoffEvent(2659100.714,'LOSS_OF_CONTROL_UPDATE',1,2659080.750)
+handoffLoC={spellID=2637,auraInstanceID=429,startTime=2659101,duration=10,timeRemaining=10}
+handoffEvent(2659100.993,'LOSS_OF_CONTROL_ADDED',2,2659100.993)
+handoffEvent(2659101.079,'LOSS_OF_CONTROL_UPDATE',2,2659101)
+advanceObserved(2659110.972); handoffLoC=nil
+handoffEvent(2659110.972,'LOSS_OF_CONTROL_UPDATE',2,2659101)
+handoffLoC={spellID=2637,auraInstanceID=431,startTime=2659111.500,duration=5,timeRemaining=5}
+handoffEvent(2659111.389,'LOSS_OF_CONTROL_ADDED',3,2659111.389)
+handoffEvent(2659111.691,'LOSS_OF_CONTROL_UPDATE',3,2659111.500)
+advanceObserved(2659116.432); handoffLoC=nil
+handoffEvent(2659116.432,'LOSS_OF_CONTROL_UPDATE',3,2659111.500)
+assert(ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
+ 'this handoff regression contains continuous polling and no cast-derived stage overlay')
+
 -- Real settings callbacks must change one clock without silently changing the
 -- other, and rebuild tracking so old observations cannot keep stale settings.
 local applicationSlider,stageSlider

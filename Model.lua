@@ -157,6 +157,23 @@ local function durationContext(unit, state, effects, key, category)
     }
 end
 
+local function rememberAuraDuration(state, effect, preciseStart)
+    local context = state and state.durationContext
+    if not context or context.initialAuraDuration or effect.applicationSource ~= "aura"
+        or not preciseStart or preciseStart >= math.huge
+        or state.spellID ~= effect.spellID
+        or math.abs(state.appliedAt - preciseStart) > APPLICATION_EPSILON
+        or (state.witness and state.witness.applicationSource == "loc") then return end
+    local expires = effect.expires
+    if type(expires) ~= "number" or expires ~= expires or expires >= math.huge then return end
+    local duration = expires - preciseStart
+    if duration <= 0 or duration > 120 then return end
+    -- This interval can only veto inconsistent baseline learning. It never
+    -- teaches a full duration or infers a diminished stage. Freeze the first
+    -- coherent interval, including one that becomes readable after identity.
+    context.initialAuraDuration = duration
+end
+
 local function reconcileDuration(unit, state, effect, preciseStart, now, complete)
     if not state or state.reportedDurationWitness or not complete
         or effect.applicationSource ~= "loc" or not preciseStart
@@ -177,6 +194,8 @@ local function reconcileDuration(unit, state, effect, preciseStart, now, complet
             and preciseStart - context.priorEnd >= DURATION_QUIET_SECONDS
             and context.quietSince and preciseStart - context.quietSince >= DURATION_QUIET_SECONDS)
     if state.stage == 1 and not state.inferredStage
+        and (not context.initialAuraDuration
+            or math.abs(duration - context.initialAuraDuration) <= APPLICATION_EPSILON)
         and preciseStart - context.completeSince >= DURATION_QUIET_SECONDS and observedQuiet then
         unit.durationBaselines[effect.spellID] = {duration = duration, seen = now}
         trimOldest(unit.durationBaselines, MAX_DURATION_BASELINES)
@@ -408,6 +427,7 @@ function Model:Observe(guid, effects, now, complete)
         local current = unit.categories[category]
         if current and current.applicationKey == key then
             current.witness = nextEffects[key]
+            rememberAuraDuration(current, effect, preciseStart)
             reconcileDuration(unit, current, effect, preciseStart, now, complete)
         end
         stageEffects[key] = nextEffects[key]

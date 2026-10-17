@@ -1336,6 +1336,47 @@ test("learning many exact spell durations keeps per unit evidence bounded", func
     eq(m.units.a.durationBaselines[160].duration,20,"recent usable evidence survives churn")
 end)
 
+test("a shorter first LoC interval cannot teach a full baseline after a twenty second aura", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},0,true)
+    local aura=durationEffect(100,20,nil); aura.applicationSource="aura"
+    m:Observe("a",{same=aura},100,true)
+    -- Same identity does not rule out a refresh before its first explicit LoC
+    -- timestamp. The differing duration can veto learning, not infer a stage.
+    m:Observe("a",{same=durationEffect(110,10,10)},110,true)
+    eq(only(m:GetDR("a",110)).stage,1,"duration disagreement must not invent a half-stage count")
+    m:Observe("a",{},120,true)
+    m:Observe("a",{next=durationEffect(135.5,10,10)},135.5,true)
+    local row=only(m:GetDR("a",135.5))
+    eq(row.stage,2,"ten seconds was never established as this spell's full duration")
+    eq(row.resetEvidence,nil)
+end)
+
+test("an initially untimed aura still contributes its first readable duration veto", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},0,true)
+    m:Observe("a",{same=effect("stun",100)},100,true)
+    local aura=durationEffect(100.1,20,nil); aura.applicationSource="aura"
+    m:Observe("a",{same=aura},100.2,true)
+    m:Observe("a",{same=durationEffect(110.1,10,10)},110.2,true)
+    m:Observe("a",{},120.1,true)
+    m:Observe("a",{next=durationEffect(135.6,10,10)},135.6,true)
+    local row=only(m:GetDR("a",135.6)); eq(row.stage,2); eq(row.resetEvidence,nil)
+end)
+
+test("matching aura and LoC durations permit baseline learning despite clock calibration", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},0,true)
+    local aura=durationEffect(100.2,20,nil); aura.applicationSource="aura"
+    m:Observe("a",{same=aura},100.2,true)
+    m:Observe("a",{same=durationEffect(100.5,20,20)},100.6,true)
+    m:Observe("a",{},120.5,true)
+    m:Observe("a",{next=durationEffect(136,20,20)},136,true)
+    local row=only(m:GetDR("a",136))
+    eq(row.stage,1); eq(row.started,136)
+    eq(row.resetEvidence,"matching-full-duration"); eq(row.resetBaselineDuration,20)
+end)
+
 local function runModelTests()
     local failed=0
     for _, case in ipairs(cases) do
