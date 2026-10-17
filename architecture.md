@@ -1,5 +1,18 @@
 # bjarkiCC architecture and DR research
 
+## AoE confirmed-hit sensor supplement (0.4.17.3 candidate)
+
+War Stomp (20549) and Iron Grenade (4068) are both harmful stun aura IDs in `Data.lua`. A successful racial/item cast identifies an action, not one or more specific victims. Strict confirmed-hit semantics continue to require positive victim-specific evidence.
+
+1. `Observer.scanGuid` supplements blocked indexed harmful-aura enumeration with **both** exact 20549 and exact 4068 queries, plus the existing six Nature's Grasp proc roots and bounded pending direct-cast queries. Explicit area spell lookups never generate their own cast estimates.
+2. `UNIT_AURA`'s `updateInfo.addedAuras` is accepted only when readable. The observer bounds the array, checks each value/field, requires `isHarmful=true`, known AoE spell ID and positive `auraInstanceID`, and retains optional valid duration-derived application time. This is an independent positive source. A secret payload is not decoded.
+3. An event witness is merged into the same GUID's owner+alias snapshot **before** identity reconciliation and delivered to the model only once. If the current complete indexed enumeration lacks that positive instance, its absence is contradictory; the scan becomes partial and the confirmed application remains. Later complete negative snapshots may establish removal but cannot erase the fact that the CC applied.
+4. `UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED` is registered only for availability diagnostics. The built-in tracker advertises secret payloads. Even an observed event or a readable unit token does not prove that a *specific* AoE cast hit that unit in the *stun* category. It cannot seed the model or expose private native data.
+5. Debug counters and bounded observation trace distinguish exact-spell hit, readable aura-event hit, secret/unavailable event data and native DR event presence. They do not claim a forbidden source is readable.
+
+The method is inspired by bjarkiPortraits' disciplined separation of secure/native presentation and readable application evidence. It cannot reproduce a native secure DR view or unlock restricted combat history. The only path to reliable confirmed caster tracking requires game-permitted readable victim-specific stun evidence. Application and stage clocks, side-grid geometry, AoE handling, estimates and SavedVariables schema are unchanged.
+
+
 ## Evidence-first 0.4.17.2 candidate (2026-10-17)
 
 This isolated candidate retains the original 0.4.17.1 stage model and presentation. It adapts bjarkiPortraits' distinction between *observation*, *authorization*, and *display*, without copying native portrait behavior into an historical DR model.
