@@ -258,7 +258,9 @@ function OwnCasts.Sent(unit, targetName, castGUID, spellID, now)
 end
 function OwnCasts.Succeeded(unit, castGUID, spellID, now)
     if Safe.String(unit) ~= 'player' or not enabled() then return false end
-    local rawGUID = castGUID
+    -- A cast GUID can be nil, malformed or secret on item activations.
+    -- It is NOT needed to mark an unconfirmed possible-target attempt.
+    -- Never compare or format the raw GUID before an accessibility guard.
     castGUID, spellID, now = identity(castGUID), spell(spellID), Safe.Number(now)
     if not spellID or not now then return false end
     if areaStuns[spellID] then
@@ -269,7 +271,6 @@ function OwnCasts.Succeeded(unit, castGUID, spellID, now)
             -- Some item activations omit a normal cast GUID. Use only the
             -- readable successful SPELL event and de-duplicate close repeats;
             -- the synthetic ID is LOCAL, never an inferred aura identity.
-            if rawGUID ~= nil and not Safe.Readable(rawGUID) then return false end
             local last = OwnCasts.recentAoESuccess[spellID]
             if last and now >= last and now - last < .8 then return false end
             OwnCasts.aoeCounter = OwnCasts.aoeCounter + 1
