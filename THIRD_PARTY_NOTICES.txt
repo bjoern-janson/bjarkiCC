@@ -146,6 +146,11 @@ interval and considers a matching explicit LoC duration after a 15s end gap.
 Those bounds follow the provisional Classic range, not verified Forever rules.
 It does not copy Diminish's remaining-time ratio heuristic; correction remains
 uncertain and is documented in architecture.md.
+Version 0.4.11 adds an original bounded baseline-learning path from three
+consecutive explicit same-spell durations D, D/2, D/4 under that provisional
+three-successful-applications profile. It learns only after the full sequence,
+does not infer current stages from remaining-time ratios, and keeps sequence
+provenance and correction uncertainty. See architecture.md for eligibility.
 The referenced Classic profile does not contain a separate Fear stage rule.
 
 Most selected beta spell pages identify client build 1.60.1.70374. That is older

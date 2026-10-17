@@ -75,4 +75,37 @@ assert(#ns.drTrace==beforePolls+1 and ns.BuildStatus():find('reportedDuration=20
  'new explicit reported duration is a diagnostic transition even with unchanged identity/start')
 now=205.2; frame.scripts.OnEvent(frame,'LOSS_OF_CONTROL_UPDATE')
 assert(#ns.drTrace==beforePolls+1,'stable reported duration does not fill diagnostic history')
+-- Feed normalized observations to the real model so status distinguishes an
+-- absent baseline, a pending sequence, and evidence learned on its third CC.
+SlashCmdList.BJARKICC('clear')
+now=1000; aura=nil
+C_UnitAuras={GetAuraDataByIndex=function() end}
+C_LossOfControl={GetActiveLossOfControlDataCount=function() return 0 end}
+frame.scripts.OnEvent(frame,'UNIT_AURA','player')
+local function observeDuration(at,key,duration)
+ now=at
+ local effects=key and {[key]={category='incapacitate',spellID=2637,
+  appliedAt=at,expires=at+duration,applicationSource='loc',reportedDuration=duration}} or {}
+ ns.model:Observe('Player-1-TRACE',effects,at,true)
+ ns.RecordDRObservation('Player-1-TRACE',effects,at,true,'loc')
+end
+observeDuration(1001,'a:1001',20)
+assert(ns.BuildStatus():find('Full-duration baseline: not learned; sequence 1/3.',1,true),
+ 'status must distinguish missing baseline from a correction failure')
+observeDuration(1002)
+observeDuration(1004,'a:1004',10)
+assert(ns.BuildStatus():find('Full-duration baseline: not learned; sequence 2/3.',1,true),
+ 'two samples cannot be presented as a learned full duration')
+observeDuration(1006)
+observeDuration(1008,'a:1008',5)
+local learnedReport=ns.BuildStatus()
+assert(learnedReport:find('Full-duration baseline: 20.000s (observed-halving-chain).',1,true),
+ 'status exposes learned duration and its actual evidence source')
+assert(learnedReport:find('fullBaseline=20.000 baselineSource=observed-halving-chain',1,true),
+ 'recent trace must retain baseline acquisition before any later correction')
+local learnedTraceCount=#ns.drTrace
+now=1008.2
+ns.RecordDRObservation('Player-1-TRACE',{['a:1008']={category='incapacitate',spellID=2637,
+ appliedAt=1008,expires=1013,applicationSource='loc',reportedDuration=5}},now,true,'loc')
+assert(#ns.drTrace==learnedTraceCount,'unchanged baseline evidence must not create polling noise')
 print('diagnostics: real observation transitions, deduplication, bounded history and reset passed')

@@ -109,7 +109,7 @@ local function predecessor(state)
         observedQuietSince = state.observedQuietSince,
         durationContext = state.durationContext, reportedDurationWitness = state.reportedDurationWitness,
         resetEvidence = state.resetEvidence, resetBaselineDuration = state.resetBaselineDuration,
-        resetPreviousStage = state.resetPreviousStage,
+        resetPreviousStage = state.resetPreviousStage, resetBaselineSource = state.resetBaselineSource,
     }
 end
 
@@ -174,6 +174,65 @@ local function rememberAuraDuration(state, effect, preciseStart)
     context.initialAuraDuration = duration
 end
 
+local function auraDurationConsistent(context, duration)
+    return not context.initialAuraDuration
+        or math.abs(duration - context.initialAuraDuration) <= APPLICATION_EPSILON
+end
+
+local function matchesDurationCandidate(state, candidate)
+    return state and state.stage == candidate.step and state.spellID == candidate.spellID
+        and state.applicationKey == candidate.applicationKey
+        and math.abs(state.appliedAt - candidate.appliedAt) <= APPLICATION_EPSILON
+end
+
+local function observeHalvingChain(unit, state, effect, start, duration, now, context)
+    local category = effect.category
+    if unit.durationBaselines[effect.spellID] then
+        unit.durationLadders[category] = nil
+        return
+    end
+    local candidate = unit.durationLadders[category]
+    if state.inferredStage or not auraDurationConsistent(context, duration) then
+        unit.durationLadders[category] = nil
+        return
+    end
+    if state.stage == 1 then
+        unit.durationLadders[category] = {
+            spellID = effect.spellID, firstDuration = duration, step = 1,
+            applicationKey = state.applicationKey, appliedAt = start,
+            coverageEpoch = unit.durationEpoch, seen = now,
+        }
+        trimOldest(unit.durationLadders, MAX_DURATION_BASELINES)
+        return
+    end
+    local prior = state.previousApplication
+    if not candidate or candidate.spellID ~= effect.spellID
+        or candidate.coverageEpoch ~= unit.durationEpoch
+        or state.stage ~= candidate.step + 1 or candidate.step >= 3
+        or not matchesDurationCandidate(prior, candidate) or prior.inferredStage
+        or not context.priorEndObserved or not context.priorEnd or not context.quietSince
+        or start < context.priorEnd or start < context.quietSince
+        or start - context.priorEnd >= DURATION_RESET_MINIMUM
+        or start - context.quietSince >= DURATION_RESET_MINIMUM
+        or math.abs(duration - candidate.firstDuration / (2 ^ candidate.step)) > APPLICATION_EPSILON then
+        unit.durationLadders[category] = nil
+        return
+    end
+    candidate.step, candidate.applicationKey, candidate.appliedAt, candidate.seen =
+        candidate.step + 1, state.applicationKey, start, now
+    if candidate.step == 3 then
+        -- Three observed nonzero hits corroborate the first interval under the
+        -- provisional full/half/quarter/immune rules. Never derive a current
+        -- stage from ratios or treat two shortened hits as a full baseline.
+        unit.durationBaselines[effect.spellID] = {
+            duration = candidate.firstDuration, seen = now, source = "observed-halving-chain",
+        }
+        trimOldest(unit.durationBaselines, MAX_DURATION_BASELINES)
+        unit.durationLadders[category] = nil
+        state.uncertain = true
+    end
+end
+
 local function reconcileDuration(unit, state, effect, preciseStart, now, complete)
     if not state or state.reportedDurationWitness or not complete
         or effect.applicationSource ~= "loc" or not preciseStart
@@ -188,19 +247,23 @@ local function reconcileDuration(unit, state, effect, preciseStart, now, complet
     local context = state.durationContext
     if not context or context.coverageEpoch ~= unit.durationEpoch
         or not context.completeSince or preciseStart < context.completeSince
-        or context.pending or context.overlap then return end
+        or context.pending or context.overlap then
+        unit.durationLadders[effect.category] = nil
+        return
+    end
     local observedQuiet = context.noPriorCategory
         or (context.priorEndObserved and context.priorEnd
             and preciseStart - context.priorEnd >= DURATION_QUIET_SECONDS
             and context.quietSince and preciseStart - context.quietSince >= DURATION_QUIET_SECONDS)
     if state.stage == 1 and not state.inferredStage
-        and (not context.initialAuraDuration
-            or math.abs(duration - context.initialAuraDuration) <= APPLICATION_EPSILON)
+        and auraDurationConsistent(context, duration)
         and preciseStart - context.completeSince >= DURATION_QUIET_SECONDS and observedQuiet then
-        unit.durationBaselines[effect.spellID] = {duration = duration, seen = now}
+        unit.durationBaselines[effect.spellID] = {duration = duration, seen = now, source = "quiet-observation"}
         trimOldest(unit.durationBaselines, MAX_DURATION_BASELINES)
+        unit.durationLadders[effect.category] = nil
         return
     end
+    observeHalvingChain(unit, state, effect, preciseStart, duration, now, context)
     local baseline = unit.durationBaselines[effect.spellID]
     if state.stage > 1 and baseline and context.priorEndObserved and context.priorEnd
         and preciseStart - context.priorEnd >= DURATION_RESET_MINIMUM
@@ -210,6 +273,7 @@ local function reconcileDuration(unit, state, effect, preciseStart, now, complet
         state.stage, state.inferredStage = 1, nil
         state.confirmationStage, state.confirmationSentAt, state.confirmationAppliedAt = nil, nil, nil
         state.resetEvidence, state.resetBaselineDuration = "matching-full-duration", baseline.duration
+        state.resetBaselineSource = baseline.source
         state.uncertain = true
     end
 end
@@ -218,7 +282,7 @@ function Model:Observe(guid, effects, now, complete)
     if not guid then return end
     local unit = self.units[guid]
     if not unit then
-        unit = {seen = now, effects = {}, categories = {}, durationBaselines = {}, durationEpoch = 0}
+        unit = {seen = now, effects = {}, categories = {}, durationBaselines = {}, durationLadders = {}, durationEpoch = 0}
         self.units[guid] = unit
     end
     unit.seen = now
@@ -234,6 +298,7 @@ function Model:Observe(guid, effects, now, complete)
         -- the earlier history proof. It also cannot change an observed timer.
         unit.completeSince = nil
         unit.durationBaselines = {}
+        unit.durationLadders = {}
         unit.durationEpoch = unit.durationEpoch + 1
         for _, state in pairs(unit.categories) do
             state.uncertain = true
@@ -350,7 +415,7 @@ function Model:Observe(guid, effects, now, complete)
                 state.timeEstimated = estimatedTime ~= nil
                 state.previousApplication = prior
                 state.durationContext, state.reportedDurationWitness = context, nil
-                state.resetEvidence, state.resetBaselineDuration, state.resetPreviousStage = nil, nil, nil
+                state.resetEvidence, state.resetBaselineDuration, state.resetPreviousStage, state.resetBaselineSource = nil, nil, nil, nil
                 state.confirmationStage = matchedPrediction and candidate.stage or nil
                 state.confirmationSentAt = matchedPrediction and (candidate.sentAt or candidate.appliedAt) or nil
                 state.confirmationAppliedAt = matchedPrediction and candidate.appliedAt or nil
@@ -524,6 +589,13 @@ function Model:GetDR(guid, now, includeEstimates)
         local inferredStage = includeEstimates ~= false and not estimated and state.inferredStage
         local stageEstimated = inferredStage ~= nil and inferredStage ~= false and inferredStage > state.stage
         local observed = unit and unit.categories[category]
+        local baseline = not estimated and unit and unit.durationBaselines[state.spellID]
+        local durationCandidate = not estimated and unit and unit.durationLadders[category]
+        if durationCandidate and (durationCandidate.spellID ~= state.spellID
+            or (not matchesDurationCandidate(state, durationCandidate)
+                and not matchesDurationCandidate(state.previousApplication, durationCandidate))) then
+            durationCandidate = nil
+        end
         rows[#rows + 1] = {
             category = category,
             spellID = state.spellID,
@@ -541,6 +613,10 @@ function Model:GetDR(guid, now, includeEstimates)
             resetEvidence = not estimated and state.resetEvidence or nil,
             resetBaselineDuration = not estimated and state.resetBaselineDuration or nil,
             resetPreviousStage = not estimated and state.resetPreviousStage or nil,
+            resetBaselineSource = not estimated and state.resetBaselineSource or nil,
+            fullDurationBaseline = baseline and baseline.duration or nil,
+            fullDurationBaselineSource = baseline and baseline.source or nil,
+            durationCandidateStep = durationCandidate and durationCandidate.step or nil,
             active = active,
             uncertain = estimated or stageEstimated or state.uncertain
                 or (not active and state.stageResetSource == "predicted-end"),

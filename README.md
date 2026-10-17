@@ -2,7 +2,17 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.10-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.11-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Learn from a complete CC sequence in 0.4.11
+
+The latest 0.4.10 log confirms the source handoff is preserved. However, tracking began only 13.851 seconds before the first Hibernate, so the 20-second quiet-learning requirement prevented any full-duration baseline. The first 20/10/5-second sequence counted correctly; the next full and half-duration applications incorrectly retained red because the correction had no learned baseline.
+
+Version 0.4.11 adds another way to establish that baseline: three consecutive, completely observed applications of the same spell on the same player with explicit durations D, D/2 and D/4. Each subsequent application must follow an observed end with a gap shorter than 15 seconds, without overlap, missing observations, intervening category applications or inferred stages. One or two samples cannot qualify. The sequence supplies the original full-duration baseline only after its third application; it does not recolor individual casts by their duration ratio. The existing guarded correction can then recognize the subsequent full-duration return. This remains an inference under the provisional Classic profile.
+
+The supplied trace replays as green/yellow/red, then green/yellow. A synthetic next quarter-duration application checks red. Red on the initial five-second third Hibernate is expected: it indicates that the next CC is expected to be immune. The later ten-second second Hibernate should be yellow, indicating 25% duration on the next CC.
+
+Status now distinguishes an absent baseline, a partial sequence and a learned baseline with its evidence source. The 20-second application countdown and configurable stage-reset estimate are unchanged. Live validation remains necessary.
 
 ## Preserve the first full-duration sample in 0.4.10
 

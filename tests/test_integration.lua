@@ -621,6 +621,67 @@ handoffEvent(2659116.432,'LOSS_OF_CONTROL_UPDATE',3,2659111.500)
 assert(ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
  'this handoff regression contains continuous polling and no cast-derived stage overlay')
 
+-- Replay the 0.4.10 a477/a479/a481/a483 trace independently. Its first
+-- explicit application starts only 13.851 seconds after observation began;
+-- the later 20/10/5 chain, rather than a twenty-second quiet baseline, must
+-- support correcting the next full duration. The second cycle refreshes a483.
+SlashCmdList.BJARKICC('clear')
+handoffAura=nil; handoffLoC=nil
+handoffEvent(2660043.899,'UNIT_AURA')
+advanceObserved(2660057.587)
+handoffAura={spellId=2637,auraInstanceID=477,expirationTime=2660077.587,duration=20}
+handoffEvent(2660057.587,'UNIT_AURA',1,2660057.587)
+handoffAura={spellId=handoffSecret,auraInstanceID=477}
+handoffLoC={spellID=2637,auraInstanceID=477,startTime=2660057.750,duration=20,timeRemaining=20}
+handoffEvent(2660057.587,'LOSS_OF_CONTROL_ADDED',1,2660057.587)
+handoffEvent(2660057.844,'LOSS_OF_CONTROL_UPDATE',1,2660057.750)
+assert(ns.model.units[units.player].durationBaselines[2637]==nil,
+ '13.851 seconds of quiet observation alone cannot establish a full-duration baseline')
+advanceObserved(2660074.212); handoffLoC=nil
+handoffEvent(2660074.212,'LOSS_OF_CONTROL_UPDATE',1,2660057.750)
+advanceObserved(2660076.459)
+handoffLoC={spellID=2637,auraInstanceID=479,startTime=2660076.750,duration=10,timeRemaining=10}
+handoffEvent(2660076.459,'LOSS_OF_CONTROL_ADDED',2,2660076.459)
+handoffEvent(2660076.769,'LOSS_OF_CONTROL_UPDATE',2,2660076.750)
+advanceObserved(2660086.643); handoffLoC=nil
+handoffEvent(2660086.643,'LOSS_OF_CONTROL_UPDATE',2,2660076.750)
+advanceObserved(2660089.007)
+handoffLoC={spellID=2637,auraInstanceID=481,startTime=2660089.250,duration=5,timeRemaining=5}
+handoffEvent(2660089.007,'LOSS_OF_CONTROL_ADDED',3,2660089.007)
+handoffEvent(2660089.324,'LOSS_OF_CONTROL_UPDATE',3,2660089.250)
+advanceObserved(2660094.112); handoffLoC=nil
+handoffEvent(2660094.112,'LOSS_OF_CONTROL_UPDATE',3,2660089.250)
+advanceObserved(2660109.701)
+handoffLoC={spellID=2637,auraInstanceID=483,startTime=2660110,duration=20,timeRemaining=20}
+handoffEvent(2660109.701,'LOSS_OF_CONTROL_ADDED',3,2660109.701)
+handoffEvent(2660110.187,'LOSS_OF_CONTROL_UPDATE',1,2660110)
+local chainCorrected=ns.UI.bars.player.icons[1].row
+assert(chainCorrected.resetEvidence=='matching-full-duration' and chainCorrected.resetBaselineDuration==20
+ and chainCorrected.uncertain,'the observed halving chain supports a bounded correction')
+assert(chainCorrected.resetBaselineSource=='observed-halving-chain',
+ 'the correction retains its distinct sequence-based provenance')
+ns.UI.bars.player.icons[1].scripts.OnEnter(ns.UI.bars.player.icons[1])
+assert(table.concat(ns.UI.tip.lines,'\n'):find(
+ 'Baseline learned from three consecutive full/half/quarter observations (provisional profile).',1,true),
+ 'tooltip identifies the observed sequence as provisional baseline evidence')
+assert(ns.BuildStatus():find('Baseline evidence: observed full/half/quarter sequence.',1,true),
+ 'status exposes the correction baseline source')
+advanceObserved(2660120.941)
+handoffLoC={spellID=2637,auraInstanceID=483,startTime=2660121,duration=10,timeRemaining=10}
+handoffEvent(2660120.941,'LOSS_OF_CONTROL_UPDATE',1,2660110)
+handoffEvent(2660121.074,'LOSS_OF_CONTROL_UPDATE',2,2660121)
+advanceObserved(2660130.879); handoffLoC=nil
+handoffEvent(2660130.879,'LOSS_OF_CONTROL_UPDATE',2,2660121)
+assert(ns.Observer.stats.handoffsPreserved==1 and ns.Observer.stats.handoffsInvalidated==0,
+ 'the reported exact aura-to-LoC handoff remains preserved')
+assert(ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
+ 'the a477 replay contains continuous observation without cast predictions')
+-- Synthetic extension, not part of the supplied trace: another distinct
+-- five-second application must advance the corrected second cycle to three.
+advanceObserved(2660132)
+handoffLoC={spellID=2637,auraInstanceID=485,startTime=2660132,duration=5,timeRemaining=5}
+handoffEvent(2660132,'LOSS_OF_CONTROL_ADDED',3,2660132)
+
 -- Real settings callbacks must change one clock without silently changing the
 -- other, and rebuild tracking so old observations cannot keep stale settings.
 local applicationSlider,stageSlider

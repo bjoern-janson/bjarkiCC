@@ -23,6 +23,8 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor)
         stages[#stages+1]=row.category..' observed='..(row.observedStage or row.stage)..' shown='..row.stage
             ..' start='..stamp(row.started)..(row.estimated and ' cast-estimate' or (row.stageEstimated and ' inferred-history' or ' observed'))
             ..(row.resetEvidence and (' correction='..row.resetEvidence..' baseline='..stamp(row.resetBaselineDuration)) or '')
+            ..' fullBaseline='..stamp(row.fullDurationBaseline)..' baselineSource='..(row.fullDurationBaselineSource or 'none')
+            ..' sequence='..(row.durationCandidateStep or 0)
         stageDetails[#stageDetails+1]=stages[#stages]..' stageReset='..stamp(row.stageResetAt)
             ..(row.stageResetSource and (' '..row.stageResetSource) or '')
     end
@@ -98,9 +100,15 @@ function ns.BuildStatus()
                 if row.timeEstimated then lines[#lines+1]='    Application observed; timing retained from own-cast estimate.' end
                 if row.resetEvidence=='matching-full-duration' then
                     lines[#lines+1]=string.format('    Stage correction: matching full duration (%.3fs); reset inferred, server timing unknown.',row.resetBaselineDuration)
+                    if row.resetBaselineSource=='observed-halving-chain' then
+                        lines[#lines+1]='    Baseline evidence: observed full/half/quarter sequence.'
+                    end
                     if row.resetPreviousStage then lines[#lines+1]='    Count before correction: '..row.resetPreviousStage..'.' end
                 end
                 if not row.estimated then
+                    lines[#lines+1]=row.fullDurationBaseline
+                        and string.format('    Full-duration baseline: %.3fs (%s).',row.fullDurationBaseline,row.fullDurationBaselineSource or 'unknown')
+                        or ('    Full-duration baseline: not learned; sequence '..(row.durationCandidateStep or 0)..'/3.')
                     lines[#lines+1]=row.stageResetAt and string.format('    Stage reset: %.3f; remaining %.3f (%s; provisional estimate).',
                         row.stageResetAt,row.stageRemaining or 0,row.stageResetSource or 'unknown end')
                         or '    Stage reset: awaiting readable CC end.'

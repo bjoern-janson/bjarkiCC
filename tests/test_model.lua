@@ -1191,10 +1191,25 @@ test("remaining-only aura and malformed duration evidence cannot reset a retaine
     end
 end)
 
-test("a short quiet interval cannot teach a full duration baseline", function()
-    local m=durationSequence({coverageStart=85})
+test("short quiet observation needs all three halving hits before teaching a baseline", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},90,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100,true)
+    local row=only(m:GetDR("a",100))
+    eq(row.fullDurationBaseline,nil); eq(row.durationCandidateStep,1)
+    m:Observe("a",{},120,true)
+    m:Observe("a",{second=durationEffect(130,10,10)},130,true)
+    row=only(m:GetDR("a",130)); eq(row.fullDurationBaseline,nil); eq(row.durationCandidateStep,2)
+    m:Observe("a",{},140,true)
+    m:Observe("a",{third=durationEffect(141,5,5)},141,true)
+    row=only(m:GetDR("a",141))
+    eq(row.stage,3,"the chain teaches duration without recoloring the third application")
+    eq(row.fullDurationBaseline,20); eq(row.fullDurationBaselineSource,"observed-halving-chain")
+    eq(row.durationCandidateStep,nil)
+    m:Observe("a",{},146,true)
     m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
-    eq(only(m:GetDR("a",161.5)).stage,3)
+    row=only(m:GetDR("a",161.5))
+    eq(row.stage,1); eq(row.resetBaselineSource,"observed-halving-chain"); eq(row.uncertain,true)
 end)
 
 test("continuous coverage alone cannot teach a baseline while category history is recent", function()
@@ -1375,6 +1390,172 @@ test("matching aura and LoC durations permit baseline learning despite clock cal
     local row=only(m:GetDR("a",136))
     eq(row.stage,1); eq(row.started,136)
     eq(row.resetEvidence,"matching-full-duration"); eq(row.resetBaselineDuration,20)
+end)
+
+test("the cold a477 through a483 trace learns a full baseline before its later reset", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},2660043.899,true)
+    local aura=durationEffect(2660057.587,20,nil); aura.applicationSource="aura"
+    m:Observe("a",{["a:477"]=aura},2660057.587,true)
+    local function read(key,start,duration,now)
+        local value=durationEffect(start,duration,start and duration or nil)
+        if not start then value.expires=now+duration end
+        m:Observe("a",{[key]=value},now,true)
+        return only(m:GetDR("a",now))
+    end
+    read("a:477",nil,20,2660057.587)
+    eq(read("a:477",2660057.750,20,2660057.844).stage,1)
+    m:Observe("a",{},2660074.212,true)
+    read("a:479",nil,10,2660076.459)
+    eq(read("a:479",2660076.750,10,2660076.769).stage,2)
+    m:Observe("a",{},2660086.643,true)
+    read("a:481",nil,5,2660089.007)
+    local row=read("a:481",2660089.250,5,2660089.324)
+    eq(row.stage,3); eq(row.fullDurationBaseline,20)
+    eq(row.fullDurationBaselineSource,"observed-halving-chain")
+    m:Observe("a",{},2660094.112,true)
+    read("a:483",nil,20,2660109.701)
+    row=read("a:483",2660110,20,2660110.187)
+    eq(row.stage,1); eq(row.started,2660110); eq(row.resetBaselineSource,"observed-halving-chain")
+    read("a:483",nil,10,2660120.941)
+    row=read("a:483",2660121,10,2660121.074)
+    eq(row.stage,2); eq(row.started,2660121); eq(row.resetEvidence,nil)
+end)
+
+test("two durations alone cannot declare the first one full", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},90,true)
+    m:Observe("a",{first=durationEffect(100,10,10)},100,true)
+    m:Observe("a",{},110,true)
+    m:Observe("a",{second=durationEffect(112,5,5)},112,true)
+    m:Observe("a",{},117,true)
+    m:Observe("a",{third=durationEffect(132.5,10,10)},132.5,true)
+    local row=only(m:GetDR("a",132.5))
+    eq(row.stage,3); eq(row.fullDurationBaseline,nil); eq(row.resetEvidence,nil)
+end)
+
+test("every halving-chain application requires a coherent explicit duration", function()
+    for _,bad in ipairs({{name="missing"},{name="opaque",value={}},{name="nan",value=0/0},
+        {name="zero",value=0},{name="remaining-only"}}) do
+        for step=1,3 do
+            local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+            for index,item in ipairs({{100,20,120},{130,10,140},{141,5,146}}) do
+                local reported=index==step and bad.value or item[2]
+                if index==step then reported=bad.value end
+                m:Observe("a",{[tostring(index)]=durationEffect(item[1],item[2],reported)},item[1],true)
+                m:Observe("a",{},item[3],true)
+            end
+            m:Observe("a",{fourth=durationEffect(161.5,20,20)},161.5,true)
+            local row=only(m:GetDR("a",161.5))
+            eq(row.stage,3,bad.name.." step "..step); eq(row.fullDurationBaseline,nil)
+        end
+    end
+end)
+
+test("wrong ratios and a possible reset between hits cannot establish a halving chain", function()
+    for _,case in ipairs({{second=11,third=5},{second=10,third=6},{second=10,third=5,gap=15}}) do
+        local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+        m:Observe("a",{first=durationEffect(100,20,20)},100,true); m:Observe("a",{},120,true)
+        local second=120+(case.gap or 10)
+        m:Observe("a",{second=durationEffect(second,case.second,case.second)},second,true)
+        m:Observe("a",{},second+case.second,true)
+        local third=second+case.second+1
+        m:Observe("a",{third=durationEffect(third,case.third,case.third)},third,true)
+        local row=only(m:GetDR("a",third)); eq(row.stage,3); eq(row.fullDurationBaseline,nil)
+    end
+end)
+
+test("a partial observation invalidates an unfinished duration chain", function()
+    local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100,true)
+    eq(only(m:GetDR("a",100)).durationCandidateStep,1)
+    m:Observe("a",{},105,false)
+    eq(only(m:GetDR("a",105)).durationCandidateStep,nil)
+    m:Observe("a",{},120,true)
+    m:Observe("a",{second=durationEffect(130,10,10)},130,true); m:Observe("a",{},140,true)
+    m:Observe("a",{third=durationEffect(141,5,5)},141,true)
+    eq(only(m:GetDR("a",141)).fullDurationBaseline,nil)
+end)
+
+test("same-category intervening spells and overlapping effects break a duration chain", function()
+    for _,overlap in ipairs({false,true}) do
+        local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+        m:Observe("a",{first=durationEffect(100,20,20)},100,true); m:Observe("a",{},120,true)
+        local effects={second=durationEffect(130,10,10,overlap and 100 or 101)}
+        if overlap then effects.other=durationEffect(130,10,10,101) end
+        m:Observe("a",effects,130,true); m:Observe("a",{},140,true)
+        m:Observe("a",{third=durationEffect(141,5,5)},141,true)
+        eq(only(m:GetDR("a",141)).fullDurationBaseline,nil)
+    end
+end)
+
+test("duration chains do not borrow observations from another unit", function()
+    local m=ns.Model.New(20,18)
+    m:Observe("a",{},90,true); m:Observe("b",{},120,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100,true); m:Observe("a",{},120,true)
+    m:Observe("b",{second=durationEffect(130,10,10)},130,true); m:Observe("b",{},140,true)
+    m:Observe("b",{third=durationEffect(141,5,5)},141,true)
+    eq(only(m:GetDR("b",141)).fullDurationBaseline,nil)
+end)
+
+test("unrelated DR categories do not invalidate a fully observed duration chain", function()
+    local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100,true); m:Observe("a",{},120,true)
+    local root=effect("root",400,125,121); root.applicationSource="loc"; root.reportedDuration=4
+    m:Observe("a",{root=root},121,true); m:Observe("a",{},125,true)
+    m:Observe("a",{second=durationEffect(130,10,10)},130,true); m:Observe("a",{},140,true)
+    m:Observe("a",{third=durationEffect(141,5,5)},141,true)
+    local row=m:GetDR("a",141)[1]
+    eq(row.category,"stun"); eq(row.fullDurationBaseline,20)
+end)
+
+test("cast-inferred elevation cannot qualify a duration chain", function()
+    local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100,true); m:Observe("a",{},120,true)
+    m:EstimateDR("a",100,"stun",121,"guessed-two",121)
+    m:EstimateDR("a",100,"stun",122,"guessed-three",122)
+    m:Observe("a",{second=durationEffect(130,10,10)},130,true)
+    eq(only(m:GetDR("a",130)).stageEstimated,true)
+    m:Observe("a",{},140,true); m:Observe("a",{third=durationEffect(141,5,5)},141,true)
+    eq(only(m:GetDR("a",141)).fullDurationBaseline,nil)
+end)
+
+test("aura disagreement vetoes halving-chain samples without guessing their stages", function()
+    local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100,true); m:Observe("a",{},120,true)
+    local aura=durationEffect(130,20,nil); aura.applicationSource="aura"
+    m:Observe("a",{second=aura},130,true)
+    m:Observe("a",{second=durationEffect(130.2,10,10)},130.3,true)
+    m:Observe("a",{},140.2,true); m:Observe("a",{third=durationEffect(141,5,5)},141,true)
+    local row=only(m:GetDR("a",141)); eq(row.stage,3); eq(row.fullDurationBaseline,nil)
+end)
+
+test("stable polls and late first timing can contribute only once to a duration chain", function()
+    local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+    local unknown=effect("stun",100,120)
+    m:Observe("a",{first=unknown},99.9,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100.1,true)
+    for time=101,119 do
+        m:Observe("a",{first=durationEffect(100,20,20)},time,true)
+        local row=only(m:GetDR("a",time)); eq(row.stage,1); eq(row.durationCandidateStep,1)
+    end
+    m:Observe("a",{},120,true)
+    m:Observe("a",{second=durationEffect(130,10,10)},130.1,true); m:Observe("a",{},140,true)
+    m:Observe("a",{third=durationEffect(141,5,5)},141.1,true)
+    eq(only(m:GetDR("a",141.1)).fullDurationBaseline,20)
+end)
+
+test("pending duration progress disappears once an unmeasured application is superseded", function()
+    local m=ns.Model.New(20,18); m:Observe("a",{},90,true)
+    m:Observe("a",{first=durationEffect(100,20,20)},100,true); m:Observe("a",{},120,true)
+    m:Observe("a",{second=durationEffect(130,10,nil)},130,true)
+    eq(only(m:GetDR("a",130)).durationCandidateStep,1,"the immediate next application can still gain timing")
+    m:Observe("a",{},140,true)
+    m:Observe("a",{third=durationEffect(141,5,nil)},141,true)
+    local row=only(m:GetDR("a",141)); eq(row.durationCandidateStep,nil); eq(row.fullDurationBaseline,nil)
+    m:Observe("a",{third=durationEffect(141,5,5)},141.1,true)
+    row=only(m:GetDR("a",141.1)); eq(row.stage,3)
+    eq(row.durationCandidateStep,nil); eq(row.fullDurationBaseline,nil)
 end)
 
 local function runModelTests()

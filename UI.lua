@@ -117,6 +117,9 @@ local function tooltip(owner, row, key)
         end
         if row.resetEvidence=='matching-full-duration' then
             tip:AddLine('Full-duration match: '..row.resetBaselineDuration..'s for this player and spell. Earlier stage history was corrected.',1,.55,.25,true)
+            if row.resetBaselineSource=='observed-halving-chain' then
+                tip:AddLine('Baseline learned from three consecutive full/half/quarter observations (provisional profile).',1,.55,.25,true)
+            end
         end
         tip:AddLine(row.remaining>0 and ('Application countdown: '..UI.FormatTime(row.remaining)..'s')
             or 'Application countdown finished; DR stage is still retained.',1,.85,.4,true)
