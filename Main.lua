@@ -83,6 +83,22 @@ local function register(event)
     if not ok then ns.eventErrors[#ns.eventErrors+1] = event end
 end
 
+-- The native DR CVAR is global client configuration, not an addon-private
+-- setting. Never toggle it implicitly on login or while in combat.
+local NATIVE_CVAR = "spellDiminishPVPEnemiesEnabled"
+local function nativeDRSupport()
+    local fn = C_SpellDiminish and C_SpellDiminish.IsSystemSupported
+    local supported = S.Boolean(S.Call(fn))
+    local active = S.String(S.Call(C_CVar and C_CVar.GetCVar, NATIVE_CVAR))
+    local eventValid = S.Boolean(S.Call(C_EventUtils and C_EventUtils.IsEventValid,
+        "UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED"))
+    return supported, active, eventValid
+end
+
+local function nativeLabel(value)
+    return value == nil and "unknown" or tostring(value)
+end
+
 function ns.BuildStatus()
     local version, build, interface = 'unknown','unknown','unknown'
     local now = S.Number(S.Call(GetTime))
@@ -101,6 +117,10 @@ function ns.BuildStatus()
         'Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'ENABLED (experimental)' or 'OFF by default (unverified enemy cast feed)'),
         'Enemy cooldown icons require readable success events or manual marks; empty icons do not prove readiness.',
     }
+    local nativeSupported, nativeCVar, nativeEventValid = nativeDRSupport()
+    lines[#lines+1]='Native DR feed: supported='..nativeLabel(nativeSupported)
+        ..'; cvar='..nativeLabel(nativeCVar)..'; eventValid='..nativeLabel(nativeEventValid)
+        ..'; opt-in only (/bcc native on|off|status)'
     for _,unit in ipairs({'player','target','focus'}) do
         local state=ns.Observer.GetUnitState(unit)
         lines[#lines+1]=unit..': '..(state.status or 'unknown')..'; sensor '..(state.sensor or 'none')
@@ -159,6 +179,23 @@ function ns.BuildStatus()
             ..(bar and bar.anchorPending and ' (layout pending until combat ends)' or '')
     end
     local stats=ns.Observer.stats or {}
+    local lastNative = ns.Observer.nativeLast
+    if lastNative then
+        lines[#lines+1]='Last native DR event: unit='..nativeLabel(lastNative.unit)
+            ..' reason='..nativeLabel(lastNative.reason)
+            ..' category='..nativeLabel(lastNative.category)
+            ..' start='..nativeLabel(lastNative.start)
+            ..' duration='..nativeLabel(lastNative.duration)
+            ..' countdown='..nativeLabel(lastNative.countdown)
+            ..' immune='..nativeLabel(lastNative.immune)
+            ..' (diagnostics only; no hit or stage inferred)'
+    end
+    local lastOwn=ns.Observer.ownCCLast
+    if lastOwn then
+        lines[#lines+1]='Last own CC cast event: '..lastOwn.family..' '..lastOwn.phase
+            ..' spell='..lastOwn.spellID..' at='..nativeLabel(lastOwn.time)
+            ..' (cast event, not proven hit)'
+    end
     local keys={}; for key in pairs(stats) do keys[#keys+1]=key end; table.sort(keys)
     for _,key in ipairs(keys) do lines[#lines+1]=key..': '..tostring(stats[key]) end
     local rejects = ns.Observer.castRejects or {}
@@ -235,7 +272,7 @@ function ns.ShowStatus()
 end
 
 local function help()
-    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
+    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; native on|off|status; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
 end
 
 function ns.Command(message)
@@ -251,6 +288,53 @@ function ns.Command(message)
     elseif command=='reset' then ns.ResetPositions(); ns.UI.ApplyLayout(); ns.Print('Bar positions reset.')
     elseif command=='clear' then resetTracking(); ns.UI.Update(GetTime()); ns.Print('Tracking history cleared.')
     elseif command=='status' then ns.ShowStatus()
+    elseif command=='native' then
+        local option=rest:lower()
+        local supported, active, eventValid=nativeDRSupport()
+        if option=='on' or option=='off' then
+            if type(C_CVar)~='table' or type(C_CVar.SetCVar)~='function' then
+                ns.Print('Native DR CVar setter unavailable on this client.')
+                return
+            end
+            if S.Boolean(S.Call(InCombatLockdown))~=false then
+                ns.Print('Change the native DR option outside combat.')
+                return
+            end
+            if option=='on' and supported~=true then
+                ns.Print('Native DR IsSystemSupported did not return true. No setting changed.')
+                return
+            end
+            local wanted=option=='on' and '1' or '0'
+            local ok,result=pcall(C_CVar.SetCVar,NATIVE_CVAR,wanted)
+            local newSupported,newValue,newEvent=nativeDRSupport()
+            if not ok or S.Boolean(result)==false or newValue~=wanted then
+                ns.Print('Native DR setting not confirmed; supported='..nativeLabel(newSupported)
+                    ..' cvar='..nativeLabel(newValue)..' eventValid='..nativeLabel(newEvent))
+            else
+                ns.Print('Native DR '..(option=='on' and 'ENABLED' or 'DISABLED')
+                    ..' in client settings. This changes a WoW CVar, not bjarkiCC DR math.')
+            end
+            ns.Print('Use /bcc native status after a real Bash/Grenade. Native events may be secret or absent.')
+        elseif option=='status' or option=='' then
+            local stats=ns.Observer.stats or {}
+            ns.Print('Native DR supported='..nativeLabel(supported)
+                ..'; cvar='..nativeLabel(active)..'; eventValid='..nativeLabel(eventValid))
+            ns.Print('Native events='..(stats.nativeDREvents or 0)
+                ..'; readable category='..(stats.nativeDRReadable or 0)
+                ..'; restricted='..(stats.nativeDRRestricted or 0)
+                ..'; player Bash sent/succeeded='..(stats.ownBashSent or 0)..'/'..(stats.ownBashSucceeded or 0)
+                ..'; Iron Grenade='..(stats.ownGrenadeSent or 0)..'/'..(stats.ownGrenadeSucceeded or 0)
+                ..'; War Stomp='..(stats.ownStompSent or 0)..'/'..(stats.ownStompSucceeded or 0))
+            local last=ns.Observer.nativeLast
+            if last then ns.Print('Last native event: unit='..nativeLabel(last.unit)
+                ..' category='..nativeLabel(last.category)
+                ..' start='..nativeLabel(last.start)..' duration='..nativeLabel(last.duration)
+                ..' countdown='..nativeLabel(last.countdown)
+                ..' immune='..nativeLabel(last.immune)
+                ..' (never counted as a hit)') end
+        else
+            ns.Print('Usage: /bcc native on|off|status')
+        end
     elseif command=='cooldowns' then
         local option=rest:lower()
         if option=='on' or option=='off' then
@@ -304,9 +388,11 @@ frame:SetScript('OnEvent',function(_,event,...)
             ns.Observer.NoteCastStart(...)
         elseif event=='UNIT_SPELLCAST_SENT' then
             local unit,targetName,castGUID,spellID=...
+            ns.Observer.NoteOwnCCCast('Sent',unit,spellID,GetTime())
             ns.OwnCasts.Sent(unit,targetName,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_SUCCEEDED' then
             local unit,castGUID,spellID=...
+            ns.Observer.NoteOwnCCCast('Succeeded',unit,spellID,GetTime())
             ns.Observer.OnCast(unit,castGUID,spellID,GetTime())
             ns.OwnCasts.Succeeded(unit,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_FAILED' or event=='UNIT_SPELLCAST_INTERRUPTED' then
