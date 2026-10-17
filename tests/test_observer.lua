@@ -1226,6 +1226,162 @@ test("reverse LoC to aura handoffs still invalidate learned duration evidence", 
     equal(ns.Observer.stats.handoffsInvalidated,1,"reverse switch still invalidates")
 end)
 
+test("API failures retain bounded sanitized first and latest readable messages", function()
+    reset(); fixture.guid.player=nil
+    local message="first\n|cffff0000denied|r"
+    C_UnitAuras.GetAuraDataByIndex=function(unit,index,filter)
+        equal(unit,"target"); equal(index,1); equal(filter,"HARMFUL")
+        error(message,0)
+    end
+    ns.Observer.Scan(10)
+    local failure=ns.Observer.apiFailures["C_UnitAuras.GetAuraDataByIndex"]
+    truth(failure); equal(failure.count,1); equal(failure.lastUnit,"target")
+    equal(failure.firstMessage,"first??cffff0000denied?r")
+    equal(failure.lastMessage,failure.firstMessage)
+    equal(last("Player-1-A").complete,false); equal(ns.Observer.stats.apiErrors,1)
+    message="last\t" .. string.rep("x",300)
+    ns.Observer.Scan(10.5)
+    equal(failure.count,2); equal(#failure.lastMessage,240)
+    equal(failure.lastMessage:sub(1,5),"last?")
+    equal(failure.firstMessage,"first??cffff0000denied?r")
+    equal(ns.Observer.stats.apiErrors,2); equal(size(ns.Observer.apiFailures),1)
+end)
+
+test("field access failures have a separate fixed operation label", function()
+    reset(); fixture.guid.player=nil
+    fixture.auras.target={setmetatable({}, {__index=function(_,key)
+        equal(key,"spellId"); error("field denied",0)
+    end})}
+    ns.Observer.Scan(10)
+    equal(ns.Observer.apiFailures["AuraData.spellId"].count,1)
+    equal(ns.Observer.apiFailures["AuraData.spellId"].firstMessage,"field denied")
+    equal(ns.Observer.apiFailures["AuraData.spellId"].lastUnit,"target")
+    equal(ns.Observer.apiFailures["C_UnitAuras.GetAuraDataByIndex"],nil)
+    equal(ns.Observer.stats.apiErrors,1); equal(last("Player-1-A").complete,false)
+end)
+
+test("player LoC count and record failures remain attributable and incomplete", function()
+    reset(); fixture.guid.target=nil; C_UnitAuras=nil
+    C_LossOfControl.GetActiveLossOfControlDataCount=function() error("count denied",0) end
+    ns.Observer.Scan(10)
+    local count=ns.Observer.apiFailures["C_LossOfControl.GetActiveLossOfControlDataCount"]
+    equal(count.count,1); equal(count.lastUnit,"player")
+    equal(last("Player-1-Self").complete,false)
+    C_LossOfControl.GetActiveLossOfControlDataCount=function() return 1 end
+    C_LossOfControl.GetActiveLossOfControlData=function(index)
+        equal(index,1); error("record denied",0)
+    end
+    ns.Observer.Scan(10.5)
+    equal(ns.Observer.apiFailures["C_LossOfControl.GetActiveLossOfControlData"].count,1)
+    equal(last("Player-1-Self").complete,false); equal(ns.Observer.stats.apiErrors,2)
+end)
+
+test("ByUnit LoC errors preserve signatures and identify target and focus", function()
+    reset(); fixture.guid.player=nil; fixture.guid.focus="Player-1-B"; C_UnitAuras=nil
+    C_LossOfControl.GetActiveLossOfControlDataCountByUnit=function(unit)
+        if unit=="focus" then error("focus count denied",0) end
+        equal(unit,"target"); return 1
+    end
+    C_LossOfControl.GetActiveLossOfControlDataByUnit=function(unit,index)
+        equal(unit,"target"); equal(index,1); error("target record denied",0)
+    end
+    ns.Observer.Scan(10)
+    local count=ns.Observer.apiFailures["C_LossOfControl.GetActiveLossOfControlDataCountByUnit"]
+    local data=ns.Observer.apiFailures["C_LossOfControl.GetActiveLossOfControlDataByUnit"]
+    equal(count.count,1); equal(count.lastUnit,"focus")
+    equal(data.count,1); equal(data.lastUnit,"target")
+    equal(last("Player-1-A").complete,false); equal(last("Player-1-B").complete,false)
+    equal(ns.Observer.stats.apiErrors,2)
+end)
+
+test("unreadable and non-string errors are counted without formatting", function()
+    reset(); fixture.guid.player=nil
+    local raw="readable first"
+    C_UnitAuras.GetAuraDataByIndex=function() error(raw,0) end
+    ns.Observer.Scan(10)
+    local failure=ns.Observer.apiFailures["C_UnitAuras.GetAuraDataByIndex"]
+    local object=setmetatable({}, {__tostring=function() error("must not format table") end})
+    for index,value in ipairs({secret,object,17,false}) do
+        raw=value; ns.Observer.Scan(10+index*.1)
+        equal(failure.count,index+1)
+        equal(failure.firstMessage,"readable first"); equal(failure.lastMessage,"readable first")
+        equal(last("Player-1-A").complete,false)
+    end
+    ns.Observer.Init(); raw=secret; ns.Observer.Scan(11)
+    failure=ns.Observer.apiFailures["C_UnitAuras.GetAuraDataByIndex"]
+    equal(failure.count,1); equal(failure.firstMessage,nil); equal(failure.lastMessage,nil)
+    equal(ns.Observer.stats.apiErrors,1)
+end)
+
+test("missing APIs and restricted results do not become API failure messages", function()
+    reset(); fixture.guid.player=nil; C_UnitAuras=nil
+    ns.Observer.Scan(10)
+    equal(size(ns.Observer.apiFailures),0); equal(ns.Observer.stats.apiErrors,0)
+    truth(ns.Observer.stats.missingApis>0); equal(last("Player-1-A").complete,false)
+    C_UnitAuras={GetAuraDataByIndex=function() return secret end}
+    ns.Observer.Scan(10.5)
+    equal(size(ns.Observer.apiFailures),0); equal(ns.Observer.stats.apiErrors,0)
+    truth(ns.Observer.stats.restricted>0); equal(last("Player-1-A").complete,false)
+end)
+
+test("varying cast units share a fixed label and bounded diagnostic count", function()
+    reset(); UnitGUID=function() error("identity denied",0) end
+    for index=1,40 do ns.Observer.OnCast("nameplate" .. index,nil,853,10) end
+    equal(size(ns.Observer.apiFailures),1)
+    local failure=ns.Observer.apiFailures.UnitGUID
+    equal(failure.count,40); equal(failure.lastUnit,"other")
+    failure.count=2147483647
+    ns.Observer.OnCast("target",nil,853,10)
+    equal(failure.count,2147483647); equal(failure.lastUnit,"target")
+    equal(ns.Observer.stats.apiErrors,41); equal(ns.Observer.stats.acceptedCasts,0)
+end)
+
+test("Init clears API failure counts and saved error text", function()
+    reset(); fixture.auraError=true; ns.Observer.Scan(10)
+    truth(next(ns.Observer.apiFailures)); truth(ns.Observer.stats.apiErrors>0)
+    ns.Observer.Init()
+    equal(size(ns.Observer.apiFailures),0); equal(ns.Observer.stats.apiErrors,0)
+    fixture.auraError=false; ns.Observer.Scan(10.5)
+    equal(size(ns.Observer.apiFailures),0)
+end)
+
+test("confirmed War Stomp advances Bash DR through aura and ByUnit observations", function()
+    local fixtureData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    for _,sensor in ipairs({"aura","loc"}) do
+        reset(); realModel(); fixture.guid.player=nil; fixture.guid.focus="Player-1-A"
+        if sensor=="loc" then byUnitLoC(); C_UnitAuras=nil end
+        local function observeSpell(spellID,instanceID,start,duration)
+            if sensor=="aura" then
+                fixture.auras.target={{spellId=spellID,auraInstanceID=instanceID,
+                    expirationTime=start+duration,duration=duration}}
+            else
+                fixture.locByUnit.target={{spellID=spellID,auraInstanceID=instanceID,
+                    startTime=start,duration=duration}}
+            end
+        end
+        observeSpell(5211,801,10,3); ns.Observer.Scan(10)
+        local row=ns.model:GetDR("Player-1-A",10)[1]
+        equal(row.category,"stun"); equal(row.stage,1); equal(row.started,10)
+        fixture.auras.target={}
+        if sensor=="loc" then fixture.locByUnit.target={} end
+        ns.Observer.Scan(11)
+        ns.Observer.OnCast("target","Cast-WarStomp",20549,12)
+        row=ns.model:GetDR("Player-1-A",12)[1]
+        equal(ns.Observer.stats.acceptedCasts,1,"readable enemy cast can record its cooldown")
+        equal(row.stage,1,"cast event alone cannot count a landed stun")
+        equal(row.started,10); equal(row.remaining,18,"cast cannot refresh Bash DR")
+        observeSpell(20549,802,12,1); ns.Observer.Scan(12)
+        row=ns.model:GetDR("Player-1-A",12)[1]
+        equal(row.stage,2,"a readable War Stomp hit must advance the stun category")
+        equal(row.started,12); equal(row.remaining,20); equal(row.estimated,false)
+        equal(ns.Observer.GetUnitState("target").guid,ns.Observer.GetUnitState("focus").guid)
+        ns.Observer.Scan(12.1)
+        equal(ns.model:GetDR("Player-1-A",12.1)[1].stage,2,"aliases and stable polls cannot count twice")
+    end
+    ns.Data=fixtureData
+end)
+
 local failures={}
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2])

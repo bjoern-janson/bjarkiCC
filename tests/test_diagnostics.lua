@@ -108,4 +108,27 @@ now=1008.2
 ns.RecordDRObservation('Player-1-TRACE',{['a:1008']={category='incapacitate',spellID=2637,
  appliedAt=1008,expires=1013,applicationSource='loc',reportedDuration=5}},now,true,'loc')
 assert(#ns.drTrace==learnedTraceCount,'unchanged baseline evidence must not create polling noise')
+-- Exercise diagnostics through real protected API failure handling. Failed
+-- observations must not become hit evidence, and /clear must reset the report.
+SlashCmdList.BJARKICC('clear')
+C_UnitAuras.GetAuraDataByIndex=function() error('Access denied |test\nmessage',0) end
+now=1100; frame.scripts.OnEvent(frame,'UNIT_AURA','player')
+local failedReport=ns.BuildStatus()
+assert(failedReport:find('API failures (guarded details):',1,true),
+ 'a cumulative error count must identify the failing operation')
+assert(failedReport:find('GetAuraDataByIndex',1,true)
+ and failedReport:find('Access denied ?test?message',1,true),
+ 'the report identifies the API and sanitizes readable error text')
+assert(failedReport:find('War Stomp DR: confirmed applications only; no cast estimate.',1,true),
+ 'status makes the confirmed-hit requirement explicit')
+assert(#ns.model:GetDR('Player-1-TRACE',now)==0,'API failures cannot synthesize a hit')
+SlashCmdList.BJARKICC('clear')
+C_UnitAuras.GetAuraDataByIndex=function() error({},0) end
+now=1101; frame.scripts.OnEvent(frame,'UNIT_AURA','player')
+assert(ns.BuildStatus():find('[message unavailable]',1,true),
+ 'non-string errors remain reportable without formatting their payload')
+C_UnitAuras.GetAuraDataByIndex=function() end
+SlashCmdList.BJARKICC('clear')
+assert(not ns.BuildStatus():find('API failures (guarded details):',1,true),
+ 'clearing tracking removes stale error details')
 print('diagnostics: real observation transitions, deduplication, bounded history and reset passed')

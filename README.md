@@ -2,7 +2,15 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.13-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.14-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Confirmed War Stomp and API diagnostics in 0.4.14
+
+War Stomp advances stun DR only when readable aura or Loss of Control data confirms an application. Its area cast cannot identify the victim, so it remains excluded from own-cast estimates, as requested. Bash retains its existing optional direct-cast estimate. A visible recipient icon does not establish that the casting client's APIs expose the same hit.
+
+The supplied caster report records one Bash estimate and no confirmed stun application, alongside 470 unattributed API errors. This release adds bounded error details to `/bcc status`: operation, count, last unit token and first/latest readable error messages. Secret and non-string error values are never formatted. `/bcc clear` resets these details along with tracking history. This is a diagnostic update; it does not yet fix or establish the cause of the missing offensive War Stomp observation.
+
+For the next check, reload this build, use `/bcc clear` before a fresh test, then Bash followed by War Stomp. Copy `/bcc status` from the casting client while the stun is active or immediately afterward. The report will identify failing API operations while preserving confirmed-hit tracking, the two clocks and existing visuals.
 
 ## Preserve consecutive refreshes in 0.4.13
 

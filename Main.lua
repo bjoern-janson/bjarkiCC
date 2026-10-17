@@ -122,7 +122,24 @@ function ns.BuildStatus()
     local stats=ns.Observer.stats or {}
     local keys={}; for key in pairs(stats) do keys[#keys+1]=key end; table.sort(keys)
     for _,key in ipairs(keys) do lines[#lines+1]=key..': '..tostring(stats[key]) end
+    local failures=ns.Observer.apiFailures or {}
+    local operations={}; for operation in pairs(failures) do operations[#operations+1]=operation end
+    table.sort(operations)
+    if #operations>0 then
+        lines[#lines+1]='API failures (guarded details):'
+        -- Only bounded, sanitized records created by Observer enter this view.
+        for _,operation in ipairs(operations) do
+            local failure=failures[operation]
+            lines[#lines+1]='  '..operation..': '..failure.count
+                ..(failure.lastUnit and ('; last unit='..failure.lastUnit) or '')
+            lines[#lines+1]='    first readable: '..(failure.firstMessage or '[message unavailable]')
+            if failure.lastMessage~=failure.firstMessage then
+                lines[#lines+1]='    latest readable: '..(failure.lastMessage or '[message unavailable]')
+            end
+        end
+    end
     lines[#lines+1]='Own-cast DR estimates: '..(ns.db.ownCastEstimates and 'enabled (always uncertain)' or 'disabled')
+    lines[#lines+1]='War Stomp DR: confirmed applications only; no cast estimate.'
     local ownStats=ns.OwnCasts.stats or {}
     local ownKeys={}; for key in pairs(ownStats) do ownKeys[#ownKeys+1]=key end; table.sort(ownKeys)
     for _,key in ipairs(ownKeys) do lines[#lines+1]='ownCast.'..key..': '..tostring(ownStats[key]) end

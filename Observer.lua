@@ -7,6 +7,9 @@ ns.Observer = Observer
 local trackedUnits = {"player", "target", "focus"}
 local MAX_WITNESSES = 512
 local APPLICATION_EPSILON = 0.001 -- Match the model's timestamp rounding tolerance.
+local MAX_API_FAILURE_KINDS = 32
+local MAX_API_FAILURE_COUNT = 2147483647
+local apiFailureKinds = 0
 
 local function countEffects(effects)
     local count = 0
@@ -35,7 +38,29 @@ end
 
 -- Readable data alone is eligible for classification. pcall catches API or
 -- record-access failures; it is never used to infer the content of a secret.
-local function call(fn, ...)
+local function recordApiFailure(operation, unit, value)
+    -- Operation names come only from fixed call sites below, never API values.
+    local failure = Observer.apiFailures[operation]
+    if not failure then
+        if apiFailureKinds >= MAX_API_FAILURE_KINDS then return end
+        failure = {count = 0}
+        Observer.apiFailures[operation] = failure
+        apiFailureKinds = apiFailureKinds + 1
+    end
+    failure.count = math.min(failure.count + 1, MAX_API_FAILURE_COUNT)
+    local token = Safe.String(unit)
+    failure.lastUnit = (token == "player" or token == "target" or token == "focus") and token or "other"
+    -- Errors can themselves be secret or arbitrary Lua objects. Do not format
+    -- them. Keep only the first/latest readable string, with no chat markup.
+    local message = Safe.String(value)
+    if message then
+        message = message:sub(1, 240):gsub("[%c|]", "?")
+        failure.firstMessage = failure.firstMessage or message
+        failure.lastMessage = message
+    end
+end
+
+local function call(operation, unit, fn, ...)
     if type(fn) ~= "function" then
         Observer.stats.missingApis = Observer.stats.missingApis + 1
         return nil, false
@@ -43,6 +68,7 @@ local function call(fn, ...)
     local ok, value = pcall(fn, ...)
     if not ok then
         Observer.stats.apiErrors = Observer.stats.apiErrors + 1
+        recordApiFailure(operation, unit, value)
         return nil, false
     end
     if not Safe.Readable(value) then
@@ -52,8 +78,8 @@ local function call(fn, ...)
     return value, true
 end
 
-local function field(record, key)
-    return call(function() return record[key] end)
+local function field(record, key, operation, unit)
+    return call(operation, unit, function() return record[key] end)
 end
 
 local function number(value)
@@ -97,26 +123,26 @@ local function auraSnapshot(unit, now)
     end
     local complete = true
     for index = 1, 255 do
-        local aura, readable = call(api.GetAuraDataByIndex, unit, index, "HARMFUL")
+        local aura, readable = call("C_UnitAuras.GetAuraDataByIndex", unit, api.GetAuraDataByIndex, unit, index, "HARMFUL")
         if not readable then return auraResult(effects, false, unmapped) end
         if aura == nil then return auraResult(effects, complete, unmapped) end
         if type(aura) ~= "table" then return auraResult(effects, false, unmapped) end
-        local rawSpell, spellReadable = field(aura, "spellId")
+        local rawSpell, spellReadable = field(aura, "spellId", "AuraData.spellId", unit)
         local spellID = identifier(rawSpell)
         if not spellReadable or not spellID then
             complete = false
         else
             local category = ns.Data.auraCategory[spellID]
             if category then
-                local rawInstance, instanceReadable = field(aura, "auraInstanceID")
+                local rawInstance, instanceReadable = field(aura, "auraInstanceID", "AuraData.auraInstanceID", unit)
                 local instanceID = identifier(rawInstance)
                 if not instanceReadable or not instanceID then
                     complete = false
                 else
-                    local rawExpiry = field(aura, "expirationTime")
+                    local rawExpiry = field(aura, "expirationTime", "AuraData.expirationTime", unit)
                     local expires = number(rawExpiry)
                     if expires and expires <= 0 then expires = nil end
-                    local rawDuration = field(aura, "duration")
+                    local rawDuration = field(aura, "duration", "AuraData.duration", unit)
                     local duration = number(rawDuration)
                     local appliedAt
                     if expires and duration and duration > 0 then
@@ -154,9 +180,11 @@ local function lossOfControlSnapshot(now, unit)
     -- the same field guards as the player API, never an access workaround.
     local rawCount, countReadable
     if unit then
-        rawCount, countReadable = call(api.GetActiveLossOfControlDataCountByUnit, unit)
+        rawCount, countReadable = call("C_LossOfControl.GetActiveLossOfControlDataCountByUnit", unit,
+            api.GetActiveLossOfControlDataCountByUnit, unit)
     else
-        rawCount, countReadable = call(api.GetActiveLossOfControlDataCount)
+        rawCount, countReadable = call("C_LossOfControl.GetActiveLossOfControlDataCount", "player",
+            api.GetActiveLossOfControlDataCount)
     end
     local count = number(rawCount)
     if not countReadable or not count or count < 0 or count > 255 or count ~= math.floor(count) then
@@ -165,12 +193,17 @@ local function lossOfControlSnapshot(now, unit)
     local complete = true
     for index = 1, count do
         local data, readable
-        if unit then data, readable = call(api.GetActiveLossOfControlDataByUnit, unit, index)
-        else data, readable = call(api.GetActiveLossOfControlData, index) end
+        if unit then
+            data, readable = call("C_LossOfControl.GetActiveLossOfControlDataByUnit", unit,
+                api.GetActiveLossOfControlDataByUnit, unit, index)
+        else
+            data, readable = call("C_LossOfControl.GetActiveLossOfControlData", "player",
+                api.GetActiveLossOfControlData, index)
+        end
         if not readable or type(data) ~= "table" then
             complete = false
         else
-            local rawSpell, spellReadable = field(data, "spellID")
+            local rawSpell, spellReadable = field(data, "spellID", "LossOfControlData.spellID", unit or "player")
             local spellID = identifier(rawSpell)
             if not spellReadable or not spellID then
                 complete = false
@@ -179,9 +212,9 @@ local function lossOfControlSnapshot(now, unit)
                 -- does not distinguish separate Classic stun DR families.
                 local category = ns.Data.auraCategory[spellID]
                 if category then
-                    local rawInstance = field(data, "auraInstanceID")
+                    local rawInstance = field(data, "auraInstanceID", "LossOfControlData.auraInstanceID", unit or "player")
                     local instanceID = identifier(rawInstance)
-                    local rawStart = field(data, "startTime")
+                    local rawStart = field(data, "startTime", "LossOfControlData.startTime", unit or "player")
                     local start = applicationTime(rawStart, now)
                     local key
                     if instanceID then
@@ -192,7 +225,7 @@ local function lossOfControlSnapshot(now, unit)
                     if not key then
                         complete = false
                     else
-                        local rawDuration = field(data, "duration")
+                        local rawDuration = field(data, "duration", "LossOfControlData.duration", unit or "player")
                         local duration = number(rawDuration)
                         -- Keep raw LoC duration separate from the expiry fallback.
                         -- A remaining-time estimate cannot establish full duration.
@@ -202,7 +235,7 @@ local function lossOfControlSnapshot(now, unit)
                         if start and duration and duration > 0 then
                             expires = start + duration
                         else
-                            local rawRemaining = field(data, "timeRemaining")
+                            local rawRemaining = field(data, "timeRemaining", "LossOfControlData.timeRemaining", unit or "player")
                             local remaining = number(rawRemaining)
                             if remaining and remaining > 0 then expires = now + remaining end
                         end
@@ -335,11 +368,11 @@ local function unavailableState()
 end
 
 local function readIdentity(unit)
-    local rawGuid = call(UnitGUID, unit)
+    local rawGuid = call("UnitGUID", unit, UnitGUID, unit)
     local guid = guidString(rawGuid)
     if not guid or not guid:match("^Player%-") then return nil end
     if unit ~= "player" then
-        local isPlayer = call(UnitIsPlayer, unit)
+        local isPlayer = call("UnitIsPlayer", unit, UnitIsPlayer, unit)
         if Safe.Boolean(isPlayer) ~= true then return nil end
     end
     return guid
@@ -451,6 +484,8 @@ local function scanGuid(unit, guid, previous, now)
 end
 
 function Observer.Init()
+    Observer.apiFailures = {}
+    apiFailureKinds = 0
     Observer.playerLoCSelected = false
     Observer.lastScan = nil
     Observer.units = {}
@@ -524,14 +559,14 @@ function Observer.OnCast(unit, castGUID, spellID, now)
     local canonicalID = ns.Data.castToSpell[spellID]
     if not canonicalID and not ns.Data.resets[spellID] then return end
     if canonicalID and not ns.Data.spells[canonicalID] and not ns.Data.resets[spellID] then return end
-    local rawGuid = call(UnitGUID, unit)
+    local rawGuid = call("UnitGUID", unit, UnitGUID, unit)
     local guid = guidString(rawGuid)
     if not guid then return end
-    local hostile = call(UnitCanAttack, "player", unit)
+    local hostile = call("UnitCanAttack", unit, UnitCanAttack, "player", unit)
     if Safe.Boolean(hostile) ~= true then return end
-    local isPlayer = call(UnitIsPlayer, unit)
+    local isPlayer = call("UnitIsPlayer", unit, UnitIsPlayer, unit)
     if Safe.Boolean(isPlayer) ~= true and not guid:match("^Pet%-") and not guid:match("^Vehicle%-") then return end
-    local rawName = call(UnitName, unit)
+    local rawName = call("UnitName", unit, UnitName, unit)
     local name = Safe.String(rawName)
     if not name or name == "" or #name > 128 then return end
     -- Interrupt settings are a view filter, so enabling them later can reveal

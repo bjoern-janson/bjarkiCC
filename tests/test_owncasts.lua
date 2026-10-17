@@ -66,6 +66,28 @@ test('only reviewed direct CC can estimate a destination',function()
     eq(ns.OwnCasts.Succeeded('player','Cast-1',20252,11),true)
     eq(rows()[1].spellID,20253); eq(rows()[1].category,'stun')
 end)
+test('War Stomp success cannot estimate a hit or refresh a preceding Bash',function()
+    reset()
+    local estimateCalls=0
+    local estimateDR=ns.model.EstimateDR
+    ns.model.EstimateDR=function(self,...)
+        estimateCalls=estimateCalls+1
+        return estimateDR(self,...)
+    end
+    eq(ns.OwnCasts.Sent('player','Enemy','Cast-bash',5211,10),true)
+    eq(ns.OwnCasts.Succeeded('player','Cast-bash',5211,10.1),true)
+    eq(estimateCalls,1); eq(rows(nil,10.1)[1].stage,1)
+    for index,name in ipairs({'','Caster','Enemy'}) do
+        local castID='Cast-stomp-'..index
+        eq(ns.OwnCasts.Sent('player',name,castID,20549,11+index),false)
+        eq(ns.OwnCasts.Succeeded('player',castID,20549,11.5+index),false)
+        local row=rows(nil,11.5+index)[1]
+        eq(row.stage,1); eq(row.started,10.1); eq(row.spellID,5211)
+        eq(estimateCalls,1,'an area-cast destination is not evidence of a hit')
+    end
+    eq(ns.OwnCasts.stats.captured,1); eq(ns.OwnCasts.stats.estimated,1)
+end)
+
 test('disabled estimates cannot leave pending casts for a later enable',function()
     reset(); ns.OwnCasts.Sent('player','Enemy','Cast-1',853,10)
     ns.db.ownCastEstimates=false
