@@ -258,8 +258,12 @@ test("secret input cannot be normalized into an accepted cast", function()
     ns.Observer.OnCast("target",secret,853,10)
     ns.Observer.OnCast("target","Cast-2",secret,10)
     fixture.name.target=secret; ns.Observer.OnCast("target","Cast-3",853,10)
+    -- A readable hostile Player GUID is sufficient even when the name is
+    -- unavailable. The opaque name must never be passed to the model.
+    equal(#casts,1); equal(casts[1].name,nil)
+    equal(ns.Observer.stats.castNameUnavailable,1)
     fixture.name.target="Enemy"; fixture.hostile.target=secret; ns.Observer.OnCast("target","Cast-4",853,10)
-    equal(#casts,0)
+    equal(#casts,1)
 end)
 test("known reset casts reach model even without a cooldown row", function()
     reset(); ns.Observer.OnCast("target","Cast-1",11958,10); equal(#casts,1); equal(casts[1].id,11958)
@@ -407,6 +411,8 @@ test("ByUnit observations for a shared target focus GUID happen only once", func
     equal(fixture.locByUnitScans.target,1); equal(fixture.locByUnitScans.focus,nil)
     equal(ns.Observer.GetUnitState("target"),ns.Observer.GetUnitState("focus"))
     equal(size(last("Player-1-A").effects),1)
+    equal(last("Player-1-A").complete,false,"empty alias cannot erase positive owner LoC")
+    equal(ns.Observer.GetUnitState("target").aliasCoverage,"conflicting-positive")
 end)
 
 test("missing-instance LoC fallback stays stable and does not duplicate same-spell aura", function()
@@ -633,7 +639,7 @@ test("restricted or nonplayer focus identity cannot retain old history", functio
     local invalid={
         {guid=secret,player=true}, {guid="invalid",player=true},
         {guid="Pet-1-B",player=false}, {guid="Creature-1-B",player=false},
-        {guid="Player-1-B",player=secret}, {guid="Player-1-B",player=false},
+        {guid="Player-1-B",player=false},
     }
     for _,case in ipairs(invalid) do
         reset(); fixture.guid.focus="Player-1-B"; ns.Observer.Scan(10)
@@ -646,12 +652,13 @@ test("restricted or nonplayer focus identity cannot retain old history", functio
     end
 end)
 
-test("restricted focus alias cannot erase a readable target", function()
+test("a focus Player GUID still shares target history when its player boolean is protected", function()
     reset(); fixture.guid.focus="Player-1-A"; ns.Observer.Scan(10)
     truth(ns.Observer.GetUnitState("focus"))
     fixture.player.focus=secret; ns.Observer.Scan(11)
-    equal(ns.Observer.GetUnitState("focus").guid,nil)
+    equal(ns.Observer.GetUnitState("focus").guid,"Player-1-A")
     equal(ns.Observer.GetUnitState("target").guid,"Player-1-A")
+    equal(ns.Observer.GetUnitState("focus"),ns.Observer.GetUnitState("target"))
     equal(contains(forgotten,"Player-1-A"),nil)
 end)
 
