@@ -1,0 +1,31 @@
+name: Lua regressions and candidate package
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Lua 5.1 runner
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run all addon Lua suites
+        run: python tests/run_tests.py
+      - name: Package verified candidate
+        run: |
+          mkdir -p dist/bjarkiCC
+          cp Bootstrap.lua Data.lua Model.lua Observer.lua OwnCasts.lua Anchors.lua UI.lua Main.lua bjarkiCC.toc bjarkiCC_Camelot.toc dist/bjarkiCC/
+          cd dist
+          zip -qr ../bjarkiCC-0.4.17.2-evidence-test.zip bjarkiCC
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: bjarkiCC-0.4.17.2-evidence-test
+          path: bjarkiCC-0.4.17.2-evidence-test.zip
+          if-no-files-found: error
