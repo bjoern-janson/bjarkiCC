@@ -1,5 +1,14 @@
 # bjarkiCC known issues and validation status
 
+## 0.4.17.7: User-chosen ? estimates for otherwise unobservable AoE stun hits
+
+Following the live-confirmed common DR category for Bash, War Stomp and Iron Grenade, the user explicitly chose clearly marked guesses in the caster-side DR grid. The client still denies actual hostile aura/LoC evidence, so this does **not** fix automatic hit confirmation. `OwnCasts` now handles War Stomp (20549) and Iron Grenade (4068) success events as uncertain, deduplicated possible-target/focus applications. Exact positive aura evidence, when ever readable, remains authoritative.
+
+The existing stage border is supplemented by an unmistakable `?` on AoE speculative states; tooltip/status say POSSIBLE recipient only. AoE casts may hit zero, one or multiple enemies; no range, ground location, immunity or resist is verified. A wrong inferred application can produce a wrong later estimated stage, so tournament decisions should not treat `?` as confirmed control. Sending alone or failed casts must not create estimates. The capped prediction at stage 3 is **not proof of immunity**.
+
+The feature has `/bcc aoe on|off|status` and a DR settings checkbox, enabled by default in the experimental user build. Existing `/bcc aura on` draws a separate secure visual; run `/bcc aura off` if only the DR grid is wanted. No new reliable server-side DR observation source has been discovered.
+
+
 ## 0.4.17.6 native hostile-stun aura witness: unverified display
 
 The tested 1.60.1.70425 client denies indexed harmful aura access during combat and `C_SpellDiminish.IsSystemSupported()` returns false. Caster-side Bash is an own-cast estimate; Grenade/War Stomp don't supply readable affected-victim records. **A correct automatic confirmed DR-stage tracker is impossible from those sources alone.**
