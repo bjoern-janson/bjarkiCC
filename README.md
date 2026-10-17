@@ -2,7 +2,17 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.21-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.22-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Aura-event detection and clear DR artwork in0.4.22
+
+The previous event handler discarded `UNIT_AURA`'s update payload and retried indexed enumeration. This release consumes readable harmful mapped `addedAuras` directly, and checks readable `updatedAuraInstanceIDs` through the instance API for refreshes. Readable exact removal IDs close only matching known effects. Cast success still does not confirm a hit; no blocked or secret value is decoded.
+
+Confirmed event evidence can now drive tracking even when indexed enumeration throws, provided the event record itself is readable. Repeated records and target/focus aliases do not count twice. An exact early removal reveals the original application countdown on the next frame; it does not restart it. Stale unchanged aura records cannot reactivate an explicitly removed instance. Unknown removal IDs create no history. All event arrays and retained closed-instance records are bounded.
+
+DR icons now disable the separate dark radial cooldown swipe that obscured their spell artwork. The requested native action-bar border, deterministic Hibernate art, side grids and final-five-second numbers remain. Enemy cooldown icons retain their own swipe. No timing or category rule is changed.
+
+All nine offline suites pass, including event delivery through actual Main/Observer/Model/UI, secret/malformed rejection, alias deduplication, refreshes, overlapping effects, stale returns and a600-cycle restricted event stream. This closes a reproduced missing input path. **Live event readability on Forever remains unverified**: if event payloads and aura APIs are both hidden, the addon still cannot confirm those hits. Status now includes event/accepted-record/known-removal/blocked counters and guarded event details in recent history.
 
 ## Visual correction in 0.4.21
 

@@ -1448,6 +1448,130 @@ test("complete aura enumeration does not add an exact War Stomp query", function
     equal(calls,0); equal(ns.Observer.GetUnitState("target").stompLookup,nil)
 end)
 
+
+test("readable aura events supply confirmed hits and early removals while enumeration is blocked", function()
+    reset(); realModel(); ns.model=ns.Model.New(20,20,true)
+    fixture.auraError=true; fixture.guid.focus=fixture.guid.target
+    ns.Observer.Scan(100)
+    local aura={spellId=2637,auraInstanceID=900,isHarmful=true,duration=20,expirationTime=120}
+    ns.Observer.OnAura('target',{isFullUpdate=false,addedAuras={aura}},100)
+    local row=ns.model:GetDR('Player-1-A',100)[1]
+    truth(row and row.active); equal(row.stage,1); equal(row.started,100)
+    equal(ns.Observer.GetUnitState('focus').guid,'Player-1-A')
+    ns.Observer.OnAura('focus',{isFullUpdate=false,addedAuras={aura}},100.1)
+    row=ns.model:GetDR('Player-1-A',100.1)[1]; equal(row.stage,1)
+    ns.Observer.OnAura('target',{isFullUpdate=false,removedAuraInstanceIDs={900}},103)
+    row=ns.model:GetDR('Player-1-A',103)[1]
+    truth(not row.active); equal(row.remaining,17); equal(row.stageResetAt,120)
+    ns.Observer.Scan(103.2)
+    truth(not ns.model:GetDR('Player-1-A',103.2)[1].active)
+    -- A late unchanged snapshot cannot undo an explicit removal.
+    fixture.auraError=false; fixture.auras.target={aura}
+    ns.Observer.Scan(103.3)
+    row=ns.model:GetDR('Player-1-A',103.3)[1]; truth(not row.active); equal(row.stage,1)
+    aura={spellId=2637,auraInstanceID=901,isHarmful=true,duration=10,expirationTime=114}
+    fixture.auraError=true
+    ns.Observer.OnAura('target',{isFullUpdate=false,addedAuras={aura}},104)
+    row=ns.model:GetDR('Player-1-A',104)[1]; equal(row.stage,2); equal(row.started,104)
+end)
+test("aura event secrets helpful records and unknown removals cannot invent applications", function()
+    local cases={secret,{addedAuras=secret},{addedAuras={secret}},
+        {addedAuras={{spellId=secret,auraInstanceID=1,isHarmful=true}}},
+        {addedAuras={{spellId=2637,auraInstanceID=secret,isHarmful=true}}},
+        {addedAuras={{spellId=2637,auraInstanceID=1,isHarmful=secret}}},
+        {addedAuras={{spellId=2637,auraInstanceID=1,isHarmful=false}}},
+        {addedAuras={{spellId=2637,auraInstanceID=1,isHarmful=true,expirationTime=9}}},
+        {removedAuraInstanceIDs={123,secret}}, {isFullUpdate=true}}
+    for _,payload in ipairs(cases) do
+        reset(); realModel(); fixture.auraError=true
+        ns.Observer.OnAura('target',payload,10)
+        equal(#ns.model:GetDR('Player-1-A',10),0)
+    end
+end)
+test("aura event identifiers are bound to the current readable player identity", function()
+    reset(); realModel(); fixture.auraError=true
+    ns.Observer.OnAura('target',{addedAuras={{spellId=2637,auraInstanceID=902,isHarmful=true}}},10)
+    fixture.guid.target='Player-1-B'
+    ns.Observer.OnAura('target',{removedAuraInstanceIDs={902}},11)
+    equal(#ns.model:GetDR('Player-1-B',11),0)
+    equal(#ns.model:GetDR('Player-1-A',11),0,'last reference loss discards previous victim state')
+end)
+
+
+test("readable updated aura instances refresh once while hidden updates never invent hits", function()
+    reset(); realModel(); ns.model=ns.Model.New(20,20,true); fixture.auraError=true
+    ns.Observer.OnAura('target',{addedAuras={{spellId=2637,auraInstanceID=910,isHarmful=true,expirationTime=120,duration=20}}},100)
+    local queries=0
+    C_UnitAuras.GetAuraDataByAuraInstanceID=function(unit,id)
+        queries=queries+1; equal(unit,'target'); equal(id,910)
+        return {spellId=2637,auraInstanceID=910,isHarmful=true,expirationTime=121,duration=10}
+    end
+    ns.Observer.OnAura('target',{updatedAuraInstanceIDs={910,910}},111)
+    local row=ns.model:GetDR('Player-1-A',111)[1]
+    equal(queries,1,'one query per instance'); equal(row.stage,2,'stage after event refresh'); equal(row.started,111,'refresh application time')
+    ns.Observer.OnAura('target',{updatedAuraInstanceIDs={910}},111.1)
+    equal(ns.model:GetDR('Player-1-A',111.1)[1].stage,2)
+    for _,value in ipairs({false,secret,{spellId=2637,auraInstanceID=999,isHarmful=true}}) do
+        C_UnitAuras.GetAuraDataByAuraInstanceID=function() return value end
+        ns.Observer.OnAura('target',{updatedAuraInstanceIDs={910}},112)
+        equal(ns.model:GetDR('Player-1-A',112)[1].stage,2)
+    end
+    C_UnitAuras.GetAuraDataByAuraInstanceID=function() error('restricted instance') end
+    ns.Observer.OnAura('target',{updatedAuraInstanceIDs={910}},113)
+    equal(ns.model:GetDR('Player-1-A',113)[1].stage,2)
+    truth(ns.model:GetDR('Player-1-A',113)[1].active,'failed/nil lookup is not a removal')
+end)
+test("explicit removal ends only its instance while another same-category CC persists", function()
+    reset(); realModel(); fixture.auraError=true
+    ns.Observer.OnAura('target',{addedAuras={
+        {spellId=853,auraInstanceID=920,isHarmful=true,expirationTime=110,duration=10},
+        {spellId=853,auraInstanceID=921,isHarmful=true,expirationTime=111,duration=10}}},101)
+    ns.Observer.OnAura('target',{removedAuraInstanceIDs={920}},102)
+    truth(ns.model:GetDR('Player-1-A',102)[1].active)
+    ns.Observer.OnAura('target',{removedAuraInstanceIDs={921}},103)
+    truth(not ns.model:GetDR('Player-1-A',103)[1].active)
+    ns.Observer.OnAura('target',{removedAuraInstanceIDs={921}},104)
+    equal(ns.model:GetDR('Player-1-A',104)[1].started,101)
+end)
+
+test("exact event removal stays closed after a complete snapshot and stale aura return", function()
+    reset(); realModel(); ns.model=ns.Model.New(20,20,true); fixture.auraError=true
+    local aura={spellId=2637,auraInstanceID=930,isHarmful=true,expirationTime=120,duration=20}
+    ns.Observer.OnAura('target',{addedAuras={aura}},100)
+    fixture.auraError=false; fixture.auras.target={}
+    ns.Observer.OnAura('target',{removedAuraInstanceIDs={930}},103)
+    equal(ns.Observer.stats.auraEventsRemoved,1)
+    fixture.auras.target={aura}
+    ns.Observer.Scan(103.2)
+    local row=ns.model:GetDR('Player-1-A',103.2)[1]
+    truth(not row.active); equal(row.stage,1); equal(row.started,100)
+end)
+
+test("explicit removal history stays bounded during long restricted event streams", function()
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    for i=1,600 do
+        local at=100+i*.001
+        ns.Observer.OnAura('target',{addedAuras={{spellId=853,auraInstanceID=i,isHarmful=true}}},at)
+        ns.Observer.OnAura('target',{removedAuraInstanceIDs={i}},at+.0001)
+    end
+    local unit=ns.model.units['Player-1-A']
+    truth(size(unit.effects)<=512,'closed event effects cannot accumulate without bound')
+    truth(size(unit.closedAuras or {})<=512,'deduplication tombstones stay bounded')
+end)
+
+test("removal after an earlier empty scan closes the retained witness authoritatively", function()
+    reset(); realModel(); ns.model=ns.Model.New(20,20,true)
+    local aura={spellId=2637,auraInstanceID=999,isHarmful=true,expirationTime=120,duration=20}
+    fixture.auras.target={aura}; ns.Observer.Scan(100)
+    fixture.auras.target={}; ns.Observer.Scan(103)
+    ns.Observer.OnAura('target',{removedAuraInstanceIDs={999}},103.1)
+    fixture.auras.target={aura}; ns.Observer.Scan(103.2)
+    local row=ns.model:GetDR('Player-1-A',103.2)[1]
+    truth(not row.active,'late unchanged record cannot undo the later explicit removal')
+    equal(row.started,100); equal(row.stageResetAt,120)
+    equal(ns.Observer.stats.auraEventsRemoved,1)
+end)
+
 local failures={}
 for _,entry in ipairs(tests) do
     local ok,err=pcall(entry[2])

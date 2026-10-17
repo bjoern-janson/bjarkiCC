@@ -58,6 +58,7 @@ function methods:SetColorTexture(...) self.color = {...} end
 function methods:SetVertexColor(...) self.color = {...} end
 function methods:SetAtlas(atlas) self.atlas = atlas end
 function methods:SetBlendMode(mode) self.blendMode=mode end
+function methods:SetDrawSwipe(value) self.drawSwipe=value end
 for _, name in ipairs({'SetFont','SetTextColor','SetTexture','SetTexCoord',
     'SetFrameStrata','SetMovable','SetClampedToScreen','RegisterForDrag','EnableMouse',
     'SetDrawEdge','SetHideCountdownNumbers','SetReverse','SetFrameLevel',

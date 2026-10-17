@@ -161,6 +161,9 @@ local function makeIcon(bar)
     icon.swipe = CreateFrame('Cooldown',nil,icon,'CooldownFrameTemplate')
     icon.swipe:SetAllPoints(icon.texture)
     icon.swipe:SetDrawEdge(false)
+    -- DR uses a clear spell icon and only final-five-second text. A radial
+    -- dark mask obscures the artwork and is not part of that presentation.
+    icon.swipe:SetDrawSwipe(bar.key=='cooldown')
     icon.swipe:SetHideCountdownNumbers(true)
     icon.swipe:SetReverse(true)
     icon.textLayer=CreateFrame('Frame',nil,icon)

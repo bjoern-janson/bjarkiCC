@@ -1,5 +1,17 @@
 # bjarkiCC known issues and validation status
 
+## Detection change in0.4.22: previously discarded aura-event payload
+
+**Diagnosed source defect:** Main handled `UNIT_AURA` by discarding its update payload and calling indexed scanning. Therefore a readable added/removed event could be lost whenever enumeration failed. A real Main-event regression with a readable harmful Hibernate and a throwing index API fails against0.4.21, then passes with the new adapter. This is a source-level omission; the previous live report did not retain event payloads, so it does not establish that they were readable in that trial.
+
+**Change:** accept guarded readable added records, query exact readable updated IDs, and close known instances on exact readable removal IDs. Preserve GUID ownership, stable-identity deduplication, partial-coverage semantics and the application+20 deadline. Explicit removal becomes authoritative against stale unchanged snapshots. Bounded closed-instance history prevents unbounded accumulation during long restricted streams. Unknown/hidden data, failed lookups, helpful effects and unknown removals cannot create hits or prove other effects ended. The separate dark radial swipe is disabled for DR icons; native border and last-five-second text remain.
+
+**Validation:** all nine offline suites pass (Model138,Observer109,OwnCasts15 plus six boundary/UI suites). Cases include actual event dispatch, target/focus aliasing, early fade on the next frame, changed same-ID refreshes, repeated updates, rejected hidden/malformed/expired data, overlap, stale return after complete and incomplete scans, and600 consecutive add/remove cycles with bounded retained state. The test suite checks renderer configuration, not live WoW pixels.
+
+**Independent review:** caught and fixed the ordering case where a complete empty scan arrives before an exact removal event. Removal now resolves retained current/predecessor witnesses as well as active and cached instances, preserving the earlier end and original application deadline. The new regression failed before the fix; the reviewer independently reran Observer109 and Model138 with no remaining critical or important findings.
+
+**Remaining live uncertainty:** event payloads can themselves be restricted, and updated-instance lookups carry the unit-aura access restriction. This build does not bypass either restriction or prove that offensive War Stomp, all Hibernate applications or enemy cooldowns now work on Forever. It adds a real previously ignored confirmed-evidence route and records its acceptance/blocking outcomes. The supplied0.4.20 trace remains a report of delayed/incomplete detection, not a live validation of this new route. The earlier unreleased swipe candidate below is included in0.4.22.
+
 ## Visual regressions reported after0.4.20; presentation changes in0.4.21
 
 **Report:** the flat outline is uglier than the originally requested action-bar frame, and the caster's icon appears wrong. The user's intended border was already established; presenting another style choice unnecessarily reopened that decision.
@@ -288,3 +300,9 @@ The user reports broad failures of appearance, stage and timing. The supplied ca
 A focused reproduction in work/audit_0420_report.py runs the actual Observer, Model and UI.GetRows against this timeline. It confirms the start comes from readable aura expiration minus duration, not a fabricated assignment to the preceding failed scan. The active-category visibility rule suppresses the icon until the complete empty observation, leaving only3.320seconds visible. This is a diagnosed interaction between requested visibility and countdown policies, alongside demonstrated detection gaps; it does not explain every symptom the user reports.
 
 No tracking fix or new release is claimed. Indexed and instance/slot enumeration share the unit-aura access restriction in the matching-build API declarations. The existing War Stomp exact lookup and ByUnit LoC return no witness in this trace; those results do not establish what an exact Hibernate lookup would return. Improving outgoing coverage requires demonstrated readable positive hit evidence. Changing stage colors or timing cannot recover uncaptured applications. Offline tests remain implementation checks, not proof of usability on the live beta.
+
+## Latest rejected appearance: radial shading (unreleased)
+
+The user rejects0.4.21's appearance and reports continued broad tracking failures. The screenshot contains a diagonal dark region consistent with the renderer's default Cooldown swipe. Native frame blending and deterministic Hibernate art do not disable that separate overlay. The working source now explicitly calls SetDrawSwipe(false) for DR and true for enemy cooldowns; border artwork, stage tint and final-five-second text are unchanged. A regression fails before the change and all nine source suites pass after. This identifies an existing rendering layer, not a verified live appearance fix or a repair of detection gaps. No new release/package/push is made from this candidate.
+
+Detection remains unresolved: the supplied prior caster trace records one positive Hibernate witness after restricted scans, and cannot reconstruct uncaptured applications. There is no new runtime evidence in this screenshot establishing another readable hit source. Do not present this local visual correction as a working tracker or as an improvement in live application coverage.

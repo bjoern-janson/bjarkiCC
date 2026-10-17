@@ -15,6 +15,7 @@ function frameMethods:SetColorTexture(...) self.color={...} end
 function frameMethods:SetVertexColor(...) self.color={...} end
 function frameMethods:SetAtlas(atlas) self.atlas=atlas end
 function frameMethods:SetBlendMode(mode) self.blendMode=mode end
+function frameMethods:SetDrawSwipe(value) self.drawSwipe=value end
 function frameMethods:AddLine(text) self.lines=self.lines or {}; self.lines[#self.lines+1]=text end
 function frameMethods:SetScript(event, fn) self.scripts[event]=fn end
 function frameMethods:RegisterEvent(event) self.events[event]=true end
@@ -546,6 +547,7 @@ for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
  for _,key in ipairs({'player','target','focus'}) do
   local bar=ns.UI.bars[key]; local first,second=bar.icons[1],bar.icons[2]
   assert(first.time.text==case[2],'DR number appears only at five seconds or below')
+  assert(first.swipe.drawSwipe==false,'DR artwork stays readable without a dark radial overlay')
   assert(first.swipe.cooldown[1]==300 and first.swipe.cooldown[2]==20,'text threshold never changes the application clock')
   local step=ns.db.bars[key].size+ns.db.bars[key].gap
   local sign=key=='player' and -1 or 1
@@ -558,8 +560,29 @@ for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
   assert(bar.width==2*ns.db.bars[key].size+ns.db.bars[key].gap and bar.height==bar.width,'grid bounds stay fixed at two by two')
  end
  assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
+ assert(ns.UI.bars.cooldown.icons[1].swipe.drawSwipe==true,'enemy cooldown presentation keeps its own sweep')
 end
 ns.UI.GetRows=originalRows
+
+
+-- Exercise the actual event payload route with the full-scan API denied.
+ns.Command('clear'); now=500; units.target='Player-1-Event'; units.focus=units.target
+C_LossOfControl=nil
+C_UnitAuras={GetAuraDataByIndex=function() error('restricted enumeration') end}
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_TARGET_CHANGED')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target',
+ {isFullUpdate=false,addedAuras={{spellId=2637,auraInstanceID=9990,isHarmful=true,expirationTime=520,duration=20}}})
+local eventRow=ns.model:GetDR(units.target,now)[1]
+assert(eventRow and eventRow.stage==1 and not eventRow.estimated,'readable added aura is hit evidence even when indexed enumeration fails')
+ns.UI.Update(now); assert(not ns.UI.bars.target.shown,'new confirmed active CC remains hidden')
+now=504
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','focus',{isFullUpdate=false,removedAuraInstanceIDs={9990}})
+ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.001)
+assert(ns.UI.bars.target.shown and ns.UI.bars.focus.shown,'explicit event removal reveals aliased grids on the next frame')
+assert(ns.UI.bars.target.icons[1].row.remaining==16 and ns.UI.bars.target.icons[1].row.started==500,
+ 'event removal preserves the original twenty-second application deadline')
+assert(ns.BuildStatus():find('auraEventsAdded: 1',1,true) and ns.BuildStatus():find('auraEventsRemoved: 1',1,true),
+ 'status makes accepted event evidence visible without a manual macro')
 
 -- DR-only spells need deterministic art when the caster's spell texture is
 -- unavailable. All Hibernate ranks must agree across player/target/focus.

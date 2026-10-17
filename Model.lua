@@ -13,6 +13,7 @@ local CAST_ID_TTL = 120
 local FALLBACK_DEDUP_SECONDS = 0.15
 local APPLICATION_EPSILON = 0.001 -- Ignore sub-millisecond API rounding changes.
 local MAX_DURATION_BASELINES = 64
+local MAX_CLOSED_AURAS = 512
 local DURATION_QUIET_SECONDS = 20 -- Conservative Classic maximum; not a fixed server rule.
 local DURATION_RESET_MINIMUM = 15 -- Only reconcile within/after the documented uncertainty range.
 
@@ -339,7 +340,7 @@ function Model:Observe(guid, effects, now, complete)
     if not guid then return end
     local unit = self.units[guid]
     if not unit then
-        unit = {seen = now, effects = {}, categories = {}, durationBaselines = {}, durationLadders = {}, durationEpoch = 0}
+        unit = {seen = now, effects = {}, closedAuras = {}, categories = {}, durationBaselines = {}, durationLadders = {}, durationEpoch = 0}
         self.units[guid] = unit
     end
     unit.seen = now
@@ -438,10 +439,11 @@ function Model:Observe(guid, effects, now, complete)
         if retained and not retained.appliedAt and not preciseStart and not stageInWindow(state, now) then
             retained = nil
         end
-        local previous = unit.effects[key] or retained
+        local previous = unit.effects[key] or unit.closedAuras[key] or retained
         local same = previous and previous.category == category and previous.spellID == effect.spellID
         local refreshed = same and refreshedApplication(previous, effect, preciseStart)
         if not same or refreshed then
+            unit.closedAuras[key] = nil
             local prediction = self.estimates[guid]
             local candidate = prediction and prediction.categories[category]
             local matchedPrediction = candidate and candidate.spellID == effect.spellID
@@ -547,7 +549,7 @@ function Model:Observe(guid, effects, now, complete)
         end
         local expires = retainTiming and previous.expires or effect.expires or (same and previous.expires or nil)
         local endedAt = same and not refreshed and previous.endedAt or nil
-        if endedAt and expires and expires > now then
+        if endedAt and expires and expires > now and not previous.confirmedRemoval then
             -- A still-live identical witness can repair a transient empty
             -- snapshot. It restores coverage, never another application.
             endedAt = nil
@@ -555,6 +557,7 @@ function Model:Observe(guid, effects, now, complete)
         end
         nextEffects[key] = {category = category, spellID = effect.spellID,
             expires = expires, endedAt = endedAt,
+            confirmedRemoval = same and not refreshed and previous.confirmedRemoval or nil,
             appliedAt = retainTiming and previous.appliedAt or preciseStart or (same and previous.appliedAt or nil),
             applicationSource = retainTiming and previous.applicationSource
                 or (preciseStart and effect.applicationSource) or (same and previous.applicationSource or nil),
@@ -582,6 +585,39 @@ function Model:Observe(guid, effects, now, complete)
     end
     unit.effects = nextEffects
     trimOldest(self.units, MAX_UNITS)
+end
+
+-- Exact readable UNIT_AURA removal IDs end only matching known instances.
+-- They do not establish absence of any other effect or create an application.
+function Model:EndAuras(guid, keys, now)
+    local unit = self.units[guid]
+    if not unit then return 0 end
+    local count = 0
+    for key in pairs(keys) do
+        local effect = unit.effects[key] or unit.closedAuras[key]
+        if not effect then
+            -- A complete scan can close activity before the exact removal
+            -- event arrives. Its retained identity is still a known witness.
+            for _, state in pairs(unit.categories) do
+                local candidate = state.applicationKey == key and state or state.previousApplication
+                if candidate and candidate.applicationKey == key then effect = candidate.witness end
+                if effect then break end
+            end
+        end
+        if effect and not effect.confirmedRemoval then
+            local state = unit.categories[effect.category]
+            effect.endedAt = effect.endedAt or recordEnd(state, effect, now)
+            effect.confirmedRemoval = true
+            effect.seen = now
+            unit.closedAuras[key] = effect
+            unit.effects[key] = nil
+            count = count + 1
+        end
+    end
+    trimOldest(unit.closedAuras, MAX_CLOSED_AURAS)
+    updateStageClocks(unit, unit.effects, now, self.stageResetSeconds,
+        self.resetOnApplication and self.resetSeconds or nil)
+    return count
 end
 
 function Model:Forget(guid)

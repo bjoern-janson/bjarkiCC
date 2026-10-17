@@ -35,6 +35,10 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
             ..(loc==nil and 'not-sampled' or (loc and 'complete' or 'restricted'))
             ..'; records='..(diagnostics.byUnitCount or 'unknown')
     end
+    if diagnostics and diagnostics.eventStatus and diagnostics.eventStatus~='no-payload' then
+        probe=probe..' | auraEvent='..diagnostics.eventStatus..'; records='..(diagnostics.eventAdds or 0)
+            ..'; removals='..(diagnostics.eventRemovals or 0)
+    end
     local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')..probe
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
@@ -262,7 +266,10 @@ frame:SetScript('OnEvent',function(_,event,...)
             if not unit or unit=='player' or unit=='target' or unit=='focus' then
                 -- Sample synchronously: a short CC can start and end between
                 -- render ticks. Render remains throttled independently.
-                ns.Observer.Scan(GetTime())
+                if event=='UNIT_AURA' and unit then
+                    local _,updateInfo=...
+                    ns.Observer.OnAura(unit,updateInfo,GetTime())
+                else ns.Observer.Scan(GetTime()) end
                 drawElapsed=.1 -- Draw on the next frame after an observed fade.
             end
         elseif event=='PLAYER_ENTERING_WORLD' then resetTracking()
