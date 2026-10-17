@@ -56,6 +56,7 @@ local function reset()
         Forget = function(_,guid) forgotten[#forgotten+1] = guid end,
         Cast = function(_,guid,name,id,now,castID,manual,overrides)
             casts[#casts+1] = {guid=guid,name=name,id=id,now=now,castID=castID,manual=manual,overrides=overrides}
+            return true
         end,
     }
     ns.db.interrupts = true
@@ -1586,6 +1587,128 @@ test("exact lookups remain bounded per distinct readable target and focus identi
     equal(calls.target,7); equal(calls.focus,7); equal(calls.player,nil)
     fixture.guid.focus=secret; calls={}; ns.Observer.Scan(10.2)
     equal(calls.target,7); equal(calls.focus,nil)
+end)
+
+test("same-GUID focus recovers complete aura enumeration when target is restricted", function()
+    reset()
+    fixture.guid.focus="Player-1-A"; fixture.name.focus="Enemy"
+    fixture.auras.target={{spellId=secret,auraInstanceID=20}}
+    fixture.auras.focus={{spellId=853,auraInstanceID=201,expirationTime=16,duration=6}}
+    ns.Observer.Scan(10)
+    local result=last("Player-1-A")
+    equal(result.complete,true)
+    equal(size(result.effects),1)
+    equal(effect(result).spellID,853)
+    equal(ns.Observer.GetUnitState("target").authoritativeUnit,"focus")
+    equal(ns.Observer.GetUnitState("focus").guid,"Player-1-A")
+    equal(ns.Observer.stats.aliasRecoveries,1)
+    equal(fixture.auraScans.focus,1,"focus alias queried once, not twice")
+    equal(ns.Observer.stats.scans,1)
+end)
+
+test("two restricted same-GUID aliases retain positive witnesses without proving absence", function()
+    reset()
+    fixture.guid.focus="Player-1-A"
+    fixture.auras.target={{spellId=853,auraInstanceID=201,expirationTime=16},{spellId=secret,auraInstanceID=8}}
+    fixture.auras.focus={{spellId=2637,auraInstanceID=202,expirationTime=18},{spellId=secret,auraInstanceID=9}}
+    ns.Observer.Scan(10)
+    local result=last("Player-1-A")
+    equal(result.complete,false)
+    equal(size(result.effects),2)
+    equal(ns.Observer.GetUnitState("target").aliasCoverage,"partial")
+    equal(ns.Observer.stats.aliasRecoveries,0)
+end)
+
+test("unrelated focus and changed alias identity cannot contribute target evidence", function()
+    reset()
+    fixture.guid.focus="Player-1-B"
+    fixture.auras.target={{spellId=secret,auraInstanceID=21}}
+    fixture.auras.focus={{spellId=853,auraInstanceID=222}}
+    ns.Observer.Scan(10)
+    equal(size(last("Player-1-A").effects),0)
+    equal(ns.Observer.GetUnitState("target").aliasCoverage,nil)
+    equal(size(last("Player-1-B").effects),1)
+end)
+
+test("readable player GUID remains valid when the secondary player boolean is secret", function()
+    reset()
+    fixture.player.target=secret
+    fixture.auras.target={{spellId=853,auraInstanceID=233}}
+    ns.Observer.Scan(10)
+    equal(ns.Observer.GetUnitState("target").guid,"Player-1-A")
+    equal(size(last("Player-1-A").effects),1)
+    fixture.player.target=false
+    ns.Observer.Scan(10.2)
+    equal(ns.Observer.GetUnitState("target").guid,nil,"readable explicit contradiction vetoes GUID")
+end)
+
+test("own-cast spell can select an exact query but only readable positive is a hit", function()
+    local savedData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    truth(ns.model:EstimateDR("Player-1-A", 853, "stun", 10, "Cast-probe", 9.9))
+    local queried=0
+    C_UnitAuras.GetUnitAuraBySpellID=function(unit,id)
+        if id==853 then
+            equal(unit,"target"); queried=queried+1
+            return {spellId=853,auraInstanceID=300,expirationTime=16,duration=6}
+        end
+    end
+    ns.Observer.Scan(10.1)
+    local row=ns.model:GetDR("Player-1-A",10.1)[1]
+    truth(row)
+    equal(row.stage,1)
+    equal(row.estimated,false)
+    equal(row.started,10)
+    equal(ns.Observer.GetUnitState("target").castLookup,"confirmed")
+    equal(ns.Observer.GetUnitState("target").castLookupQueries,1)
+    equal(ns.Observer.GetUnitState("target").castLookupHits,1)
+    equal(queried,1)
+    fixture.auraError=false
+    fixture.auras.target={{spellId=853,auraInstanceID=300,expirationTime=16,duration=6}}
+    ns.Observer.Scan(10.2)
+    equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,1,"same identity cannot advance twice")
+    equal(ns.Observer.GetUnitState("target").castLookup,nil,"complete enumeration needs no extra probes")
+    ns.Data=savedData
+end)
+
+test("exact query without matching readable instance remains an estimate", function()
+    local savedData=ns.Data
+    assert(loadfile(addonDir .. "/Data.lua"))("bjarkiCC",ns)
+    reset(); realModel(); fixture.guid.player=nil; fixture.auraError=true
+    truth(ns.model:EstimateDR("Player-1-A",853,"stun",10,"Cast-no-hit",9.9))
+    C_UnitAuras.GetUnitAuraBySpellID=function(_,id)
+        if id==853 then return {spellId=5211,auraInstanceID=301} end
+    end
+    ns.Observer.Scan(10.1)
+    local rows=ns.model:GetDR("Player-1-A",10.1)
+    equal(#rows,1)
+    equal(rows[1].estimated,true)
+    equal(ns.Observer.GetUnitState("target").castLookup,"mismatch")
+    equal(ns.Observer.GetUnitState("target").castLookupHits,0)
+    ns.Data=savedData
+end)
+
+test("enemy cast telemetry separates delivery from model acceptance", function()
+    reset()
+    ns.Observer.NoteCastStart("target")
+    ns.Observer.NoteCastStart("player")
+    ns.Observer.NoteCastStart(secret)
+    local attempts=0
+    ns.model.Cast=function() attempts=attempts+1; return attempts==1 end
+    truth(ns.Observer.OnCast("target","Cast-1",853,10))
+    equal(ns.Observer.OnCast("target","Cast-1",853,10.05),false)
+    equal(ns.Observer.stats.castStartsOther,1)
+    equal(ns.Observer.stats.castStartsPlayer,1)
+    equal(ns.Observer.stats.castStartsUnknown,1)
+    equal(ns.Observer.stats.castSuccessOther,2)
+    equal(ns.Observer.stats.acceptedCasts,1)
+    equal(ns.Observer.castRejects.duplicateOrNoCooldown,1)
+    fixture.name.target=secret
+    fixture.player.target=secret
+    truth(ns.Observer.OnCast("target","Cast-2",853,10.1)==false)
+    equal(ns.Observer.stats.castNameUnavailable,1)
+    equal(ns.Observer.stats.castPlayerGuidFallback,1)
 end)
 
 local failures={}
