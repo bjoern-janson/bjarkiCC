@@ -1,5 +1,26 @@
 # bjarkiCC for WoW Forever beta
 
+## 0.4.17.7: Marked, optional caster-side AoE stun DR estimates
+
+**Chosen live behavior:** The user prefers an explicit **`?` guess** over an empty caster-side DR bar for War Stomp and Iron Grenade, because WoW Forever 1.60.1.70425 restricts the opponent's actual stun aura and LoC data. The user also directly tested that **Bash, War Stomp and Iron Grenade share Controlled Stun DR**. This candidate deliberately does not claim a confirmed landed hit.
+
+### How it works
+
+- Existing direct-cast estimates, including Bash, remain available through `OwnCasts.lua`.
+- War Stomp `20549` and Iron Grenade `4068` now snapshot **possible victim player GUIDs** from target and focus on your own SENT/START event. Only readable player GUIDs are eligible; explicitly non-player, nonhostile or friendly units are rejected. Unknown relation is still only an unconfirmed possible victim.
+- The addon waits for your **UNIT_SPELLCAST_SUCCEEDED**; sending/starting alone creates no DR timer. A missing SENT/START or item castGUID can fall back to the selected candidates at success, clearly remaining a guess. Duplicated successes, canceled casts and close repeated guidless item events are guarded.
+- Possible opponents receive separate estimates in the existing shared-stun DR category. Same-GUID target/focus aliases count once. This permits an individual opponent to be at predicted stage two while another is only at stage one. An unconfirmed cast at predicted immunity does not extend that opponent's timer.
+- **Every selected AoE prediction shows `?` on the existing green/yellow/red stun DR icon**; the tooltip explicitly states that target/focus are POSSIBLE victims, not observed CC. Real readable matching aura/LoC witnesses remain authoritative when available. Unconfirmed estimates never mutate observed DR history.
+- `/bcc aoe on|off|status` toggles this separate feature (requested default **ON** for this test build). It also requires the master `ownCastEstimates` setting under the DR tab. The new checkbox `Mark Stomp / Grenade as ? estimates` controls the same flag. Disabling it immediately hides AoE-only guesses, without hiding real observed DR underneath.
+- The former `/bcc aura on` secure native indicator remains an **independent visual experiment**, and is not necessary for the new estimate. Use `/bcc aura off` to remove the redundant STUN AURA icon. Experimental enemy cooldowns remain off by default.
+
+### Verification and limits
+
+All Lua 5.1 offline suites—including model inference, real Main event dispatch, target/focus visualization, failure/duplicate cases, and explicit opt-out—must pass in GitHub Actions before testing in-game.
+
+**A visible ? indicates your War Stomp/Grenade was successfully cast with that player as a *possible* recipient, not that they were hit.** Range, ground placement, resistance, immunity and other unseen enemies remain unknowable from these events. A guessed second or third DR stage may be incorrect. Do not take a question-mark stage as reliable evidence that an opponent is immune. The existing 20s application display and separate provisional 18s stage reset remain unchanged.
+
+
 ## 0.4.17.6: Native, secure hostile-stun visual experiment (optional)
 
 This experimental branch uses **Blizzard's `CustomAuraContainerTemplate`**, the same native secure aura presentation family used by bjarkiPortraits. Blizzard's own code permits spell-ID matching on harmful auras on non-assistable enemies. Unlike `GetAuraDataByIndex`, the native aura widget can sometimes display an actual aura without granting Lua access to the selected spell or its duration. Whether it does so for hidden Forever stun effects still requires a *real in-game test*.
