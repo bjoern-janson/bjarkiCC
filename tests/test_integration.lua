@@ -78,13 +78,21 @@ C_Spell={GetSpellTexture=function() return 135963 end}
 DEFAULT_CHAT_FRAME={AddMessage=function() end}
 issecretvalue=function() return false end; canaccessvalue=function() return true end
 local dir=ADDON_DIR or 'work/bjarkiCC'
-for _,file in ipairs({'Bootstrap','Data','Model','Observer','OwnCasts','Anchors','UI'}) do assert(loadfile(dir..'/'..file..'.lua'))('bjarkiCC',ns) end
+for _,file in ipairs({'Bootstrap','Data','Model','Observer','OwnCasts','Anchors','UI','NativeStuns'}) do assert(loadfile(dir..'/'..file..'.lua'))('bjarkiCC',ns) end
 local main=io.open(dir..'/Main.lua'); assert(main,'Main is not implemented yet'); main:close()
 assert(loadfile(dir..'/Main.lua'))('bjarkiCC',ns)
 assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
 assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
 assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+assert(ns.NativeStuns and ns.db.nativeStunWitness==false,
+ 'secure stun visual is present in addon but disabled by default')
+assert(not ns.NativeStuns.initialized,
+ 'secure aura hosts must wait until Blizzard frames load at world entry')
+SlashCmdList.BJARKICC('aura status')
+assert(ns.BuildStatus():find('Secure native stun visual:',1,true)
+ and ns.BuildStatus():find('native shared-stun witness OFF',1,true),
+ 'diagnostics identify nonauthoritative witness status')
 -- Probe the Blizzard-native DR option without modifying addon DR model state.
 local nativeCVar="0"
 local nativeSupported=true
@@ -146,6 +154,9 @@ assert(ns.eventFrame.events.UNIT_SPELLCAST_SENT and ns.eventFrame.events.UNIT_SP
  and ns.eventFrame.events.UNIT_SPELLCAST_FAILED and ns.eventFrame.events.UNIT_SPELLCAST_INTERRUPTED,'outgoing cast correlation and cancellation events registered')
 assert(ns.eventFrame.events.UNIT_SPELLCAST_START and ns.eventFrame.events.UNIT_SPELLCAST_CHANNEL_START,
  'non-authoritative cast-start telemetry registers without creating cooldowns')
+ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_ENTERING_WORLD')
+assert(ns.NativeStuns.initialized,
+ 'world entry initializes the isolated native widget without allowing a DR hit')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_START','target','Cast-start',853)
 assert(ns.Observer.stats.castStartsOther==1 and #ns.model:GetCooldowns(100)==0,
  'cast-start evidence never starts speculative enemy cooldowns')
@@ -374,6 +385,11 @@ SlashCmdList.BJARKICC('test')
 assert(ns.demo and ns.UI.bars.player.icons[1].shown,'demo visible')
 assert(not ns.UI.bars.cooldown.shown,
  'normal DR preview must not show sample enemy cooldown icons without explicit opt-in')
+SlashCmdList.BJARKICC('aura on')
+assert(ns.db.nativeStunWitness,
+ 'opt-in secure aura widget does not depend on ordinary DR stage tracking')
+SlashCmdList.BJARKICC('aura off')
+assert(not ns.db.nativeStunWitness,'native aura visual can be disabled independently')
 SlashCmdList.BJARKICC('cooldowns on')
 assert(ns.db.bars.cooldown.enabled and ns.UI.bars.cooldown.shown,
  'explicit command enables experimental cooldown preview without altering DR')
