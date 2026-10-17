@@ -91,9 +91,12 @@ test('War Stomp and grenade create visibly marked, unconfirmed shared-stun guess
     r=rows(nil,12.1)[1]
     eq(r.stage,3); eq(r.spellID,4068); eq(r.estimateKind,'aoe')
     eq(ns.OwnCasts.Sent('player','', 'Cast-immune',20549,13),true)
-    eq(ns.OwnCasts.Succeeded('player','Cast-immune',20549,13.5),false)
+    -- The target is predicted immune, but a separately tracked focus could
+    -- still advance to stage three. Its speculative hit must never shift
+    -- the first target's established clock.
+    eq(ns.OwnCasts.Succeeded('player','Cast-immune',20549,13.5),true)
     r=rows(nil,13.5)[1]
-    eq(r.stage,3); eq(r.started,12.1,'unconfirmed immune-staged casts cannot prolong DR')
+    eq(r.stage,3); eq(r.started,12.1,'immune target cannot have its existing timer prolonged')
 end)
 
 test('same target/focus GUID receives one area estimate, not a double stage',function()
