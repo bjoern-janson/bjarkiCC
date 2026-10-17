@@ -2,7 +2,13 @@
 
 Compact icons show player, target and focus diminishing returns, plus observed enemy crowd-control cooldown estimates. Each DR bar follows its matching unit frame. The look follows old InterruptBar and Diminish: small square icons, centered timers and colored DR borders. Hammer of Justice, Kidney Shot, Frost Nova, traps and other CC families are included; interrupts can be enabled separately.
 
-Version **0.4.15-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+Version **0.4.16-beta** targets **1.60.1.70425**, interface **16001**. All nine offline Lua suites pass; revised behavior still needs an in-game check. Protected enemy data can prevent confirmed target/focus DR or cooldown tracking on this beta.
+
+## Portrait columns and final-five-second numbers in 0.4.16
+
+Player, target and focus DR icons now start centered eight pixels above their portraits. Additional categories stack vertically upward, leaving the first icon fixed as the column grows. Upgrade applies this requested layout to all three DR bars once; later dragging and layout choices remain saved. Sizes, gaps, category filters, tracking settings and the enemy cooldown bar's placement are preserved.
+
+DR icons, stage borders and cooldown sweeps still appear from application. Countdown numbers remain blank above five seconds, show `5` at exactly five, then use one decimal below five. This changes presentation only; both underlying clocks and expiry behavior remain in place. Enemy cooldown numbers retain their normal full countdown. Use `/bcc test` to preview and `/bcc unlock` outside combat to adjust the portrait offsets.
 
 ## Exact War Stomp confirmation in 0.4.15
 
@@ -121,7 +127,7 @@ Further unconfirmed cast attempts no longer restart a red DR timer. The third ap
 ## Frame anchoring
 
 - Player DR follows `PlayerFrame`, target DR follows `TargetFrame`, and focus DR follows `FocusFrame`.
-- Each uses the corresponding visible health region for placement, with portrait/frame fallbacks. Use `/bcc unlock` outside combat and drag the icons to adjust the offset; `/bcc lock` saves the layout from accidental movement. Offsets persist across reloads.
+- Each uses the visible portrait mask/image for placement, with native-frame fallback, centered above it and growing upward by default. Use `/bcc unlock` outside combat and drag the icons to adjust the offset; `/bcc lock` saves the layout from accidental movement. Offsets persist across reloads.
 - Moving the native unit frame also moves its DR bar. Bars disappear with hidden unit frames during live play; preview/unlock still shows setup handles.
 - The enemy cooldown bar remains independently movable.
 - Target and focus share one observation history when they refer to the same player. Switching targets preserves the old target's DR if that player remains focused.
@@ -132,7 +138,7 @@ Upgrading initializes frame-relative DR offsets once, preserving size, filters a
 
 - DR icons default to 28px; cooldown icons to 32px, with 3px spacing.
 - Live bars have no headings, category captions, backgrounds or empty-state messages.
-- Timers use whole seconds, or compact minutes for long cooldowns.
+- DR numbers appear only at five seconds remaining or below, with decimals below five. Enemy cooldowns retain whole seconds or compact minutes for long timers.
 - DR stages use colored borders. Percentage text and caster names are optional in Display settings.
 - DR uncertainty is explained on hover. Cooldown `?` marks the uncertain talent range; `M` identifies a manually marked use.
 - Empty bars disappear when locked. Labels appear only in preview or while moving bars.

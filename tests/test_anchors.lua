@@ -213,4 +213,28 @@ assert(bars.focus.point[2]==replacementHealth and A.Visible(bars.focus),'replace
 FocusFrame.visible=false
 assert(not A.Visible(bars.focus),'health visibility never overrides hidden native unit frame')
 assert(playerHealth.writes==0 and targetHealth.writes==0 and focusHealth.writes==0 and replacementHealth.writes==0,'health regions are read-only anchor references')
+-- New columns use native TOP center anchoring, so growing their height
+-- cannot move the first icon away from the portrait.
+for _,pair in ipairs({{'player',playerPortrait},{'target',targetPortrait},{'focus',focusPortrait}}) do
+ local key,region=pair[1],pair[2]
+ if key=='target' then TargetFrame.TargetFrameContainer={PortraitMask=targetPortrait} end
+ if key=='focus' then FocusFrame.TargetFrameContainer={PortraitMask=focusPortrait}; FocusFrame.visible=true end
+ local settings=ns.db.bars[key]
+ settings.anchorKind='portrait-top'; settings.offsetX=0; settings.offsetY=8; settings.vertical=true; settings.reverse=true
+ A.Apply(bars[key],true)
+ assert(bars[key].point[2]==region and bars[key].point[1]=='BOTTOM' and bars[key].point[3]=='TOP'
+  and bars[key].point[4]==0 and bars[key].point[5]==8,'portrait-centered column uses native relative anchoring across scales')
+ local point=bars[key].point
+ bars[key].height=150; A.Apply(bars[key])
+ assert(bars[key].point==point,'adding categories leaves the portrait attachment fixed')
+end
+-- Center-based dragging still converts native and addon scales correctly.
+ns.db.locked=false
+bars.focus.left,bars.focus.bottom,bars.focus.width,bars.focus.height=200,200,28,90
+assert(A.StartDrag(bars.focus),'centered portrait column remains movable')
+A.StopDrag(bars.focus)
+assert(math.abs(ns.db.bars.focus.offsetX+431)<.001 and math.abs(ns.db.bars.focus.offsetY+77.5)<.001,
+ 'dragged bottom-center is saved against portrait top-center across scales')
+assert(bars.focus.point[1]=='BOTTOM' and bars.focus.point[2]==focusPortrait,
+ 'drag restores the portrait-relative column attachment')
 print('anchors: health and portrait geometry, legacy placement, scaling, dragging, visibility, missing frames and combat deferral passed')

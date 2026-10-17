@@ -301,7 +301,7 @@ function UI.Update(now)
                         setBorderColor(icon,1,1,1,1)
                         icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
                     else
-                        icon.time:SetText(row.remaining>0 and UI.FormatTime(row.remaining) or '')
+                        icon.time:SetText(row.remaining>0 and row.remaining<=5 and UI.FormatTime(row.remaining) or '')
                         -- Keep uncertainty in the tooltip and status report. An
                         -- inferred stage cannot supply an exact percentage.
                         icon.state:SetText(row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])

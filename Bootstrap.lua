@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.15-beta'
+ns.name, ns.version = addonName, '0.4.16-beta'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -50,9 +50,9 @@ local placements = { player={-230,-165}, target={230,-165}, focus={230,-230}, co
 local portraitOffsets = { player={0,8}, target={10,0}, focus={10,0} }
 local healthOffsets = { player={24,24}, target={-24,24}, focus={-24,24} }
 local function defaultUnitPlacement(bar, key)
-    bar.anchorKind = 'health'
-    bar.offsetX, bar.offsetY = unpack(healthOffsets[key])
-    bar.reverse = key ~= 'player'
+    bar.anchorKind = 'portrait-top'
+    bar.offsetX, bar.offsetY = 0, 8
+    bar.vertical, bar.reverse = true, true
 end
 local function bounded(v, default, low, high)
     v = S.Number(v)
@@ -68,7 +68,7 @@ function ns.InitializeDB()
     local db = type(bjarkiCCDB) == 'table' and bjarkiCCDB or {}
     local savedSchema = S.Number(db.schema) or 0
     local migrateVisualDefaults = savedSchema < 2
-    local migrateUnitOffsets = savedSchema < 3
+    local migrateUnitOffsets = savedSchema < 6
     db.locked = bool(db.locked, true)
     db.targetOnly = bool(db.targetOnly, false)
     db.interrupts = bool(db.interrupts, false)
@@ -100,8 +100,8 @@ function ns.InitializeDB()
         end
         bar.enabled = bool(bar.enabled, true)
         bar.label = bool(bar.label, false)
-        bar.vertical = bool(bar.vertical, false)
-        bar.reverse = bool(bar.reverse, false)
+        bar.vertical = bool(bar.vertical, key ~= 'cooldown')
+        bar.reverse = bool(bar.reverse, key ~= 'cooldown')
         bar.size = bounded(bar.size, key == 'cooldown' and 32 or 28, 24, 72)
         bar.gap = bounded(bar.gap, 3, 0, 30)
         bar.maxIcons = math.floor(bounded(bar.maxIcons, 12, 3, 30))
@@ -111,36 +111,20 @@ function ns.InitializeDB()
             if migrateUnitOffsets then
                 defaultUnitPlacement(bar, key)
             else
-                if savedSchema < 4 then
-                    bar.offsetX = bounded(bar.offsetX, 6, -10000, 10000)
-                    bar.offsetY = bounded(bar.offsetY, -8, -10000, 10000)
-                    if bar.offsetX == 6 and bar.offsetY == -8 then
-                        defaultUnitPlacement(bar, key)
-                    else
-                        bar.anchorKind = 'frame'
-                    end
-                elseif savedSchema < 5 then
-                    if bar.anchorKind ~= 'frame' then bar.anchorKind = 'portrait' end
-                    local defaults = bar.anchorKind == 'frame' and {6,-8} or portraitOffsets[key]
-                    bar.offsetX = bounded(bar.offsetX, defaults[1], -10000, 10000)
-                    bar.offsetY = bounded(bar.offsetY, defaults[2], -10000, 10000)
-                    if bar.anchorKind == 'portrait' and bar.offsetX == defaults[1] and bar.offsetY == defaults[2] then
-                        defaultUnitPlacement(bar, key)
-                    end
-                else
-                    if bar.anchorKind ~= 'frame' and bar.anchorKind ~= 'portrait' and bar.anchorKind ~= 'health' then
-                        defaultUnitPlacement(bar, key)
-                    end
-                    local defaults = bar.anchorKind == 'frame' and {6,-8}
-                        or bar.anchorKind == 'portrait' and portraitOffsets[key] or healthOffsets[key]
-                    bar.offsetX = bounded(bar.offsetX, defaults[1], -10000, 10000)
-                    bar.offsetY = bounded(bar.offsetY, defaults[2], -10000, 10000)
+                if bar.anchorKind ~= 'frame' and bar.anchorKind ~= 'portrait'
+                    and bar.anchorKind ~= 'health' and bar.anchorKind ~= 'portrait-top' then
+                    defaultUnitPlacement(bar, key)
                 end
+                local defaults = bar.anchorKind == 'frame' and {6,-8}
+                    or bar.anchorKind == 'portrait' and portraitOffsets[key]
+                    or bar.anchorKind == 'health' and healthOffsets[key] or {0,8}
+                bar.offsetX = bounded(bar.offsetX, defaults[1], -10000, 10000)
+                bar.offsetY = bounded(bar.offsetY, defaults[2], -10000, 10000)
             end
         end
         db.bars[key] = bar
     end
-    db.schema = 5
+    db.schema = 6
     bjarkiCCDB, ns.db = db, db
 end
 

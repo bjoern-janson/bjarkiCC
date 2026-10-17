@@ -88,12 +88,13 @@ ns.db.stageResetSeconds=20
 ns.model=ns.Model.New(ns.db.resetSeconds,ns.db.stageResetSeconds)
 assert(not ns.UI.bars.player.template and not ns.UI.bars.target.template and not ns.UI.bars.focus.template,
  'unit-anchored bars must not inherit BackdropTemplate secret-size arithmetic')
-assert(ns.UI.bars.player.point[2]==playerHealth and ns.UI.bars.target.point[2]==targetHealth and ns.UI.bars.focus.point[2]==focusHealth,'default DR bars attach to the matching modern health regions')
-assert(ns.UI.bars.player.point[1]=='BOTTOMLEFT' and ns.UI.bars.player.point[3]=='TOPLEFT'
- and ns.UI.bars.player.point[4]==24 and ns.UI.bars.player.point[5]==24,'player starts above the inward health edge')
-assert(ns.UI.bars.target.point[1]=='BOTTOMRIGHT' and ns.UI.bars.target.point[3]=='TOPRIGHT'
- and ns.UI.bars.target.point[4]==-24 and ns.UI.bars.target.point[5]==24,'target starts above the mirrored inward health edge')
-assert(ns.UI.bars.player.anchorFrame==PlayerFrame and ns.UI.bars.focus.anchorFrame==FocusFrame,'native visibility identity remains distinct from health-region geometry')
+for _,pair in ipairs({{'player',playerPortrait},{'target',targetPortrait},{'focus',focusPortrait}}) do
+ local bar=ns.UI.bars[pair[1]]
+ assert(bar.point[2]==pair[2] and bar.point[1]=='BOTTOM' and bar.point[3]=='TOP'
+  and bar.point[4]==0 and bar.point[5]==8,'each DR column starts centered above its portrait')
+end
+assert(ns.UI.bars.player.anchorFrame==PlayerFrame and ns.UI.bars.focus.anchorFrame==FocusFrame,
+ 'native frame remains the visibility owner')
 assert(ns.eventFrame.events.PLAYER_FOCUS_CHANGED and ns.eventFrame.events.PLAYER_REGEN_ENABLED,'focus and anchor recovery events registered')
 assert(ns.eventFrame.events.UNIT_SPELLCAST_SENT and ns.eventFrame.events.UNIT_SPELLCAST_SUCCEEDED
  and ns.eventFrame.events.UNIT_SPELLCAST_FAILED and ns.eventFrame.events.UNIT_SPELLCAST_INTERRUPTED,'outgoing cast correlation and cancellation events registered')
@@ -106,7 +107,7 @@ C_UnitAuras.GetAuraDataByIndex=function(unit,index)
 end
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','player')
 ns.UI.Update(now)
-assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='20','application immediately supplies a visible DR timer')
+assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='','application shows its DR icon while long countdown text stays hidden')
 assert(ns.UI.bars.player.icons[1].swipe.cooldown[1]==100.1,'application supplies the cooldown sweep start')
 local bevel=ns.UI.bars.player.icons[1].borderTextures[1]
 assert(bevel.atlas=='UI-HUD-ActionBar-IconFrame', 'DR icons use the native action-button bevel')
@@ -158,7 +159,7 @@ ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
 local outgoing=ns.model:GetDR('Player-1-T',now)
 local targetIcon=ns.UI.bars.target.icons[1]
 assert(#outgoing==1 and outgoing[1].estimated and outgoing[1].uncertain and outgoing[1].stage==1,'correlated player success creates a separate uncertain estimate')
-assert(ns.UI.bars.target.shown and targetIcon.row.estimated and targetIcon.time.text=='20'
+assert(ns.UI.bars.target.shown and targetIcon.row.estimated and targetIcon.time.text==''
  and not targetIcon.state.shown,'Main success dispatch renders the estimate with only its timer and border')
 assert(not targetIcon.template,'anchored icon cannot inherit BackdropTemplate size callbacks')
 for _,edge in ipairs(targetIcon.borderTextures) do
@@ -196,7 +197,7 @@ assert(outgoing[1].stage==1 and not outgoing[1].timeEstimated and math.abs(outgo
 now=102; targetAura.expirationTime=107; targetAura.duration=5
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
-assert(targetIcon.row.stage==2 and targetIcon.row.started==102 and targetIcon.time.text=='20','shorter consecutive CC refreshes application timer and advances stage')
+assert(targetIcon.row.stage==2 and targetIcon.row.started==102 and targetIcon.time.text=='','shorter consecutive CC refreshes application timer and advances stage')
 for _,edge in ipairs(targetIcon.borderTextures) do
  assert(edge.color[1]==1 and edge.color[2]==.8 and edge.color[3]==.15,'second observed application renders the yellow stage border')
 end
@@ -205,7 +206,7 @@ assert(ns.BuildStatus():find('DR stun: stage 2; started 102.000',1,true),'status
 now=103; targetAura.expirationTime=105.5; targetAura.duration=2.5
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
-assert(targetIcon.row.stage==3 and targetIcon.row.started==103 and targetIcon.time.text=='20','third readable application refreshes the timer and reaches the final DR stage')
+assert(targetIcon.row.stage==3 and targetIcon.row.started==103 and targetIcon.time.text=='','third readable application refreshes the timer and reaches the final DR stage')
 for _,edge in ipairs(targetIcon.borderTextures) do
  assert(edge.color[1]==1 and edge.color[2]==.2 and edge.color[3]==.15,'third observed application renders its red border')
 end
@@ -234,13 +235,13 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Bjö
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-space-1',6770)
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
 targetIcon=ns.UI.bars.target.icons[1]
-assert(ns.UI.bars.target.shown and ns.UI.bars.focus.shown and targetIcon.time.text=='20'
+assert(ns.UI.bars.target.shown and ns.UI.bars.focus.shown and targetIcon.time.text==''
  and targetIcon.row.stage==1 and targetIcon.row.estimated,'space-qualified destination starts both same-GUID views immediately on success')
 now=210
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-space-2',6770)
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-space-2',6770)
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
-assert(targetIcon.row.stage==2 and targetIcon.time.text=='20','second hidden cast advances and refreshes the inferred timer')
+assert(targetIcon.row.stage==2 and targetIcon.time.text=='','second hidden cast advances and refreshes the inferred timer')
 now=211
 C_UnitAuras.GetAuraDataByIndex=function(unit,index)
  if (unit=='target' or unit=='focus') and index==1 then
@@ -250,7 +251,7 @@ end
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
 assert(not targetIcon.row.estimated and targetIcon.row.stage==2 and targetIcon.row.observedStage==1
- and targetIcon.row.stageEstimated and targetIcon.row.uncertain and targetIcon.time.text=='19',
+ and targetIcon.row.stageEstimated and targetIcon.row.uncertain and targetIcon.time.text=='',
  'confirming the second application preserves the inferred first stage without making it observed')
 for _,edge in ipairs(targetIcon.borderTextures) do
  assert(edge.color[1]==1 and edge.color[2]==.8,'confirmed second application retains its inferred yellow border')
@@ -276,7 +277,7 @@ now=215
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-cap-3',2637)
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-cap-3',2637)
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
-assert(targetIcon.row.stage==3 and targetIcon.row.started==215 and targetIcon.time.text=='20',
+assert(targetIcon.row.stage==3 and targetIcon.row.started==215 and targetIcon.time.text=='',
  'the third application still starts its full red countdown')
 for _,time in ipairs({218,222,234}) do
  now=time
@@ -286,7 +287,7 @@ for _,time in ipairs({218,222,234}) do
  ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
  assert(targetIcon.row.stage==3 and targetIcon.row.started==215 and targetIcon.row.remaining==235-now,
   'attempts at the final DR stage must preserve the original deadline')
- assert(targetIcon.swipe.cooldown[1]==215 and targetIcon.time.text==ns.UI.FormatTime(235-now),
+ assert(targetIcon.swipe.cooldown[1]==215 and targetIcon.time.text==((235-now)<=5 and ns.UI.FormatTime(235-now) or ''),
   'neither sweep nor number can restart on an unconfirmed immune-stage attempt')
  assert(ns.UI.bars.focus.icons[1].row.started==215,'same-GUID focus shares the preserved deadline')
 end
@@ -302,7 +303,7 @@ assert(not ns.UI.bars.target.shown and not ns.UI.bars.focus.shown,'known prior a
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-after-cap',2637)
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player','Cast-after-cap',2637)
 ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
-assert(targetIcon.row.stage==1 and targetIcon.row.started==240 and targetIcon.time.text=='20',
+assert(targetIcon.row.stage==1 and targetIcon.row.started==240 and targetIcon.time.text=='',
  'a new cast after expiry begins a fresh first cycle')
 UnitName=originalUnitName
 issecretvalue=function() return false end
@@ -329,7 +330,7 @@ ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_REGEN_DISABLED')
 assert(not focusBar.dragging and focusBar.anchorPending,'combat cancels dragging and queues reattachment')
 combat=false
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'PLAYER_REGEN_ENABLED')
-assert(not focusBar.anchorPending and focusBar.point[2]==focusHealth,'combat exit restores the modern health-region anchor')
+assert(not focusBar.anchorPending and focusBar.point[2]==focusPortrait,'combat exit restores the modern health-region anchor')
 SlashCmdList.BJARKICC('lock'); assert(ns.db.locked and not ns.UI.bars.player.shown,'locking removes empty anchors')
 SlashCmdList.BJARKICC('cooldown 10308 47')
 assert(ns.db.cooldownOverrides[853]==47,'rank override normalizes')
@@ -367,7 +368,7 @@ ns.model={GetDR=function() return {{category='stun',spellID=853,stage=3,active=t
 ns.db.bars.cooldown.maxIcons=1
 ns.UI.Update(now)
 assert(not ns.UI.bars.player.title.shown,'no headers in normal play')
-assert(ns.UI.bars.player.icons[1].time.text=='20','DR countdown is visible from application while CC remains active')
+assert(ns.UI.bars.player.icons[1].time.text=='','DR icon is visible from application while countdown text waits until five seconds')
 assert(ns.UI.bars.player.icons[1].swipe.shown and ns.UI.bars.player.icons[1].swipe.cooldown[1]==now,'DR sweep starts on the observed application')
 assert(not ns.UI.bars.player.icons[1].state.shown,'uncertain DR does not add a question mark to the icon')
 for _,edge in ipairs(ns.UI.bars.player.icons[1].borderTextures) do
@@ -431,7 +432,7 @@ local function handoffEvent(at,event,stage,start)
     'Hibernate source handoff must not invent a stage on '..unit)
    assert(icon.row.started==start and icon.swipe.cooldown[1]==start,
     'numeric countdown and sweep share the calibrated application time')
-   assert(icon.time.text==ns.UI.FormatTime(start+20-now),
+   assert(icon.time.text==((start+20-now)<=5 and ns.UI.FormatTime(start+20-now) or ''),
     'visible countdown retains the application policy')
    local color=({{.25,1,.3},{1,.8,.15},{1,.2,.15}})[stage]
    assert(icon.actionBorder and icon.actionBorder.atlas=='UI-HUD-ActionBar-IconFrame'
@@ -463,7 +464,7 @@ handoffLoC={spellID=2637,auraInstanceID=325,startTime=2655637.750,duration=10,ti
 handoffEvent(2655637.512,'LOSS_OF_CONTROL_UPDATE',1,2655627.250)
 handoffEvent(2655637.765,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
 handoffEvent(2655642.750,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
-assert(ns.UI.bars.player.icons[1].time.text=='15','half-duration CC now has the yellow second cycle at 15s')
+assert(ns.UI.bars.player.icons[1].time.text=='','half-duration CC now has the yellow second cycle at 15s')
 handoffLoC=nil
 handoffEvent(2655647.495,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
 handoffEvent(2655652.402,'LOSS_OF_CONTROL_UPDATE',2,2655637.750)
@@ -768,4 +769,28 @@ assert(#ns.model:GetDR(units.player,now)==0,'application setting also clears inc
 ns.model:Observe(units.player,{settings={category='stun',spellID=853,appliedAt=now,expires=now+5}},now,true)
 configured=ns.model:GetDR(units.player,now)[1]
 assert(configured.duration==21 and configured.stageRemaining==22,'application slider rebuilds the model without changing stage timing')
+-- The actual reused icon must clear long text and reveal the final five
+-- seconds without shifting the sweep, stage, or expiry.
+local originalRows=ns.UI.GetRows
+local remaining=5.01
+ns.UI.GetRows=function(key)
+ if key=='cooldown' then return {{spellID=853,category='stun',name='Enemy',started=300,duration=60,remaining=40}} end
+ return {{spellID=853,category='stun',stage=1,started=300,duration=20,remaining=remaining,uncertain=true},
+         {spellID=5782,category='fear',stage=2,started=300,duration=20,remaining=remaining,uncertain=true}}
+end
+ns.demo=false; ns.db.locked=true
+for _,key in ipairs({'player','target','focus'}) do ns.db.bars[key].vertical=true; ns.db.bars[key].reverse=true end
+for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
+ remaining=case[1]; ns.UI.Update(315)
+ for _,key in ipairs({'player','target','focus'}) do
+  local bar=ns.UI.bars[key]; local first,second=bar.icons[1],bar.icons[2]
+  assert(first.time.text==case[2],'DR number appears only at five seconds or below')
+  assert(first.swipe.cooldown[1]==300 and first.swipe.cooldown[2]==20,'text threshold never changes the application clock')
+  assert(first.point[1]=='BOTTOM' and first.point[4]==0 and first.point[5]==0,'first icon stays centered at the bottom of its column')
+  assert(second.point[1]=='BOTTOM' and second.point[4]==0 and second.point[5]==ns.db.bars[key].size+ns.db.bars[key].gap,
+   'additional icons stack upward in one column')
+ end
+ assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
+end
+ns.UI.GetRows=originalRows
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')
