@@ -1,5 +1,12 @@
 # bjarkiCC architecture and DR research
 
+## 0.4.17.5 native Blizzard DR availability experiment
+
+Blizzard's `C_SpellDiminish` API is a potential native server DR source, not interchangeable with the addon-owned observed-aura state machine. The `UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED` event declares secret payloads. Never assume event delivery means an observable hit, a category, or a count. The native feed has to be tested under a supported `IsSystemSupported()` result and explicit player `spellDiminishPVPEnemiesEnabled=1` opt-in.
+
+`/bcc native status` reads guarded support/CVar/event-valid flags and reports diagnostic counters. `/bcc native on` requests the client-global CVar only if supported and out of combat; `off` requests 0, both with read-back confirmation. No login/autoload CVar writes occur. `Observer.OnNativeDR` records only individually readable, validated primitive fields in a last-event diagnostic snapshot, never executes private category-dependent state transitions. `Observer.NoteOwnCCCast` observes only explicitly recognized readable player SENT/SUCCEEDED spell IDs (Bash ranks 5211/6798/8983, War Stomp 20549, Iron Grenade 4068). These are delivery statistics, not landed effects. All existing observed and estimated DR paths, clocks, GUI, settings schema, and data mappings remain unchanged.
+
+
 ## 0.4.17.4 enemy cooldown HUD ownership and migration
 
 The cooldown model and its curated 27 ability families are unchanged; no observation mechanism has become more reliable simply by improving the display. The original three sample icons in `/bcc test` come from `UI.demoRows('cooldown')`, not `Model:GetCooldowns`. The earlier (0,-280) free anchor physically overlapped the user's cast bar. Real enemy cast coverage is unverified (`acceptedCasts=0` in supplied reports).
