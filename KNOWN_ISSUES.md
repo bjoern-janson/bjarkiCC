@@ -1,5 +1,24 @@
 # bjarkiCC known issues and validation status
 
+## 2026-10-17 actual caster/receiver Bash and Iron Grenade report (0.4.17.5)
+
+**Client:** Forever beta 1.60.1.70425. **Native Blizzard DR feed:** `C_SpellDiminish.IsSystemSupported() = false` even though the global CVar `spellDiminishPVPEnemiesEnabled=1` and the event is valid; `nativeDREvents=0`. Stop treating the native tracker as a plausible source on this client unless support changes.
+
+**Caster log:** own Bash SENT/SUCCEEDED 1/1, Iron Grenade SENT/SUCCEEDED 1/1. `ownCast.captured=1`, `ownCast.estimated=1`; `auraEventPositives=0`, `auraEventRestricted=6`, 139 `GetAuraDataByIndex` taint exceptions, and `grenadeLookup=none` during restricted scans. The shown Bash caster timer was `stun observed=0 shown=1 ... cast-estimate`, **not a confirmed Bash hit**. Grenade is deliberately excluded from direct-cast victim inference because the ground-targeted AoE can hit nobody or multiple players. The receiving client displayed real Bash and Grenade CC, but that observation is **not transmitted to the caster**, who cannot use it to confirm the target. A cast-success event alone is never a victim-specific DR application.
+
+**DR category:** The original WoW **patch 1.11.0** explicitly moved Grenades/Mortars to `Controlled Stun` so they diminish with Hammer of Justice. The **patch 2.4.0** subsequently moved bombs/grenades to `Incapacitate`. The pinned DRList-1.0 Classic Era mapping assigns `4068=stun`, `5211=stun`, `20549=stun`, and this is the current bjarkiCC policy. Merely seeing both in the same recipient addon category doesn't establish whether the Forever server shares the DR. Do not change the category to `incapacitate` or add a second DR without observing actual DR behavior. WoW Classic 2019-2020 discussions also reported bugs in which Grenades simultaneously triggered stun and incapacitate; these are historical claims, not proof of the current Forever server.
+
+Source evidence:
+- Original 1.11 notes: https://warcraft.wiki.gg/wiki/Patch_1.11
+- 2.4.0 notes: https://www.wowhead.com/patchnotes=2.4.0
+- DRList pinned Classic Era mapping: https://github.com/wardz/DRList-1.0/blob/05c3c794fc18791d2173ea5361a6aa9c0029d91f/DRList-1.0/Spells.lua#L1090-L1123
+- Direct user observation: 0.4.17.5 caster status, no recorded recipient duration measurements yet.
+
+**Minimal discriminating test:** On the *receiving* client, after a full clean DR interval (at least 20s without stuns), Bash the recipient, then let the Bash stun end and land Iron Grenade soon afterward (well under 18 seconds). Avoid damage that breaks the grenade. Copy the recipient's `/bcc status` and specifically check the `spell=4068` `reportedDuration` and actual in-game stun. **~1.5 seconds** from the nominal 3-second grenade after a fresh Bash would support shared controlled-stun DR; **~3 seconds** would support independent DR or a reset/exception, requiring repeat trials. A receiving-side icon colored yellow alone is *not independent proof* because its stage comes from our provisional static category map. Preserve both application witnesses with their separate spell IDs in the diagnostic trace. If the server truly uses distinct DR, update the exact spell mapping with a regression only after the duration evidence.
+
+**Unresolved:** No safe and reliable caster-side confirmation API has been established for landed ground-targeted Iron Grenade in this client. A separate clearly labeled *cast attempt* indicator could be optional, but cannot legitimately increment **observed** target stun DR. Do not silently turn successful area casts into landed-stun estimates or pretend that missing observations prove a miss.
+
+
 ## Urgent Bash/Grenade log: native DR feed potentially disabled (0.4.17.5 probe)
 
 Incoming Bash spell 5211 is confirmed through the recipient's player LoC, but caster-side target/focus have no readable positive stun; 1,186 indexed access failures and zero `auraEventPositives` make a new indexed/delta lookup very unlikely to help in that trial. Exact War Stomp/Granade getters returned `none` when blocked. `nativeDREvents=0` may mean Blizzard's PvP DR feed was switched off; it does **not** independently prove unavailability.
