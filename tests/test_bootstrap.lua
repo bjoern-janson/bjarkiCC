@@ -38,6 +38,20 @@ assert(ns.db.bars.focus, 'fresh settings include a focus DR bar')
 assert(ns.db.bars.focus.size == 28 and ns.db.bars.focus.x == 230 and ns.db.bars.focus.y == -230, 'focus gets compact icons and its fallback placement')
 assert(ns.db.bars.cooldown.size == 32, 'fresh cooldown bar uses compact icons')
 assert(ns.db.showNames == false and ns.db.showDRText == false, 'fresh bars omit optional text')
+assert(ns.db.resetSeconds == 20 and ns.db.stageResetSeconds == 18, 'application display and stage reset have independent defaults')
+ns.db.resetSeconds, ns.db.stageResetSeconds = 24, 19
+ns.InitializeDB()
+assert(ns.db.resetSeconds == 24 and ns.db.stageResetSeconds == 19, 'both custom clock settings survive reload independently')
+ns.db.stageResetSeconds = secret
+ns.InitializeDB()
+assert(ns.db.stageResetSeconds == 18 and ns.db.resetSeconds == 24, 'unreadable stage setting falls back without changing the application clock')
+ns.db.stageResetSeconds = math.huge
+ns.InitializeDB()
+assert(ns.db.stageResetSeconds == 18, 'nonfinite stage reset uses its own default')
+ns.db.stageResetSeconds = 99
+ns.InitializeDB()
+assert(ns.db.stageResetSeconds == 30, 'stage reset setting is bounded')
+ns.db.resetSeconds, ns.db.stageResetSeconds = 20, 18
 for _, key in ipairs({'player', 'target', 'focus', 'cooldown'}) do
     assert(ns.db.bars[key].gap == 3 and ns.db.bars[key].label == false, 'fresh bars have tight gaps and no labels')
 end
@@ -72,6 +86,7 @@ for _, oldSchema in ipairs({false, 0, 1}) do
         assert(bar.reverse == expectedReverse, 'new unit placements adopt mirrored growth; cooldowns retain their direction')
     end
     assert(not ns.db.locked and ns.db.targetOnly and ns.db.interrupts and ns.db.resetSeconds == 24, 'tracking and timing preferences survive migration')
+    assert(ns.db.stageResetSeconds == 18, 'old shared timer settings do not become the new stage-reset override')
     assert(not ns.db.categories.stun and ns.db.disabledSpells[853] and ns.db.cooldownOverrides[408] == 45, 'ability preferences survive migration')
     assert(ns.db.showNames and ns.db.showDRText, 'explicit optional text preferences survive initialization')
 

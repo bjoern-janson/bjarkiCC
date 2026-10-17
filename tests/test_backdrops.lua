@@ -94,7 +94,7 @@ for _, file in ipairs({'Bootstrap','Data','Model','Observer','OwnCasts','Anchors
 end
 assert(loadfile(UI_SOURCE_OVERRIDE or (dir..'/UI.lua')))('bjarkiCC', ns)
 ns.InitializeDB()
-ns.model = ns.Model.New(20)
+ns.model = ns.Model.New(20,20)
 ns.Observer.Init()
 ns.OwnCasts.Init()
 ns.Observer.Scan(now)
@@ -137,8 +137,10 @@ ns.UI.ApplyLayout()
 now = 151
 ns.Observer.Scan(now)
 ns.UI.Update(now)
-assert(ns.UI.bars.player.shown and ns.UI.bars.player.icons[1].time.text=='',
-    'retained stage renders safely after the application countdown ends')
+assert(not ns.UI.bars.player.shown and not ns.UI.bars.player.icons[1].shown,
+    'expired application icons hide without reading protected geometry')
+assert(ns.model:GetDR('Player-1-A',now)[1].stage==2,
+    'hidden presentation leaves the retained stage intact')
 now = 153
 ns.Observer.Scan(now)
 ns.UI.Update(now)

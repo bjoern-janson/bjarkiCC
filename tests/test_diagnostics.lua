@@ -26,8 +26,10 @@ now=101
 aura={spellId=2637,auraInstanceID=10,expirationTime=121,duration=20}
 frame.scripts.OnEvent(frame,'UNIT_AURA','player')
 local report=ns.BuildStatus()
-assert(report:find('DR stage reset: 20s after CC ends',1,true),
+assert(report:find('DR stage reset: 18s after CC ends',1,true),
  'status distinguishes retained stage history from the application countdown')
+assert(report:find('DR timer: 20s from last observed application',1,true), 'status names the independent display countdown')
+assert(ns.model.resetSeconds == 20 and ns.model.stageResetSeconds == 18, 'Main passes both configured clocks into the model')
 assert(report:find('Recent DR observations',1,true),'status includes recent transition evidence')
 assert(report:find('a:10 spell=2637 start=101.000 end=121.000',1,true),'trace preserves the actual guarded witness identity and application timing')
 assert(report:find('incapacitate observed=1 shown=1 start=101.000',1,true),'trace records counted stage next to input evidence')

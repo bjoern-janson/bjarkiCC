@@ -28,11 +28,12 @@ local function trimOldest(records, maximum)
     end
 end
 
-function Model.New(resetSeconds)
+function Model.New(applicationSeconds, stageResetSeconds)
     local order = {}
     for index, category in ipairs(ns.Data.categories) do order[category.key] = index end
     return setmetatable({
-        resetSeconds = resetSeconds or 20,
+        resetSeconds = applicationSeconds or 20,
+        stageResetSeconds = stageResetSeconds or 18,
         units = {},
         estimates = {}, -- Own casts are predictions, never observed applications.
         casters = {},
@@ -55,7 +56,7 @@ local function recordEnd(state, effect, now)
     return endedAt
 end
 
-local function updateStageClocks(unit, effects, now, resetSeconds)
+local function updateStageClocks(unit, effects, now, stageResetSeconds)
     for _, state in pairs(unit.categories) do
         state.activeCount = 0
         state.stageResetPending = false
@@ -81,7 +82,7 @@ local function updateStageClocks(unit, effects, now, resetSeconds)
     end
     for _, state in pairs(unit.categories) do
         state.stageResetAt = not state.stageResetPending and state.stageEndAt
-            and state.stageEndAt + resetSeconds or nil
+            and state.stageEndAt + stageResetSeconds or nil
         if state.stageResetPending then state.stageResetSource = nil end
     end
 end
@@ -176,7 +177,7 @@ function Model:Observe(guid, effects, now, complete)
             stageEffects[key] = previous
         end
     end
-    updateStageClocks(unit, stageEffects, now, self.resetSeconds)
+    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
 
     local nextEffects = {}
     if not complete then
@@ -228,14 +229,14 @@ function Model:Observe(guid, effects, now, complete)
                     -- this identity. Its old predicted end must not outlive it.
                     recordEnd(state, previous, appliedAt)
                     stageEffects[key] = nil
-                    updateStageClocks(unit, stageEffects, now, self.resetSeconds)
+                    updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
                 end
                 local prior = predecessor(state)
                 if not stageInWindow(state, appliedAt) then
                     state = {
                         stage = 0,
                         activeCount = 0,
-                        uncertain = not unit.completeSince or appliedAt < unit.completeSince + self.resetSeconds,
+                        uncertain = not unit.completeSince or appliedAt < unit.completeSince + self.stageResetSeconds,
                     }
                     unit.categories[category] = state
                 end
@@ -285,7 +286,7 @@ function Model:Observe(guid, effects, now, complete)
                 -- correcting its clock cannot discard its already known count.
                 state.appliedAt, state.timeEstimated = preciseStart, false
                 if (continuing and prior.uncertain) or not unit.completeSince
-                    or preciseStart < unit.completeSince + self.resetSeconds
+                    or preciseStart < unit.completeSince + self.stageResetSeconds
                     or (previous.appliedAt and math.abs(preciseStart - previous.appliedAt) > APPLICATION_EPSILON) then
                     state.uncertain = true
                 end
@@ -326,10 +327,10 @@ function Model:Observe(guid, effects, now, complete)
         local current = unit.categories[category]
         if current and current.applicationKey == key then current.witness = nextEffects[key] end
         stageEffects[key] = nextEffects[key]
-        updateStageClocks(unit, stageEffects, now, self.resetSeconds)
+        updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
     end
 
-    updateStageClocks(unit, nextEffects, now, self.resetSeconds)
+    updateStageClocks(unit, nextEffects, now, self.stageResetSeconds)
     unit.effects = nextEffects
     trimOldest(self.units, MAX_UNITS)
 end

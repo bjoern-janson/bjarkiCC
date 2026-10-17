@@ -46,7 +46,9 @@ function UI.GetRows(key, now)
         if not state.guid then return out end
         rows = ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates)
         for _, row in ipairs(rows) do
-            if ns.db.categories[row.category] ~= false then out[#out+1] = row end
+            -- Retained stage history belongs to the model; expired application
+            -- countdowns must not occupy icon slots or inflate the overflow.
+            if row.remaining > 0 and ns.db.categories[row.category] ~= false then out[#out+1] = row end
         end
     end
     return out
@@ -134,7 +136,7 @@ local function tooltip(owner, row, key)
                 tip:AddLine('Observation started late or data was unavailable.',1,.55,.25,true)
             end
         end
-        tip:AddLine('Classic estimate: stage resets '..ns.db.resetSeconds..'s after CC ends.',.7,.7,.7,true)
+        tip:AddLine('Stage resets '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate).',.7,.7,.7,true)
     end
     tip:Show()
 end
@@ -375,11 +377,16 @@ function UI.OpenOptions()
     end
     check(page,'Estimate my CC casts when auras are hidden',6,-183,
         function() return ns.db.ownCastEstimates end,function(v) ns.db.ownCastEstimates=v; ns.OwnCasts.Init() end)
-    slider(page,'Application / stage reset seconds',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
+    slider(page,'Application countdown (s)',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
         if v~=ns.db.resetSeconds then
-            ns.db.resetSeconds=v; ns.model=ns.Model.New(v); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
+            ns.db.resetSeconds=v; ns.model=ns.Model.New(v,ns.db.stageResetSeconds); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
         end
-    end)
+    end,210)
+    slider(page,'Stage reset after CC (s)',246,-218,10,30,function() return ns.db.stageResetSeconds end,function(v)
+        if v~=ns.db.stageResetSeconds then
+            ns.db.stageResetSeconds=v; ns.model=ns.Model.New(ns.db.resetSeconds,v); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
+        end
+    end,210)
     label(page,'Green / yellow / red: stages 1 / 2 / 3. Hover for tracking details.',6,-266,450)
 
     page=pages[3]

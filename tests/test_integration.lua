@@ -79,6 +79,10 @@ assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
 assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
 assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+-- These legacy timelines deliberately configure a 20-second stage window.
+-- The Forever 18-second trace below exercises the independent default.
+ns.db.stageResetSeconds=20
+ns.model=ns.Model.New(ns.db.resetSeconds,ns.db.stageResetSeconds)
 assert(not ns.UI.bars.player.template and not ns.UI.bars.target.template and not ns.UI.bars.focus.template,
  'unit-anchored bars must not inherit BackdropTemplate secret-size arithmetic')
 assert(ns.UI.bars.player.point[2]==playerHealth and ns.UI.bars.target.point[2]==targetHealth and ns.UI.bars.focus.point[2]==focusHealth,'default DR bars attach to the matching modern health regions')
@@ -281,8 +285,11 @@ for _,time in ipairs({218,222,234}) do
 end
 assert(ns.OwnCasts.stats.estimated==3,'suppressed cap attempts are not accepted DR estimates')
 now=235; ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.2)
-assert(ns.UI.bars.target.shown and targetIcon.row.stage==2 and targetIcon.time.text=='',
- 'expired cast prediction reveals the still-retained observed stage instead of claiming readiness')
+assert(not ns.UI.bars.target.shown and not ns.UI.bars.focus.shown,
+ 'expired cast prediction hides rather than revealing an already-expired application icon')
+local cappedHistory=ns.model:GetDR('Player-1-SPACE',now)
+assert(cappedHistory[1].stage==2 and cappedHistory[1].remaining==0,
+ 'hiding the icon preserves the observed stage in internal history')
 now=240; ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.2)
 assert(not ns.UI.bars.target.shown and not ns.UI.bars.focus.shown,'known prior aura end bounds the retained observed stage')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SENT','player','Björn Janson','Cast-after-cap',2637)
@@ -377,13 +384,19 @@ assert(ns.UI.tip.lines[3]=='Estimated remaining: 125s','long tooltip timers keep
 ns.model.GetDR=function() return {{category='stun',spellID=853,stage=3,active=false,uncertain=true,
  started=now-20,duration=20,remaining=0,stageRemaining=7,stageResetAt=now+7}} end
 ns.UI.Update(now)
-local retainedIcon=ns.UI.bars.player.icons[1]
-assert(retainedIcon.shown and retainedIcon.time.text=='' and not retainedIcon.swipe.shown,
- 'after the application countdown, retain the stage icon without a number or sweep')
-assert(retainedIcon.borderTextures[1].color[2]==.2,'retained immunity stage stays red')
-retainedIcon.scripts.OnEnter(retainedIcon)
-assert(table.concat(ns.UI.tip.lines,'\n'):find('Application countdown finished',1,true),
- 'tooltip distinguishes the finished application clock from retained DR history')
+assert(not ns.UI.bars.player.shown and not ns.UI.bars.player.icons[1].shown,
+ 'the whole DR icon hides when its application countdown ends')
+ns.model.GetDR=function() return {
+ {category='stun',spellID=853,stage=3,active=false,started=now-20,duration=20,remaining=0,stageRemaining=7},
+ {category='fear',spellID=5782,stage=1,active=true,started=now-2,duration=20,remaining=18}} end
+local previousMax=ns.db.bars.player.maxIcons
+ns.db.bars.player.maxIcons=1
+ns.UI.Update(now)
+assert(ns.UI.bars.player.icons[1].row.category=='fear' and not ns.UI.bars.player.overflow.shown,
+ 'expired categories consume neither visible icon slots nor overflow count')
+assert(ns.UI.bars.cooldown.icons[1].shown and ns.UI.bars.cooldown.overflow.text=='+1',
+ 'DR expiry filtering does not change cooldown visibility or overflow')
+ns.db.bars.player.maxIcons=previousMax
 ns.model=realModel
 -- Replay the recipient's 0.4.5 Hibernate trace through events, observation,
 -- shared GUID state and rendered colors. The first clock comes from aura data;
@@ -405,14 +418,14 @@ local function handoffEvent(at,event,stage,start)
  ns.UI.Update(now)
  for _,unit in ipairs({'player','target','focus'}) do
   local bar=ns.UI.bars[unit]
-  if stage then
+  if stage and start+20>now then
    local icon=bar.icons[1]
    assert(bar.shown and icon.row.stage==stage and icon.row.observedStage==stage,
     'Hibernate source handoff must not invent a stage on '..unit)
    assert(icon.row.started==start and icon.swipe.cooldown[1]==start,
     'numeric countdown and sweep share the calibrated application time')
-   assert(icon.time.text==(start+20>now and ns.UI.FormatTime(start+20-now) or ''),
-    'countdown retains the application policy without showing a zero after it finishes')
+   assert(icon.time.text==ns.UI.FormatTime(start+20-now),
+    'visible countdown retains the application policy')
    local color=({{.25,1,.3},{1,.8,.15},{1,.2,.15}})[stage]
    for _,edge in ipairs(icon.borderTextures) do
     assert(edge.color[1]==color[1] and edge.color[2]==color[2] and edge.color[3]==color[3],
@@ -421,6 +434,11 @@ local function handoffEvent(at,event,stage,start)
    assert(not icon.state.shown,'no DR question mark is reintroduced')
   else
    assert(not bar.shown,'application timer expires without being restarted by removal')
+   if stage then
+    local history=ns.model:GetDR(units[unit],now)
+    assert(history[1].stage==stage and history[1].remaining==0,
+     'expired presentation leaves the DR stage available to subsequent applications')
+   end
   end
  end
 end
@@ -453,9 +471,10 @@ now=chainStart+20
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'LOSS_OF_CONTROL_UPDATE','player')
 ns.UI.Update(now)
 for _,unit in ipairs({'player','target','focus'}) do
- local icon=ns.UI.bars[unit].icons[1]
- assert(ns.UI.bars[unit].shown and icon.row.stage==1 and icon.time.text=='' and not icon.swipe.shown,
-  'full Hibernate ending retains its stage after the application countdown finishes')
+ assert(not ns.UI.bars[unit].shown,'full Hibernate icon hides at application expiry')
+ local history=ns.model:GetDR(units[unit],now)
+ assert(history[1].stage==1 and history[1].remaining==0,
+  'full Hibernate stage remains internal after its icon disappears')
 end
 handoffLoC={spellID=2637,auraInstanceID=403,startTime=chainStart+22,duration=10,timeRemaining=10}
 handoffEvent(chainStart+22,'LOSS_OF_CONTROL_ADDED',2,chainStart+22)
@@ -469,13 +488,62 @@ now=chainStart+54
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'LOSS_OF_CONTROL_UPDATE','player')
 ns.UI.Update(now)
 for _,unit in ipairs({'player','target','focus'}) do
- local icon=ns.UI.bars[unit].icons[1]
- assert(ns.UI.bars[unit].shown and icon.row.stage==3 and icon.time.text=='' and not icon.swipe.shown,
-  'red stage remains visible after the 20-second application countdown')
- assert(icon.row.stageResetAt==chainStart+59,'stage reset is measured from the final CC ending')
- assert(icon.row.stageRemaining==5,'stage clock is separate from the finished display countdown')
+ assert(not ns.UI.bars[unit].shown,'red icon disappears after the 20-second application countdown')
+ local history=ns.model:GetDR(units[unit],now)
+ assert(history[1].stage==3 and history[1].remaining==0,'hidden red stage remains available to the model')
+ assert(history[1].stageResetAt==chainStart+59,'stage reset is measured from the final CC ending')
+ assert(history[1].stageRemaining==5,'stage clock is separate from the finished display countdown')
 end
 handoffEvent(chainStart+59,'LOSS_OF_CONTROL_UPDATE')
 handoffLoC={spellID=2637,auraInstanceID=407,startTime=chainStart+60,duration=20,timeRemaining=20}
 handoffEvent(chainStart+60,'LOSS_OF_CONTROL_ADDED',1,chainStart+60)
+-- Replay the reported full-duration application 18.015s after the last CC
+-- disappeared. The old 20-second stage estimate incorrectly stayed red.
+ns.db.stageResetSeconds=18
+SlashCmdList.BJARKICC('clear')
+handoffLoC=nil
+handoffEvent(2657324.860,'LOSS_OF_CONTROL_UPDATE')
+handoffLoC={spellID=2637,auraInstanceID=381,startTime=2657421.750,duration=20,timeRemaining=20}
+handoffEvent(2657421.467,'LOSS_OF_CONTROL_ADDED',1,2657421.467)
+handoffEvent(2657421.753,'LOSS_OF_CONTROL_UPDATE',1,2657421.750)
+handoffLoC={spellID=2637,auraInstanceID=381,startTime=2657432.500,duration=10,timeRemaining=10}
+handoffEvent(2657432.255,'LOSS_OF_CONTROL_UPDATE',1,2657421.750)
+handoffEvent(2657432.543,'LOSS_OF_CONTROL_UPDATE',2,2657432.500)
+handoffLoC=nil
+handoffEvent(2657442.308,'LOSS_OF_CONTROL_UPDATE',2,2657432.500)
+handoffLoC={spellID=2637,auraInstanceID=383,startTime=2657444.500,duration=5,timeRemaining=5}
+handoffEvent(2657444.243,'LOSS_OF_CONTROL_ADDED',3,2657444.243)
+handoffEvent(2657444.619,'LOSS_OF_CONTROL_UPDATE',3,2657444.500)
+handoffLoC=nil
+handoffEvent(2657449.235,'LOSS_OF_CONTROL_UPDATE',3,2657444.500)
+handoffLoC={spellID=2637,auraInstanceID=385,startTime=2657467.250,duration=20,timeRemaining=19.994}
+handoffEvent(2657467.256,'LOSS_OF_CONTROL_ADDED',1,2657467.250)
+local refreshedIcon=ns.UI.bars.player.icons[1]
+refreshedIcon.scripts.OnEnter(refreshedIcon)
+local stageTooltip=table.concat(ns.UI.tip.lines,'\n')
+
+-- Real settings callbacks must change one clock without silently changing the
+-- other, and rebuild tracking so old observations cannot keep stale settings.
+local applicationSlider,stageSlider
+for _,frame in ipairs(frames) do
+ if frame.kind=='Slider' and frame.point and frame.point[3]==-240 then
+  if frame.point[2]==6 then applicationSlider=frame end
+  if frame.point[2]==246 then stageSlider=frame end
+ end
+end
+assert(applicationSlider and stageSlider,'application and stage reset have separate controls')
+assert(stageTooltip:find('18s after CC ends (provisional estimate)',1,true),
+ 'tooltip identifies the independent stage estimate')
+stageSlider:SetValue(17)
+assert(ns.db.resetSeconds==20 and ns.db.stageResetSeconds==17,'stage control preserves the application countdown')
+assert(#ns.model:GetDR(units.player,now)==0,'changing a timing setting clears incompatible tracking history')
+ns.model:Observe(units.player,{settings={category='stun',spellID=853,appliedAt=now,expires=now+5}},now,true)
+local configured=ns.model:GetDR(units.player,now)[1]
+assert(configured.duration==20 and configured.stageRemaining==22,'stage slider rebuilds the model with both clocks')
+applicationSlider:SetValue(21)
+assert(ns.db.resetSeconds==21 and ns.db.stageResetSeconds==17,'application control preserves the stage interval')
+assert(#ns.model:GetDR(units.player,now)==0,'application setting also clears incompatible tracking history')
+ns.model:Observe(units.player,{settings={category='stun',spellID=853,appliedAt=now,expires=now+5}},now,true)
+configured=ns.model:GetDR(units.player,now)[1]
+assert(configured.duration==21 and configured.stageRemaining==22,'application slider rebuilds the model without changing stage timing')
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')

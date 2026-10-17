@@ -43,7 +43,7 @@ end
 
 local function resetTracking()
     ns.drTrace = {}
-    ns.model = ns.Model.New(ns.db.resetSeconds)
+    ns.model = ns.Model.New(ns.db.resetSeconds, ns.db.stageResetSeconds)
     ns.Observer.Init()
     ns.OwnCasts.Init()
     dirty = true
@@ -64,9 +64,9 @@ function ns.BuildStatus()
     local lines={
         'bjarkiCC '..ns.version,
         'Client: '..version..' build '..build..' / interface '..interface,
-        'Rules: '..ns.Data.profile..'; reset '..ns.db.resetSeconds..'s',
-        'DR timer: last observed application; removal does not restart it',
-        'DR stage reset: '..ns.db.resetSeconds..'s after CC ends (Classic estimate; separate from countdown)',
+        'Rules: '..ns.Data.profile,
+        'DR timer: '..ns.db.resetSeconds..'s from last observed application; removal does not restart it',
+        'DR stage reset: '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate; separate from countdown)',
         'Mode: '..(ns.demo and 'TEST (synthetic display)' or 'live observation'),
         'Combat log: deliberately not registered (restricted on Forever)',
     }
@@ -96,7 +96,7 @@ function ns.BuildStatus()
                 end
                 if row.timeEstimated then lines[#lines+1]='    Application observed; timing retained from own-cast estimate.' end
                 if not row.estimated then
-                    lines[#lines+1]=row.stageResetAt and string.format('    Stage reset: %.3f; remaining %.3f (%s; Classic estimate).',
+                    lines[#lines+1]=row.stageResetAt and string.format('    Stage reset: %.3f; remaining %.3f (%s; provisional estimate).',
                         row.stageResetAt,row.stageRemaining or 0,row.stageResetSource or 'unknown end')
                         or '    Stage reset: awaiting readable CC end.'
                 end

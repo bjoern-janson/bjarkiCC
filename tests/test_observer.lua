@@ -175,7 +175,7 @@ test("LoC observed removal preserves the original application timer", function()
     reset(); fixture.guid.target=nil
     ns.Data.categories={{key="stun"},{key="incapacitate"},{key="frostshock"}}
     assert(loadfile(addonDir .. "/Model.lua"))("bjarkiCC",ns)
-    ns.model=ns.Model.New(20)
+    ns.model=ns.Model.New(20,20)
     ns.Observer.Scan(0)
     fixture.auras.player={{spellId=secret,auraInstanceID=8}}
     fixture.loc={{spellID=853,auraInstanceID=72,startTime=22,duration=2}}
@@ -219,7 +219,7 @@ test("scan gap makes real DR uncertain until a new quiet window", function()
     reset(); fixture.guid.target=nil
     ns.Data.categories={{key="stun"},{key="incapacitate"},{key="frostshock"}}
     assert(loadfile(addonDir .. "/Model.lua"))("bjarkiCC",ns)
-    ns.model=ns.Model.New(20)
+    ns.model=ns.Model.New(20,20)
     for now=0,20 do ns.Observer.Scan(now) end
     fixture.auras.player={{spellId=853,auraInstanceID=8,expirationTime=22}}
     ns.Observer.Scan(21)
@@ -301,7 +301,7 @@ end)
 local function realModel()
     ns.Data.categories={{key="stun"},{key="incapacitate"},{key="frostshock"}}
     assert(loadfile(addonDir .. "/Model.lua"))("bjarkiCC",ns)
-    ns.model=ns.Model.New(20)
+    ns.model=ns.Model.New(20,20)
 end
 
 local function byUnitLoC()

@@ -129,11 +129,16 @@ These beta spell pages describe build 70374 unless stated otherwise.
 
 The DR profile is a provisional Classic baseline, not a verified Forever
 server-rules specification. Its next-duration stages are 50%, 25%, immune.
-The default 20s duration comes from DRList's conservative upper value for a
+The original 20s duration came from DRList's conservative upper value for a
 stated 15-20s dynamic Classic reset. Version 0.3.1 implements the user's
 requested start rule: each observed application starts or refreshes the timer;
 CC duration, breaking and removal do not change that deadline. This timing
 choice is not independent verification of Forever's server reset rule.
+Version 0.4.8 preserves the default 20s application countdown and separately
+defaults stage reset to a provisional 18s after CC ends. This value comes from
+the supplied live trace's full Hibernate at 18.015s after observed removal,
+not an upstream claim that Forever has a fixed 18s reset. Both settings are
+independently configurable; see architecture.md for evidence and limitations.
 The referenced Classic profile does not contain a separate Fear stage rule.
 
 Most selected beta spell pages identify client build 1.60.1.70374. That is older
