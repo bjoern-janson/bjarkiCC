@@ -37,6 +37,10 @@ assert(ns.db.bars.player.size == 28 and ns.db.bars.target.size == 28, 'fresh DR 
 assert(ns.db.bars.focus, 'fresh settings include a focus DR bar')
 assert(ns.db.bars.focus.size == 28 and ns.db.bars.focus.x == 230 and ns.db.bars.focus.y == -230, 'focus gets compact icons and its fallback placement')
 assert(ns.db.bars.cooldown.size == 32, 'fresh cooldown bar uses compact icons')
+assert(not ns.db.bars.cooldown.enabled,'unverified enemy cooldown HUD must be off by default')
+assert(ns.db.bars.cooldown.x==0 and ns.db.bars.cooldown.y==-170,
+ 'fresh cooldown anchor must be clear of the old castbar-overlapping -280 position')
+assert(ns.db.schema==8,'current settings schema records the cooldown opt-in transition')
 assert(ns.db.showNames == false and ns.db.showDRText == false, 'fresh bars omit optional text')
 assert(ns.db.resetSeconds == 20 and ns.db.stageResetSeconds == 18, 'application display and stage reset have independent defaults')
 ns.db.resetSeconds, ns.db.stageResetSeconds = 24, 19
@@ -77,7 +81,7 @@ for _,oldSchema in ipairs({0,1,2,3,4,5,6}) do
             focus={anchorKind='portrait',offsetX=10,offsetY=0},
             cooldown={x=444,y=-333,size=48,gap=5,vertical=false,reverse=false,enabled=false}}}
     ns.InitializeDB(); sideDefaults()
-    assert(ns.db.schema==7,'layout migration runs once')
+    assert(ns.db.schema==8,'layout and cooldown-default migration run once')
     assert(ns.db.bars.player.size==44 and ns.db.bars.player.gap==5
         and not ns.db.bars.player.enabled and ns.db.bars.player.maxIcons==4,'DR appearance and enable preferences survive')
     local cd=ns.db.bars.cooldown
@@ -104,6 +108,34 @@ assert(ns.db.bars.cooldown.size==32 and ns.db.bars.cooldown.gap==3,'old default 
 ns.db.bars.player.size,ns.db.bars.player.gap=36,8
 ns.InitializeDB()
 assert(ns.db.bars.player.size==36 and ns.db.bars.player.gap==8,'visual migration is not reapplied')
+-- A 0.4.17.3 default-on cooldown bar at (0,-280) was directly over the
+-- player castbar. Upgrade the untouched default once, leaving every user-
+-- configured offset/size and deliberate opt-in untouched.
+bjarkiCCDB={schema=7,bars={cooldown={enabled=true,x=0,y=-280,size=32,gap=3,vertical=false,reverse=false}}}
+ns.InitializeDB()
+assert(ns.db.schema==8 and not ns.db.bars.cooldown.enabled
+ and ns.db.bars.cooldown.x==0 and ns.db.bars.cooldown.y==-170,
+ 'default-on legacy cooldown bar becomes hidden and relocates without moving DR')
+ns.db.bars.cooldown.enabled=true
+ns.InitializeDB()
+assert(ns.db.bars.cooldown.enabled and ns.db.bars.cooldown.y==-170,
+ 'explicit opt-in survives a reload after migration')
+ns.ResetPositions()
+assert(ns.db.bars.cooldown.enabled and ns.db.bars.cooldown.y==-170,
+ 'position reset must not silently disable an opted-in cooldown bar')
+bjarkiCCDB={schema=7,bars={cooldown={enabled=true,x=444,y=-333,size=48,gap=5,vertical=true}}}
+ns.InitializeDB()
+assert(ns.db.bars.cooldown.enabled and ns.db.bars.cooldown.x==444
+ and ns.db.bars.cooldown.y==-333 and ns.db.bars.cooldown.size==48,
+ 'already positioned and explicitly enabled cooldown bars preserve their settings')
+bjarkiCCDB={schema=7,bars={cooldown={enabled=false,x=0,y=-280}}}
+ns.InitializeDB()
+assert(not ns.db.bars.cooldown.enabled and ns.db.bars.cooldown.y==-170,
+ 'disabled legacy bar remains disabled and is moved out of the castbar space')
+bjarkiCCDB={schema=7,bars={cooldown={enabled=true,x=0,y=-280,size=48,gap=5}}}
+ns.InitializeDB()
+assert(ns.db.bars.cooldown.enabled and ns.db.bars.cooldown.y==-170,
+ 'nondefault appearance preserves deliberate use at old default location')
 bjarkiCCDB={schema=7,bars={player={anchorKind='unit-side',offsetX=secret,offsetY=0/0},
     target={anchorKind='unit-side',offsetX=math.huge,offsetY=-math.huge},
     focus={anchorKind='unit-side',offsetX=20001,offsetY=-20001}}}
