@@ -116,6 +116,7 @@ function ns.BuildStatus()
         'Combat log: deliberately not registered (restricted on Forever)',
         'Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'ENABLED (experimental)' or 'OFF by default (unverified enemy cast feed)'),
         'Enemy cooldown icons require readable success events or manual marks; empty icons do not prove readiness.',
+        'Secure native stun visual: '..(ns.NativeStuns and ns.NativeStuns.Status() or 'not installed'),
     }
     local nativeSupported, nativeCVar, nativeEventValid = nativeDRSupport()
     lines[#lines+1]='Native DR feed: supported='..nativeLabel(nativeSupported)
@@ -272,7 +273,7 @@ function ns.ShowStatus()
 end
 
 local function help()
-    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; native on|off|status; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
+    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; aura on|off|status; native on|off|status; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>.')
 end
 
 function ns.Command(message)
@@ -288,6 +289,20 @@ function ns.Command(message)
     elseif command=='reset' then ns.ResetPositions(); ns.UI.ApplyLayout(); ns.Print('Bar positions reset.')
     elseif command=='clear' then resetTracking(); ns.UI.Update(GetTime()); ns.Print('Tracking history cleared.')
     elseif command=='status' then ns.ShowStatus()
+    elseif command=='aura' then
+        local option=rest:lower()
+        if option=='on' or option=='off' then
+            ns.db.nativeStunWitness=(option=='on')
+            local ok,reason=ns.NativeStuns.Refresh()
+            ns.Print(ns.NativeStuns.Status())
+            ns.Print(option=='on' and 'Native stun AURA display requested. An actual visible icon is a matching aura, not a confirmed DR stage.' or 'Native stun aura display disabled.')
+            if not ok then ns.Print(reason or 'Aura display will reconcile after combat.') end
+        elseif option=='status' or option=='' then
+            ns.Print(ns.NativeStuns.Status())
+            ns.Print('This secure widget does NOT expose a hit to Lua or advance DR. Only a live duel can verify Blizzard actually displays an aura.')
+        else
+            ns.Print('Usage: /bcc aura on|off|status')
+        end
     elseif command=='native' then
         local option=rest:lower()
         local supported, active, eventValid=nativeDRSupport()
@@ -380,6 +395,9 @@ frame:SetScript('OnEvent',function(_,event,...)
         local name=S.String(...)
         if name~=ns.name or initialized then return end
         ns.InitializeDB(); resetTracking(); ns.UI.Init()
+        -- Build secure aura hosts out of combat. Do not read their protected
+        -- selected-aura state; they are a separate native visual witness.
+        if ns.NativeStuns then ns.NativeStuns.Init() end
         initialized=true
         ns.Observer.Scan(GetTime()); ns.UI.Update(GetTime())
         ns.Print('Forever beta '..ns.version..' loaded. /bcc for settings, /bcc test to position bars.')
@@ -414,11 +432,16 @@ frame:SetScript('OnEvent',function(_,event,...)
         elseif event=='UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED' then
             ns.Observer.OnNativeDR(...)
         elseif event=='PLAYER_ENTERING_WORLD' then resetTracking()
-        elseif event=='PLAYER_REGEN_ENABLED' then ns.UI.ApplyLayout(); dirty=true
+        elseif event=='PLAYER_REGEN_ENABLED' then
+            ns.UI.ApplyLayout()
+            if ns.NativeStuns then ns.NativeStuns.Refresh(true) end
+            dirty=true
         elseif event=='PLAYER_REGEN_DISABLED' then
             for _,bar in pairs(ns.UI.bars) do ns.Anchors.StopDrag(bar) end
         elseif event=='PLAYER_TARGET_CHANGED' or event=='PLAYER_FOCUS_CHANGED' then
-            ns.Observer.Scan(GetTime()); dirty=true
+            ns.Observer.Scan(GetTime())
+            if ns.NativeStuns then ns.NativeStuns.Refresh(true) end
+            dirty=true
         elseif event=='PLAYER_DEAD' then
             local state=ns.Observer.GetUnitState('player')
             if state.guid then ns.model:Forget(state.guid) end
