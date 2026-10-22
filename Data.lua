@@ -151,6 +151,13 @@ ns.Data = {
     },
     spells = {},
     castToSpell = {},
+    -- Exact positive aura evidence for abilities that are self-activated.
+    -- Never infer Innervate/Freedom/etc. from the recipient alone.
+    helpfulCooldownAuras = {},
+    -- Landed player loss-of-control EFFECTS, not general DR category clues.
+    -- The source caster is UNKNOWN; do not map a Nature's Grasp proc root
+    -- back to a new Nature's Grasp activation or use delayed trap triggers.
+    locCooldownEffects = {},
     -- Only tracked cooldowns affected by historically documented reset families.
     -- These reset spells are inputs, not CC cooldown icons of their own.
     resets = {
@@ -178,6 +185,10 @@ Data.categoryByKey.interrupt = {
     key = "interrupt", name = "Interrupt (cooldown only)", short = "Interrupt",
     icon = "Interface\\Icons\\Ability_Kick",
 }
+Data.categoryByKey.defensive = {
+    key = "defensive", name = "Defense (cooldown only)", short = "Defense",
+    icon = "Interface\\Icons\\Spell_Nature_StoneClawTotem",
+}
 
 local function AddSpell(id, name, category, texture, cdMin, cdMax, ranks, interrupt)
     Data.spells[id] = {
@@ -199,6 +210,10 @@ AddSpell(20066, "Repentance", "incapacitate", "Spell_Holy_PrayerOfHealing", 60, 
 -- Forever Brutal Impact now reduces Bash by 15/30s.
 AddSpell(5211, "Bash", "stun", "Ability_Druid_Bash", 30, 60, { 6798, 8983 })
 AddSpell(16689, "Nature's Grasp", "root", "Spell_Nature_NaturesWrath", 60, 60, { 16810, 16811, 16812, 16813, 17329 })
+-- Cooldown predictions from a new, readable, self-applied helpful aura.
+-- These are provisional Forever timings, not server-authoritative readiness.
+AddSpell(22812, "Barkskin", "defensive", "Spell_Nature_StoneClawTotem", 60, 60)
+AddSpell(5277, "Evasion", "defensive", "Spell_Shadow_ShadowWard", 210, 300, {26669})
 AddSpell(122, "Frost Nova", "root", "Spell_Frost_FrostNova", 21, 25, { 865, 6131, 10230 })
 AddSpell(408, "Kidney Shot", "kidney", "Ability_Rogue_KidneyShot", 20, 20, { 8643 })
 -- Blind and Death Coil have no DR entry in this Classic mapping.
@@ -239,3 +254,29 @@ AddSpell(8042, "Shocks (shared cooldown)", "frostShock", "Spell_Nature_EarthShoc
     8056, 8058, 10472, 10473,
 })
 
+
+-- Positive-only inference. Beneficial aura on another player does NOT prove
+-- its recipient cast it unless the ability can only target the caster.
+for _, id in ipairs({16689,16810,16811,16812,16813,17329,22812,5277,26669}) do
+    local canonical = Data.castToSpell[id]
+    if canonical and Data.spells[canonical] then Data.helpfulCooldownAuras[id] = canonical end
+end
+
+-- LoC spell IDs below correspond closely to the use of the cooldown spell.
+-- Traps (late trigger), Nature's Grasp proc roots (later trigger), and generic
+-- CC effects with unknown originating ability are intentionally excluded.
+for effectID, castID in pairs({
+    [853]=853,[5588]=853,[5589]=853,[10308]=853, -- Hammer of Justice
+    [5211]=5211,[6798]=5211,[8983]=5211, -- Bash
+    [408]=408,[8643]=408, -- Kidney Shot
+    [8122]=8122,[8124]=8122,[10888]=8122,[10890]=8122, -- Psychic Scream
+    [5484]=5484,[17928]=5484, -- Howl of Terror
+    [122]=122,[865]=122,[6131]=122,[10230]=122, -- Frost Nova
+    [20549]=20549, -- War Stomp
+    [20066]=20066, -- Repentance
+    [19503]=19503, -- Scatter Shot
+    [19386]=19386,[24132]=19386,[24133]=19386, -- Wyvern Sting
+    [12809]=12809, -- Concussion Blow
+}) do
+    if Data.spells[castID] then Data.locCooldownEffects[effectID] = castID end
+end

@@ -37,7 +37,11 @@ assert(ns.db.bars.player.size == 28 and ns.db.bars.target.size == 28, 'fresh DR 
 assert(ns.db.bars.focus, 'fresh settings include a focus DR bar')
 assert(ns.db.bars.focus.size == 28 and ns.db.bars.focus.x == 230 and ns.db.bars.focus.y == -230, 'focus gets compact icons and its fallback placement')
 assert(ns.db.bars.cooldown.size == 32, 'fresh cooldown bar uses compact icons')
-assert(ns.db.showNames == false and ns.db.showDRText == false, 'fresh bars omit optional text')
+assert(ns.db.showNames == nil and ns.db.showDRText == false, 'caster names are removed and optional DR text defaults off')
+assert(ns.db.bars.cooldown.enabled == false, 'experimental cooldown HUD defaults off')
+ns.db.showNames = true
+ns.InitializeDB()
+assert(ns.db.showNames == nil, 'saved caster-name preferences are retired on upgrade')
 assert(ns.db.resetSeconds == 20 and ns.db.stageResetSeconds == 18, 'application display and stage reset have independent defaults')
 ns.db.resetSeconds, ns.db.stageResetSeconds = 24, 19
 ns.InitializeDB()
@@ -77,7 +81,7 @@ for _,oldSchema in ipairs({0,1,2,3,4,5,6}) do
             focus={anchorKind='portrait',offsetX=10,offsetY=0},
             cooldown={x=444,y=-333,size=48,gap=5,vertical=false,reverse=false,enabled=false}}}
     ns.InitializeDB(); sideDefaults()
-    assert(ns.db.schema==7,'layout migration runs once')
+    assert(ns.db.schema==8,'current schema records the one-time layout and cooldown migrations')
     assert(ns.db.bars.player.size==44 and ns.db.bars.player.gap==5
         and not ns.db.bars.player.enabled and ns.db.bars.player.maxIcons==4,'DR appearance and enable preferences survive')
     local cd=ns.db.bars.cooldown

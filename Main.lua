@@ -38,6 +38,22 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
     if diagnostics and diagnostics.graspLookup then
         probe=probe..'; graspLookup='..diagnostics.graspLookup
     end
+    if diagnostics and diagnostics.grenadeLookup then
+        probe=probe..'; grenadeLookup='..diagnostics.grenadeLookup
+    end
+    if diagnostics and diagnostics.eventWitnesses then
+        probe=probe..'; auraEventAoE='..diagnostics.eventWitnesses
+            ..'; conflict='..tostring(diagnostics.eventConflict == true)
+    end
+    if diagnostics and diagnostics.aliasCoverage then
+        probe=probe..'; alias='..diagnostics.aliasUnit..':'..diagnostics.aliasCoverage
+            ..'; aliasMapped='..(diagnostics.aliasMapped or 0)
+    end
+    if diagnostics and diagnostics.castLookup then
+        probe=probe..'; castLookup='..diagnostics.castLookup
+            ..'; queries='..(diagnostics.castLookupQueries or 0)
+            ..'; hits='..(diagnostics.castLookupHits or 0)
+    end
     local detail=sensor..' complete='..tostring(complete)..' effects='..(#witnesses>0 and table.concat(witnesses,'; ') or 'none')..probe
         ..' | DR='..(#stageDetails>0 and table.concat(stageDetails,'; ') or 'none')
     detail=detail:sub(1,1536)
@@ -54,10 +70,11 @@ function ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostic
     if #ns.drTrace>48 then table.remove(ns.drTrace,1) end
 end
 
-local function resetTracking()
+function ns.ResetTracking()
     ns.drTrace = {}
     ns.model = ns.Model.New(ns.db.resetSeconds, ns.db.stageResetSeconds)
     ns.Observer.Init()
+    ns.CooldownEvidence.Init()
     ns.OwnCasts.Init()
     dirty = true
 end
@@ -65,6 +82,22 @@ end
 local function register(event)
     local ok = pcall(frame.RegisterEvent,frame,event)
     if not ok then ns.eventErrors[#ns.eventErrors+1] = event end
+end
+
+-- The native DR CVAR is global client configuration, not an addon-private
+-- setting. Never toggle it implicitly on login or while in combat.
+local NATIVE_CVAR = "spellDiminishPVPEnemiesEnabled"
+local function nativeDRSupport()
+    local fn = C_SpellDiminish and C_SpellDiminish.IsSystemSupported
+    local supported = S.Boolean(S.Call(fn))
+    local active = S.String(S.Call(C_CVar and C_CVar.GetCVar, NATIVE_CVAR))
+    local eventValid = S.Boolean(S.Call(C_EventUtils and C_EventUtils.IsEventValid,
+        "UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED"))
+    return supported, active, eventValid
+end
+
+local function nativeLabel(value)
+    return value == nil and "unknown" or tostring(value)
 end
 
 function ns.BuildStatus()
@@ -81,8 +114,34 @@ function ns.BuildStatus()
         'DR timer: '..ns.db.resetSeconds..'s from last observed application; removal does not restart it',
         'DR stage reset: '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate; separate from countdown)',
         'Mode: '..(ns.demo and 'TEST (synthetic display)' or 'live observation'),
+        'DR history: verified GUIDs retained across target/focus loss (128-unit cap; timed dormant pruning)',
+        'Nameplate evidence: event-driven, readable hostile player GUIDs only; no name fallback or nameplate HUD',
         'Combat log: deliberately not registered (restricted on Forever)',
+        'Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'ENABLED (experimental)' or 'OFF by default (unverified enemy cast feed)'),
+        'Enemy cooldowns: readable casts, self-only helpful aura observations, or unattributed player LoC witnesses; all are estimates.',
+        'Secure native stun visual: '..(ns.NativeStuns and ns.NativeStuns.Status() or 'not installed'),
     }
+    local evidence = ns.CooldownEvidence and ns.CooldownEvidence.stats or {}
+    lines[#lines+1] = 'Cooldown evidence: aura positives='..(evidence.helpfulPositive or 0)
+        ..'; accepted helpful='..(evidence.helpfulAccepted or 0)
+        ..'; landed player LoC='..(evidence.locAccepted or 0)
+        ..'; shared positives='..(evidence.sharedReceived or 0)
+        ..'; shared cooldowns='..(evidence.sharedAccepted or 0)
+        ..'; new unknown-aura cycles='..(evidence.unknownRenewed or 0)
+        ..'; unassigned caster (no guessed identity)'
+    local bridge = ns.EvidenceBus and ns.EvidenceBus.Status and ns.EvidenceBus:Status()
+    lines[#lines+1] = 'Shared bridge: '..(bridge and bridge.protocol or ns.EvidenceStatus or 'not loaded')
+        ..'; received='..(evidence.sharedReceived or 0)
+        ..'; expired/future/malformed shared='..(evidence.sharedRejected or 0)
+        ..'; listener errors='..(bridge and bridge.errors or 0)
+        ..'; overflows='..(bridge and bridge.overflows or 0)
+        ..'; unknown-aura capacity rejects='..(evidence.unknownCapacityRejected or 0)
+        ..'; helpful timestamps repaired='..(evidence.helpfulTimingRefined or 0)
+        ..'; duplicate sensor paths linked='..(evidence.helpfulProvenanceLinked or 0)
+    local nativeSupported, nativeCVar, nativeEventValid = nativeDRSupport()
+    lines[#lines+1]='Native DR feed: supported='..nativeLabel(nativeSupported)
+        ..'; cvar='..nativeLabel(nativeCVar)..'; eventValid='..nativeLabel(nativeEventValid)
+        ..'; opt-in only (/bcc native on|off|status)'
     for _,unit in ipairs({'player','target','focus'}) do
         local state=ns.Observer.GetUnitState(unit)
         lines[#lines+1]=unit..': '..(state.status or 'unknown')..'; sensor '..(state.sensor or 'none')
@@ -97,12 +156,20 @@ function ns.BuildStatus()
             ..(state.byUnitCount and ('; records '..state.byUnitCount) or '')
         if state.stompLookup then lines[#lines+1]='  Exact War Stomp lookup: '..state.stompLookup end
         if state.graspLookup then lines[#lines+1]="  Exact Nature's Grasp lookup: "..state.graspLookup end
+        if state.grenadeLookup then lines[#lines+1]='  Exact Iron Grenade lookup: '..state.grenadeLookup end
+        if state.eventWitnesses then lines[#lines+1]='  Readable AoE event: '..state.eventWitnesses
+            ..'; conflicting scan '..tostring(state.eventConflict == true) end
+        if state.aliasCoverage then lines[#lines+1]='  Shared-GUID alias: '..state.aliasUnit
+            ..'; coverage '..state.aliasCoverage..'; mapped '..(state.aliasMapped or 0) end
+        if state.castLookup then lines[#lines+1]='  Cast-guided exact lookup: '..state.castLookup
+            ..'; queries '..(state.castLookupQueries or 0)
+            ..'; positive hits '..(state.castLookupHits or 0) end
         if state.unmappedSpellIDs and #state.unmappedSpellIDs>0 then
             local ids={}; for _,id in ipairs(state.unmappedSpellIDs) do ids[#ids+1]=tostring(id) end
             lines[#lines+1]='  Readable unmapped aura IDs: '..table.concat(ids,', ')
         end
         if now and state.guid then
-            for _, row in ipairs(ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates)) do
+            for _, row in ipairs(ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates, ns.db.aoeCastEstimates)) do
                 lines[#lines+1]=string.format('  DR %s: stage %d; started %.3f; remaining %.3f; %s%s',
                     row.category, row.stage, row.started, row.remaining,
                     row.estimated and 'own-cast estimate' or 'observed application',
@@ -133,8 +200,32 @@ function ns.BuildStatus()
             ..(bar and bar.anchorPending and ' (layout pending until combat ends)' or '')
     end
     local stats=ns.Observer.stats or {}
+    local lastNative = ns.Observer.nativeLast
+    if lastNative then
+        lines[#lines+1]='Last native DR event: unit='..nativeLabel(lastNative.unit)
+            ..' reason='..nativeLabel(lastNative.reason)
+            ..' category='..nativeLabel(lastNative.category)
+            ..' start='..nativeLabel(lastNative.start)
+            ..' duration='..nativeLabel(lastNative.duration)
+            ..' countdown='..nativeLabel(lastNative.countdown)
+            ..' immune='..nativeLabel(lastNative.immune)
+            ..' (diagnostics only; no hit or stage inferred)'
+    end
+    local lastOwn=ns.Observer.ownCCLast
+    if lastOwn then
+        lines[#lines+1]='Last own CC cast event: '..lastOwn.family..' '..lastOwn.phase
+            ..' spell='..lastOwn.spellID..' at='..nativeLabel(lastOwn.time)
+            ..' (cast event, not proven hit)'
+    end
     local keys={}; for key in pairs(stats) do keys[#keys+1]=key end; table.sort(keys)
     for _,key in ipairs(keys) do lines[#lines+1]=key..': '..tostring(stats[key]) end
+    local rejects = ns.Observer.castRejects or {}
+    local rejectKeys = {}
+    for reason in pairs(rejects) do rejectKeys[#rejectKeys+1] = reason end
+    table.sort(rejectKeys)
+    for _, reason in ipairs(rejectKeys) do
+        lines[#lines+1] = 'castReject.'..reason..': '..rejects[reason]
+    end
     local failures=ns.Observer.apiFailures or {}
     local operations={}; for operation in pairs(failures) do operations[#operations+1]=operation end
     table.sort(operations)
@@ -152,7 +243,17 @@ function ns.BuildStatus()
         end
     end
     lines[#lines+1]='Own-cast DR estimates: '..(ns.db.ownCastEstimates and 'enabled (always uncertain)' or 'disabled')
-    lines[#lines+1]='War Stomp DR: confirmed applications only; no cast estimate.'
+    lines[#lines+1]='Own AoE guesses (War Stomp/Iron Grenade/Goblin Mortar): '
+        ..(ns.db.aoeCastEstimates and 'enabled; unconfirmed (check tooltip/status for source)' or 'disabled')
+    lines[#lines+1]='Shared Controlled Stun: Bash, War Stomp, Iron Grenade (live-tested); Goblin Mortar mapped (unverified cast feed).'
+    local lastAoE=ns.OwnCasts.lastAoE
+    if lastAoE then
+        lines[#lines+1]='Last AoE guess: spell='..lastAoE.spellID
+            ..' source='..lastAoE.source
+            ..' candidatePlayers='..lastAoE.candidates
+            ..' estimateShown='..tostring(lastAoE.estimated)
+            ..' (possible victims only)'
+    end
     local ownStats=ns.OwnCasts.stats or {}
     local ownKeys={}; for key in pairs(ownStats) do ownKeys[#ownKeys+1]=key end; table.sort(ownKeys)
     for _,key in ipairs(ownKeys) do lines[#lines+1]='ownCast.'..key..': '..tostring(ownStats[key]) end
@@ -160,6 +261,14 @@ function ns.BuildStatus()
         lines[#lines+1]='ownCast.resolve.'..key..': '..tostring((ns.OwnCasts.resolutionCounts or {})[key] or 0)
     end
     if ns.OwnCasts.lastResolution then lines[#lines+1]='ownCast.lastResolution: '..ns.OwnCasts.lastResolution end
+    if ns.Claims and ns.model then
+        local claims=ns.Claims.Recent(ns.model,6)
+        lines[#lines+1]='Cooldown claim decisions (latest '..#claims..'; not proof of readiness):'
+        for _,event in ipairs(claims) do
+            lines[#lines+1]=string.format('  #%d spell=%d %s (%s) t=%.1f',
+                event.claimID,event.spellID,event.status,event.reason,event.at)
+        end
+    end
     if #ns.drTrace>0 then
         lines[#lines+1]='Recent DR observations (latest 24 changes; guarded evidence):'
         for i=math.max(1,#ns.drTrace-23),#ns.drTrace do
@@ -202,7 +311,63 @@ function ns.ShowStatus()
 end
 
 local function help()
-    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; cooldown <spellID> <seconds|default>; used <spellID>.')
+    ns.Print('/bcc opens settings; test, lock, unlock, status, reset, clear; gcd on|off|preview|status; aoe on|off|status; aura on|off|status; native on|off|status; cooldowns on|off|status; cooldown <spellID> <seconds|default>; used <spellID>; why [spellID|recent].')
+end
+
+-- An explanation comes from an active model row, not a second persisted ledger.
+-- A missing entry is an observation gap, not proof that the ability is ready.
+local function whyCooldown(rest)
+    if not ns.Claims or not ns.model then return ns.Print('Cooldown claims unavailable.') end
+    if rest == 'recent' then
+        local recent=ns.Claims.Recent(ns.model,8)
+        if #recent==0 then return ns.Print('No claim changes recorded yet.') end
+        for _,item in ipairs(recent) do
+            local ability=ns.Data.spells[item.spellID]
+            ns.Print(string.format('#%d %s: %s (%s) at %.1f',
+                item.claimID,ability and ability.name or tostring(item.spellID),
+                item.status,item.reason,item.at))
+        end
+        return
+    end
+    local filter
+    if rest ~= '' then
+        local id=tonumber(rest)
+        filter=id and (ns.Data.castToSpell[id] or id) or nil
+        if not (filter and ns.Data.spells[filter]) then
+            return ns.Print('Usage: /bcc why [known spellID|recent]')
+        end
+    end
+    local now=S.Number(S.Call(GetTime))
+    if not now then return ns.Print('No readable local clock for cooldown claims.') end
+    local matched=0
+    for _,row in ipairs(ns.model:GetCooldowns(now,nil,true)) do
+        if not filter or filter==row.spellID then
+            matched=matched+1
+            if matched<=5 then
+                local ability=ns.Data.spells[row.spellID]
+                ns.Print(string.format('%s: %.1fs remaining; %s',
+                    ability and ability.name or tostring(row.spellID),row.remaining,
+                    row.anonymous and 'CASTER UNKNOWN' or 'verified hostile caster GUID'))
+                for _,line in ipairs(ns.Claims.Explain(row)) do ns.Print('  '..line) end
+            end
+        end
+    end
+    if matched>5 then ns.Print('+'..(matched-5)..' additional active claims; filter with a spell ID.') end
+    if matched==0 then
+        ns.Print('No active cooldown claim'..(filter and (' for '..ns.Data.spells[filter].name) or '')..'.')
+        ns.Print('This does NOT mean the ability is ready: missing, secret, rejected or expired evidence can all yield no entry.')
+        if filter then
+            local last=ns.Claims.LastDecision(ns.model,filter)
+            if last then
+                ns.Print(string.format('Last retained claim #%d: %s (%s) at %.1f.',
+                    last.claimID,last.status,last.reason,last.at))
+            else
+                ns.Print('No retained decision for that spell; history is bounded, so this does not establish non-use.')
+            end
+        end
+    end
+    if not ns.db.bars.cooldown.enabled then ns.Print('Enemy cooldown HUD is OFF (/bcc cooldowns on).') end
+    if ns.db.targetOnly then ns.Print('Target-only HUD filtering can hide unknown-caster entries.') end
 end
 
 function ns.Command(message)
@@ -212,12 +377,138 @@ function ns.Command(message)
     command=command:lower()
     if command=='' or command=='options' then ns.UI.OpenOptions()
     elseif command=='test' then
-        ns.demo=not ns.demo; ns.UI.Update(GetTime()); ns.Print(ns.demo and 'Test mode ON: synthetic icons.' or 'Live observation restored.')
+        ns.demo=not ns.demo; ns.UI.Update(GetTime()); ns.Print(ns.demo and 'Test mode ON: SAMPLE icons, not observed enemy casts.' or 'Live observation restored.')
     elseif command=='lock' or command=='unlock' then
         ns.db.locked=command=='lock'; ns.UI.ApplyLayout(); ns.Print(ns.db.locked and 'Bars locked.' or 'Drag outside combat: DR offsets follow their unit frames.')
     elseif command=='reset' then ns.ResetPositions(); ns.UI.ApplyLayout(); ns.Print('Bar positions reset.')
-    elseif command=='clear' then resetTracking(); ns.UI.Update(GetTime()); ns.Print('Tracking history cleared.')
+    elseif command=='clear' then ns.ResetTracking(); ns.UI.Update(GetTime()); ns.Print('Tracking history cleared.')
     elseif command=='status' then ns.ShowStatus()
+    elseif command=='why' then whyCooldown(rest)
+    elseif command=='gcd' then
+        local action,arg=rest:lower():match('^(%S+)%s*(.-)$')
+        if action=='on' or action=='off' then
+            ns.GCD.Set('enabled',action=='on')
+            ns.Print(ns.GCD.Status())
+        elseif action=='preview' then
+            ns.Print('Compact GCD preview: '..tostring(ns.GCD.PlayPlates(8))..' plates. Flashes are display-only.')
+        elseif action=='status' or action==nil then
+            ns.Print(ns.GCD.Status())
+            ns.Print('Gold=enemy cast, green=new buff, red=possible duel debuff. Never used to confirm a hit or cooldown.')
+        elseif (action=='casts' or action=='buffs' or action=='debuffs' or action=='names') and (arg=='on' or arg=='off') then
+            ns.GCD.Set(action=='names' and 'name' or action,arg=='on')
+            ns.Print(ns.GCD.Status())
+        else
+            ns.Print('Usage: /bcc gcd on|off|preview|status|casts on|off|buffs on|off|debuffs on|off|names on|off')
+        end
+    elseif command=='aoe' then
+        local option=rest:lower()
+        if option=='on' or option=='off' then
+            ns.db.aoeCastEstimates=option=='on'
+            ns.OwnCasts.Init()
+            ns.UI.Update(GetTime())
+            ns.Print('War Stomp/Grenade/Mortar candidate estimates '..(option=='on' and 'ON' or 'OFF')
+                ..'; actual hits remain unconfirmed by successful AoE casts.')
+        elseif option=='status' or option=='' then
+            ns.Print('Candidate AoE stun estimates: '
+                ..(ns.db.aoeCastEstimates and 'ON' or 'OFF')
+                ..'; master own-cast guesses: '..(ns.db.ownCastEstimates and 'ON' or 'OFF'))
+            ns.Print('A target/focus is only a POSSIBLE victim. Clean borders are not proof of a landed AoE stun.')
+        else
+            ns.Print('Usage: /bcc aoe on|off|status')
+        end
+    elseif command=='aura' then
+        local option=rest:lower()
+        if option=='on' or option=='off' then
+            ns.db.nativeStunWitness=(option=='on')
+            local ok,reason=ns.NativeStuns.Refresh(true)
+            ns.Print(ns.NativeStuns.Status())
+            ns.Print(option=='on' and 'Native stun AURA display requested. An actual visible icon is a matching aura, not a confirmed DR stage.' or 'Native stun aura display disabled.')
+            if not ok then ns.Print(reason or 'Aura display will reconcile after combat.') end
+        elseif option=='status' or option=='' then
+            ns.Print(ns.NativeStuns.Status())
+            ns.Print('This secure widget does NOT expose a hit to Lua or advance DR. Only a live duel can verify Blizzard actually displays an aura.')
+        else
+            ns.Print('Usage: /bcc aura on|off|status')
+        end
+    elseif command=='native' then
+        local option=rest:lower()
+        local supported, active, eventValid=nativeDRSupport()
+        if option=='on' or option=='off' then
+            if type(C_CVar)~='table' or type(C_CVar.SetCVar)~='function' then
+                ns.Print('Native DR CVar setter unavailable on this client.')
+                return
+            end
+            if S.Boolean(S.Call(InCombatLockdown))~=false then
+                ns.Print('Change the native DR option outside combat.')
+                return
+            end
+            if option=='on' and supported~=true then
+                ns.Print('Native DR IsSystemSupported did not return true. No setting changed.')
+                return
+            end
+            local wanted=option=='on' and '1' or '0'
+            local ok,result=pcall(C_CVar.SetCVar,NATIVE_CVAR,wanted)
+            local newSupported,newValue,newEvent=nativeDRSupport()
+            if not ok or S.Boolean(result)==false or newValue~=wanted then
+                ns.Print('Native DR setting not confirmed; supported='..nativeLabel(newSupported)
+                    ..' cvar='..nativeLabel(newValue)..' eventValid='..nativeLabel(newEvent))
+            else
+                ns.Print('Native DR '..(option=='on' and 'ENABLED' or 'DISABLED')
+                    ..' in client settings. This changes a WoW CVar, not bjarkiCC DR math.')
+            end
+            ns.Print('Use /bcc native status after a real Bash/Grenade. Native events may be secret or absent.')
+        elseif option=='status' or option=='' then
+            local stats=ns.Observer.stats or {}
+            ns.Print('Native DR supported='..nativeLabel(supported)
+                ..'; cvar='..nativeLabel(active)..'; eventValid='..nativeLabel(eventValid))
+            ns.Print('Native events='..(stats.nativeDREvents or 0)
+                ..'; readable category='..(stats.nativeDRReadable or 0)
+                ..'; restricted='..(stats.nativeDRRestricted or 0)
+                ..'; player Bash sent/succeeded='..(stats.ownBashSent or 0)..'/'..(stats.ownBashSucceeded or 0)
+                ..'; Iron Grenade='..(stats.ownGrenadeSent or 0)..'/'..(stats.ownGrenadeSucceeded or 0)
+                ..'; War Stomp='..(stats.ownStompSent or 0)..'/'..(stats.ownStompSucceeded or 0)
+                ..'; Goblin Mortar='..(stats.ownMortarSent or 0)..'/'..(stats.ownMortarSucceeded or 0))
+            local last=ns.Observer.nativeLast
+            if last then ns.Print('Last native event: unit='..nativeLabel(last.unit)
+                ..' category='..nativeLabel(last.category)
+                ..' start='..nativeLabel(last.start)..' duration='..nativeLabel(last.duration)
+                ..' countdown='..nativeLabel(last.countdown)
+                ..' immune='..nativeLabel(last.immune)
+                ..' (never counted as a hit)') end
+        else
+            ns.Print('Usage: /bcc native on|off|status')
+        end
+    elseif command=='cooldowns' then
+        local option=rest:lower()
+        if option=='on' or option=='off' then
+            ns.db.bars.cooldown.enabled=(option=='on')
+            ns.UI.ApplyLayout()
+            ns.Print(option=='on' and 'Enemy cooldown HUD ON (experimental; casts, readable self-buffs and anonymous landed CC).' or 'Enemy cooldown HUD OFF. DR trackers unchanged.')
+        elseif option=='status' then
+            local stats=ns.Observer.stats or {}
+            ns.Print('Enemy cooldown HUD: '..(ns.db.bars.cooldown.enabled and 'on (experimental)' or 'off')..'.')
+            local evidence=ns.CooldownEvidence.stats or {}
+            ns.Print('Event counts since tracking reset: other-unit cast START='..(stats.castStartsOther or 0)
+                ..', SUCCEEDED='..(stats.castSuccessOther or 0)
+                ..', accepted automatic cooldowns='..(stats.acceptedCasts or 0)
+                ..'; helpful aura estimates='..(evidence.helpfulAccepted or 0)
+                ..'; unattributed landed CC='..(evidence.locAccepted or 0)
+                ..'; shared Portraits positives='..(evidence.sharedReceived or 0)
+                ..'; accepted from Portraits='..(evidence.sharedAccepted or 0)
+                ..'; verified new unknown cycles='..(evidence.unknownRenewed or 0)
+                ..'; timestamp repairs='..(evidence.helpfulTimingRefined or 0)
+                ..'. None establishes complete enemy cast coverage.')
+            local bridge = ns.EvidenceBus and ns.EvidenceBus.Status and ns.EvidenceBus:Status()
+            ns.Print('Shared evidence bridge: '..(bridge and bridge.protocol or ns.EvidenceStatus or 'unavailable')
+                ..'; listeners='..(bridge and bridge.listeners or 0)
+                ..'; replayed='..(bridge and bridge.replayed or 0)
+                ..'; errors='..(bridge and bridge.errors or 0)
+                ..'; overflows='..(bridge and bridge.overflows or 0)
+                ..'; unknown-aura capacity rejects='..(evidence.unknownCapacityRejected or 0))
+            if ns.db.targetOnly then ns.Print('Target-only filter hides unattributed cooldowns; disable it to see them.') end
+        else
+            ns.Print('Usage: /bcc cooldowns on|off|status')
+        end
     elseif command=='cooldown' then
         local idText,value=rest:match('^(%d+)%s+(%S+)$')
         local id=tonumber(idText); local canonical=id and ns.Data.castToSpell[id]
@@ -236,8 +527,7 @@ function ns.Command(message)
         local hostile=S.Boolean(S.Call(UnitCanAttack,'player','target'))
         local player=S.Boolean(S.Call(UnitIsPlayer,'target'))
         if not guid or not hostile or not player then ns.Print('Select an identifiable hostile player first.'); return end
-        local name=S.String(S.Call(UnitName,'target')) or 'Target'
-        ns.model:Cast(guid,name,id,GetTime(),nil,true,ns.db.cooldownOverrides)
+        ns.model:Cast(guid,nil,id,GetTime(),nil,true,ns.db.cooldownOverrides)
         ns.UI.Update(GetTime()); ns.Print('Manually marked '..ns.Data.spells[ns.Data.castToSpell[id]].name..'.')
     else help() end
 end
@@ -246,34 +536,80 @@ frame:SetScript('OnEvent',function(_,event,...)
     if event=='ADDON_LOADED' then
         local name=S.String(...)
         if name~=ns.name or initialized then return end
-        ns.InitializeDB(); resetTracking(); ns.UI.Init()
+        ns.InitializeDB(); ns.ResetTracking(); ns.UI.Init()
+        -- Shared source is optional. Subscribe after model/settings exist;
+        -- bus replay is limited to recent readable observations.
+        if ns.CooldownEvidence then ns.CooldownEvidence.ConnectShared(GetTime()) end
+        -- The native AuraContainer template may load after this addon.
+        -- Defer secure host construction until PLAYER_ENTERING_WORLD.
         initialized=true
-        ns.Observer.Scan(GetTime()); ns.UI.Update(GetTime())
+        ns.Observer.Scan(GetTime())
+        ns.CooldownEvidence.OnUnitSeen('target', GetTime())
+        ns.CooldownEvidence.OnUnitSeen('focus', GetTime())
+        ns.UI.Update(GetTime())
         ns.Print('Forever beta '..ns.version..' loaded. /bcc for settings, /bcc test to position bars.')
     elseif initialized then
-        if event=='UNIT_SPELLCAST_SENT' then
+        if event=='UNIT_SPELLCAST_START' or event=='UNIT_SPELLCAST_CHANNEL_START' then
+            local unit,castGUID,spellID=...
+            ns.Observer.NoteCastStart(unit)
+            ns.OwnCasts.Started(unit,castGUID,spellID,GetTime())
+        elseif event=='UNIT_SPELLCAST_SENT' then
             local unit,targetName,castGUID,spellID=...
+            ns.Observer.NoteOwnCCCast('Sent',unit,spellID,GetTime())
             ns.OwnCasts.Sent(unit,targetName,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_SUCCEEDED' then
             local unit,castGUID,spellID=...
+            ns.Observer.NoteOwnCCCast('Succeeded',unit,spellID,GetTime())
             ns.Observer.OnCast(unit,castGUID,spellID,GetTime())
             ns.OwnCasts.Succeeded(unit,castGUID,spellID,GetTime())
         elseif event=='UNIT_SPELLCAST_FAILED' or event=='UNIT_SPELLCAST_INTERRUPTED' then
             local unit,castGUID,spellID=...
             ns.OwnCasts.Failed(unit,castGUID,spellID,GetTime())
-        elseif event=='UNIT_AURA' or event=='LOSS_OF_CONTROL_ADDED' or event=='LOSS_OF_CONTROL_UPDATE' then
+        elseif event=='UNIT_AURA' then
+            local unit, updateInfo=...
+            local token=S.String(unit)
+            if not token or token=='player' or token=='target' or token=='focus' then
+                -- A readable positive event can capture short-lived AoE CC even
+                -- when the following indexed scan has already become secret.
+                ns.Observer.OnAuraEvent(unit,updateInfo,GetTime())
+                if token=='player' then ns.CooldownEvidence.OnPlayerLoC(GetTime())
+                else ns.CooldownEvidence.OnAuraEvent(token,updateInfo,GetTime()) end
+            elseif token:match('^nameplate%d+$') then
+                -- Nameplates are evidence sources, not extra on-screen trackers.
+                ns.Observer.OnNameplateAura(token,updateInfo,GetTime())
+                ns.CooldownEvidence.OnAuraEvent(token,updateInfo,GetTime())
+            end
+        elseif event=='NAME_PLATE_UNIT_ADDED' then
+            local token = ...
+            ns.Observer.OnNameplateAdded(token,GetTime())
+            ns.CooldownEvidence.OnUnitSeen(token,GetTime())
+        elseif event=='NAME_PLATE_UNIT_REMOVED' then
+            ns.Observer.OnNameplateRemoved(...,GetTime())
+        elseif event=='LOSS_OF_CONTROL_ADDED' or event=='LOSS_OF_CONTROL_UPDATE' then
             local unit=S.String(...)
             if not unit or unit=='player' or unit=='target' or unit=='focus' then
-                -- Sample synchronously: a short CC can start and end between
-                -- render ticks. Render remains throttled independently.
+                ns.CooldownEvidence.OnPlayerLoC(GetTime())
                 ns.Observer.Scan(GetTime())
             end
-        elseif event=='PLAYER_ENTERING_WORLD' then resetTracking()
-        elseif event=='PLAYER_REGEN_ENABLED' then ns.UI.ApplyLayout(); dirty=true
+        elseif event=='UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED' then
+            ns.Observer.OnNativeDR(...)
+        elseif event=='PLAYER_ENTERING_WORLD' then
+            ns.ResetTracking()
+            ns.CooldownEvidence.OnUnitSeen('target',GetTime())
+            ns.CooldownEvidence.OnUnitSeen('focus',GetTime())
+            if ns.NativeStuns then ns.NativeStuns.Init() end
+            if ns.GCD then ns.GCD.Start() end
+        elseif event=='PLAYER_REGEN_ENABLED' then
+            ns.UI.ApplyLayout()
+            if ns.NativeStuns then ns.NativeStuns.Refresh(true) end
+            dirty=true
         elseif event=='PLAYER_REGEN_DISABLED' then
             for _,bar in pairs(ns.UI.bars) do ns.Anchors.StopDrag(bar) end
         elseif event=='PLAYER_TARGET_CHANGED' or event=='PLAYER_FOCUS_CHANGED' then
-            ns.Observer.Scan(GetTime()); dirty=true
+            ns.Observer.Scan(GetTime())
+            ns.CooldownEvidence.OnUnitSeen(event=='PLAYER_TARGET_CHANGED' and 'target' or 'focus',GetTime())
+            if ns.NativeStuns then ns.NativeStuns.Refresh(true) end
+            dirty=true
         elseif event=='PLAYER_DEAD' then
             local state=ns.Observer.GetUnitState('player')
             if state.guid then ns.model:Forget(state.guid) end
@@ -291,11 +627,13 @@ frame:SetScript('OnUpdate',function(_,elapsed)
     if drawElapsed>=.1 then drawElapsed=0; ns.UI.Update(GetTime()) end
 end)
 
--- No combat-log or secret native SpellDiminish event registration.
+-- Native DR event is diagnostics-only. Its secret payload never enters the model.
 for _,event in ipairs({'ADDON_LOADED','PLAYER_ENTERING_WORLD','PLAYER_TARGET_CHANGED','PLAYER_FOCUS_CHANGED',
     'PLAYER_REGEN_ENABLED','PLAYER_REGEN_DISABLED','UNIT_AURA',
-    'LOSS_OF_CONTROL_ADDED','LOSS_OF_CONTROL_UPDATE','UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_SUCCEEDED',
-    'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','PLAYER_DEAD','PLAYER_ALIVE'}) do register(event) end
+    'NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED',
+    'UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED',
+    'LOSS_OF_CONTROL_ADDED','LOSS_OF_CONTROL_UPDATE','UNIT_SPELLCAST_SENT','UNIT_SPELLCAST_START',
+    'UNIT_SPELLCAST_CHANNEL_START','UNIT_SPELLCAST_SUCCEEDED','UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED','PLAYER_DEAD','PLAYER_ALIVE'}) do register(event) end
 SLASH_BJARKICC1='/bcc'
 SLASH_BJARKICC2='/bjarkicc'
 SlashCmdList.BJARKICC=ns.Command

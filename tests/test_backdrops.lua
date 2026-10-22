@@ -49,6 +49,7 @@ function methods:SetScript(name, fn) self.scripts[name] = fn end
 function methods:Show() self.shown = true end
 function methods:Hide() self.shown = false end
 function methods:SetShown(value) self.shown = value == true end
+function methods:SetAlpha(value) self.alpha = value end
 function methods:IsVisible() return self.shown end
 function methods:GetFrameLevel() return 1 end
 function methods:GetRight() return 250 end

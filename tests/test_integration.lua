@@ -34,6 +34,7 @@ function frameMethods:IsVisible() return self.shown end
 function frameMethods:Hide() self.shown=false end
 function frameMethods:Show() local changed=not self.shown; self.shown=true; if changed and self.scripts.OnShow then self.scripts.OnShow(self) end end
 function frameMethods:SetShown(v) if v then self:Show() else self:Hide() end end
+function frameMethods:SetAlpha(v) self.alpha=v end
 function frameMethods:SetCooldown(start,duration) assert(type(start)=='number' and type(duration)=='number'); self.cooldown={start,duration} end
 local function object(kind,name,parent,template)
  local f=setmetatable({kind=kind,name=name,parent=parent,template=template,scripts={},events={},shown=true},{__index=frameMethods})
@@ -75,13 +76,23 @@ C_Spell={GetSpellTexture=function() return 135963 end}
 DEFAULT_CHAT_FRAME={AddMessage=function() end}
 issecretvalue=function() return false end; canaccessvalue=function() return true end
 local dir=ADDON_DIR or 'work/bjarkiCC'
-for _,file in ipairs({'Bootstrap','Data','Model','Observer','OwnCasts','Anchors','UI'}) do assert(loadfile(dir..'/'..file..'.lua'))('bjarkiCC',ns) end
-local main=io.open(dir..'/Main.lua'); assert(main,'Main is not implemented yet'); main:close()
-assert(loadfile(dir..'/Main.lua'))('bjarkiCC',ns)
+-- Exercise the actual runtime load order, including every foundation module.
+local loadedModules={}
+for line in io.lines(dir..'/bjarkiCC.toc') do
+ local file=line:match('^%s*([%w_]+%.lua)%s*$')
+ if file then
+  assert(not loadedModules[file],'TOC must not load a module twice')
+  assert(loadfile(dir..'/'..file))('bjarkiCC',ns)
+  loadedModules[file]=true
+ end
+end
+assert(loadedModules['Claims.lua'] and loadedModules['CooldownEvidence.lua']
+ and loadedModules['GCDPlates.lua'] and loadedModules['Main.lua'],'current TOC loads foundation dependencies')
 assert(ns.eventFrame.events.ADDON_LOADED,'addon initialization registered')
 assert(not ns.eventFrame.events.COMBAT_LOG_EVENT_UNFILTERED,'restricted event never registered')
 ns.eventFrame.scripts.OnEvent(ns.eventFrame,'ADDON_LOADED','bjarkiCC')
 assert(ns.db and ns.model and ns.UI.bars.player,'addon initializes without optional APIs')
+assert(ns.db.bars.cooldown.enabled==false,'experimental enemy cooldown HUD defaults off')
 -- These legacy timelines deliberately configure a 20-second stage window.
 -- The Forever 18-second trace below exercises the independent default.
 ns.db.stageResetSeconds=20
@@ -219,7 +230,10 @@ for index,event in ipairs({'UNIT_SPELLCAST_FAILED','UNIT_SPELLCAST_INTERRUPTED'}
  ns.eventFrame.scripts.OnEvent(ns.eventFrame,event,'player',castID,118)
  ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_SPELLCAST_SUCCEEDED','player',castID,118)
  ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
- assert(#ns.model:GetDR('Player-1-F',now)==0 and not ns.UI.bars.focus.shown,'cancelled focus cast cannot become a visible estimate')
+ local retained=ns.model:GetDR('Player-1-F',now)
+ assert(#retained==1 and retained[1].spellID==853 and retained[1].started==100.2
+  and not retained[1].estimated and ns.UI.bars.focus.shown,
+  'cancelled focus cast adds no prediction and preserves the prior observed stun')
 end
 -- Forever's actual SENT destination can use a space between UnitName fields.
 -- Keep the first hidden application as inference when only the second is seen.
@@ -288,7 +302,7 @@ for _,time in ipairs({218,222,234}) do
  ns.eventFrame.scripts.OnUpdate(ns.eventFrame,.1)
  assert(targetIcon.row.stage==3 and targetIcon.row.started==215 and targetIcon.row.remaining==235-now,
   'attempts at the final DR stage must preserve the original deadline')
- assert(targetIcon.swipe.cooldown[1]==215 and targetIcon.time.text==((235-now)<=5 and ns.UI.FormatTime(235-now) or ''),
+ assert(targetIcon.swipe.cooldown[1]==215 and targetIcon.time.text==((235-now)<=5 and ns.UI.FormatDRTime(235-now) or ''),
   'neither sweep nor number can restart on an unconfirmed immune-stage attempt')
  assert(ns.UI.bars.focus.icons[1].row.started==215,'same-GUID focus shares the preserved deadline')
 end
@@ -316,9 +330,12 @@ SlashCmdList.BJARKICC('test')
 assert(ns.demo and ns.UI.bars.player.icons[1].shown,'demo visible')
 assert(ns.UI.bars.focus.icons[1].shown,'focus has an independent preview')
 assert(ns.UI.bars.player.title.shown,'test bars identified')
-assert(not ns.UI.bars.player.icons[1].caption.shown,'no category captions in minimal view')
+assert(not ns.UI.bars.cooldown.shown,'preview respects the cooldown HUD opt-in')
+SlashCmdList.BJARKICC('cooldowns on')
+assert(ns.db.bars.cooldown.enabled and ns.UI.bars.cooldown.shown,'explicit opt-in permits the cooldown preview')
+assert(ns.UI.bars.player.icons[1].caption==nil,'removed category captions are not constructed')
 assert(not ns.UI.bars.player.icons[1].state.shown,'known DR uses border without duplicate stage text')
-assert(not ns.UI.bars.cooldown.icons[1].caption.shown and not ns.UI.bars.cooldown.icons[1].state.shown,'cooldown minimal view has just timer')
+assert(ns.UI.bars.cooldown.icons[1].caption==nil and not ns.UI.bars.cooldown.icons[1].state.shown,'cooldown minimal view has no caster-name region')
 assert(ns.UI.bars.player.icons[1].time.parent:GetFrameLevel()>ns.UI.bars.player.icons[1].swipe:GetFrameLevel(),'countdown text must sit above swipe')
 SlashCmdList.BJARKICC('test')
 assert(not ns.demo and not ns.UI.bars.player.icons[1].shown,'demo never survives into live display')
@@ -356,10 +373,11 @@ assert(ns.UI.bars.cooldown.icons[1].swipe.cooldown[2]==60,'render uses estimated
 assert(ns.UI.bars.player.height==59,'DR grid remains two rows regardless of legacy vertical settings')
 ns.db.showNames=true; ns.db.showDRText=true
 ns.UI.Update(now)
-assert(ns.UI.bars.cooldown.icons[1].caption.shown and ns.UI.bars.cooldown.icons[1].caption.text=='Paladin','optional caster identity')
+assert(ns.UI.bars.cooldown.icons[1].caption==nil,'legacy caster-name settings cannot restore the removed display')
 assert(ns.UI.bars.player.icons[1].state.shown and ns.UI.bars.player.icons[1].state.text=='50%','optional accessible stage text')
-ns.db.showNames=false; ns.db.showDRText=false
+ns.db.showNames=nil; ns.db.showDRText=false
 ns.demo=false
+assert(ns.db.bars.cooldown.enabled,'explicit cooldown opt-in survives the return to live rendering')
 local realModel=ns.model
 ns.Observer.units.player={guid='Player-1-A',status='readable'}
 ns.model={GetDR=function() return {{category='stun',spellID=853,stage=3,active=true,uncertain=true,started=now,duration=20,remaining=20}} end,
@@ -389,7 +407,7 @@ assert(ns.UI.bars.cooldown.overflow.shown and ns.UI.bars.cooldown.overflow.text=
 local hovered=ns.UI.bars.cooldown.icons[1]
 hovered.row.remaining=125
 hovered.scripts.OnEnter(hovered)
-assert(ns.UI.tip.lines[3]=='Estimated remaining: 125s','long tooltip timers keep correct seconds unit')
+assert(table.concat(ns.UI.tip.lines,'\n'):find('Estimated remaining: 125s',1,true),'long tooltip timers keep correct seconds unit')
 ns.model.GetDR=function() return {{category='stun',spellID=853,stage=3,active=false,uncertain=true,
  started=now-20,duration=20,remaining=0,stageRemaining=7,stageResetAt=now+7}} end
 ns.UI.Update(now)
@@ -430,10 +448,10 @@ local function handoffEvent(at,event,stage,start)
   if stage and start+20>now then
    local icon=bar.icons[1]
    assert(bar.shown and icon.row.stage==stage and icon.row.observedStage==stage,
-    'Hibernate source handoff must not invent a stage on '..unit)
+    'Hibernate source handoff at '..now..' on '..unit..': expected stage '..stage..', got '..tostring(icon.row.stage))
    assert(icon.row.started==start and icon.swipe.cooldown[1]==start,
     'numeric countdown and sweep share the calibrated application time')
-   assert(icon.time.text==((start+20-now)<=5 and ns.UI.FormatTime(start+20-now) or ''),
+   assert(icon.time.text==((start+20-now)<=5 and ns.UI.FormatDRTime(start+20-now) or ''),
     'visible countdown retains the application policy')
    local color=({{.25,1,.3},{1,.8,.15},{1,.2,.15}})[stage]
    assert(icon.actionBorder and icon.actionBorder.atlas=='UI-HUD-ActionBar-IconFrame'
@@ -534,8 +552,8 @@ local refreshedIcon=ns.UI.bars.player.icons[1]
 refreshedIcon.scripts.OnEnter(refreshedIcon)
 local stageTooltip=table.concat(ns.UI.tip.lines,'\n')
 
--- Full Hibernate returns before the configured 18-second reset in the next
--- live report. Only an explicitly reported duration can correct this history.
+-- Preserve the supplied trace's inputs. With restricted harmful-aura
+-- coverage, explicit LoC durations alone cannot justify a learned reset.
 SlashCmdList.BJARKICC('clear')
 handoffLoC=nil
 handoffEvent(2657900,'LOSS_OF_CONTROL_UPDATE')
@@ -571,19 +589,20 @@ assert(afterAttempt.started==beforeAttempt.started and afterAttempt.stageResetAt
 advanceObserved(2657980.436)
 handoffLoC={spellID=2637,auraInstanceID=405,startTime=2657980.500,duration=20,timeRemaining=20}
 handoffEvent(2657980.436,'LOSS_OF_CONTROL_ADDED',3,2657980.436)
-handoffEvent(2657980.571,'LOSS_OF_CONTROL_UPDATE',1,2657980.500)
+handoffEvent(2657980.571,'LOSS_OF_CONTROL_UPDATE',3,2657980.500)
 local corrected=ns.UI.bars.player.icons[1]
-assert(corrected.row.uncertain and corrected.row.resetEvidence=='matching-full-duration'
- and corrected.row.resetBaselineDuration==20,'duration correction exposes its bounded inference')
+assert(corrected.row.uncertain and corrected.row.resetEvidence==nil
+ and corrected.row.fullDurationBaseline==nil,'partial coverage cannot invent a full-duration correction')
 corrected.scripts.OnEnter(corrected)
-assert(table.concat(ns.UI.tip.lines,'\n'):find('Full-duration match',1,true),
- 'tooltip explains why the stage was corrected without claiming exact reset timing')
+assert(not table.concat(ns.UI.tip.lines,'\n'):find('Full-duration match',1,true),
+ 'tooltip must not claim a reset that partial evidence cannot establish')
 local correctedStatus=ns.BuildStatus()
-assert(correctedStatus:find('Stage correction: matching full duration (20.000s)',1,true),
- 'status records the duration-supported correction')
+assert(correctedStatus:find('Full-duration baseline: not learned; sequence 0/3.',1,true)
+ and not correctedStatus:find('Stage correction:',1,true),
+ 'status exposes the missing complete-evidence baseline')
 assert(correctedStatus:find('reportedDuration=20.000',1,true),
  'trace distinguishes raw reported duration from remaining-time expiry')
-handoffEvent(2657980.800,'LOSS_OF_CONTROL_UPDATE',1,2657980.500)
+handoffEvent(2657980.800,'LOSS_OF_CONTROL_UPDATE',3,2657980.500)
 
 -- The 0.4.9 live sequence begins with readable aura coverage, unlike the
 -- preceding fixture which entered LoC during its empty baseline. The first
@@ -613,18 +632,18 @@ handoffEvent(2659065.120,'LOSS_OF_CONTROL_UPDATE',3,2659060.250)
 advanceObserved(2659080.707)
 handoffLoC={spellID=2637,auraInstanceID=427,startTime=2659080.750,duration=20,timeRemaining=19.999}
 handoffEvent(2659080.707,'LOSS_OF_CONTROL_ADDED',3,2659080.707)
-handoffEvent(2659080.760,'LOSS_OF_CONTROL_UPDATE',1,2659080.750)
+handoffEvent(2659080.760,'LOSS_OF_CONTROL_UPDATE',3,2659080.750)
 local handoffCorrected=ns.UI.bars.player.icons[1].row
-assert(handoffCorrected.resetEvidence=='matching-full-duration'
- and handoffCorrected.resetBaselineDuration==20 and handoffCorrected.uncertain,
- 'the original quiet aura history supports a bounded baseline after exact-identity LoC handoff')
+assert(handoffCorrected.resetEvidence==nil
+ and handoffCorrected.fullDurationBaseline==nil and handoffCorrected.uncertain,
+ 'restricted source handoff invalidates earlier quiet evidence without inventing a reset')
 advanceObserved(2659100.714); handoffLoC=nil
-handoffEvent(2659100.714,'LOSS_OF_CONTROL_UPDATE',1,2659080.750)
+handoffEvent(2659100.714,'LOSS_OF_CONTROL_UPDATE',3,2659080.750)
 handoffLoC={spellID=2637,auraInstanceID=429,startTime=2659101,duration=10,timeRemaining=10}
-handoffEvent(2659100.993,'LOSS_OF_CONTROL_ADDED',2,2659100.993)
-handoffEvent(2659101.079,'LOSS_OF_CONTROL_UPDATE',2,2659101)
+handoffEvent(2659100.993,'LOSS_OF_CONTROL_ADDED',3,2659100.993)
+handoffEvent(2659101.079,'LOSS_OF_CONTROL_UPDATE',3,2659101)
 advanceObserved(2659110.972); handoffLoC=nil
-handoffEvent(2659110.972,'LOSS_OF_CONTROL_UPDATE',2,2659101)
+handoffEvent(2659110.972,'LOSS_OF_CONTROL_UPDATE',3,2659101)
 handoffLoC={spellID=2637,auraInstanceID=431,startTime=2659111.500,duration=5,timeRemaining=5}
 handoffEvent(2659111.389,'LOSS_OF_CONTROL_ADDED',3,2659111.389)
 handoffEvent(2659111.691,'LOSS_OF_CONTROL_UPDATE',3,2659111.500)
@@ -635,8 +654,8 @@ assert(ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
 
 -- Replay the 0.4.10 a477/a479/a481/a483 trace independently. Its first
 -- explicit application starts only 13.851 seconds after observation began;
--- the later 20/10/5 chain, rather than a twenty-second quiet baseline, must
--- support correcting the next full duration. The second cycle refreshes a483.
+-- the later 20/10/5 chain remains only partial evidence, so it cannot teach a
+-- full-duration baseline. The later same-ID a483 refresh still counts once.
 SlashCmdList.BJARKICC('clear')
 handoffAura=nil; handoffLoC=nil
 handoffEvent(2660043.899,'UNIT_AURA')
@@ -666,30 +685,30 @@ handoffEvent(2660094.112,'LOSS_OF_CONTROL_UPDATE',3,2660089.250)
 advanceObserved(2660109.701)
 handoffLoC={spellID=2637,auraInstanceID=483,startTime=2660110,duration=20,timeRemaining=20}
 handoffEvent(2660109.701,'LOSS_OF_CONTROL_ADDED',3,2660109.701)
-handoffEvent(2660110.187,'LOSS_OF_CONTROL_UPDATE',1,2660110)
+handoffEvent(2660110.187,'LOSS_OF_CONTROL_UPDATE',3,2660110)
 local chainCorrected=ns.UI.bars.player.icons[1].row
-assert(chainCorrected.resetEvidence=='matching-full-duration' and chainCorrected.resetBaselineDuration==20
- and chainCorrected.uncertain,'the observed halving chain supports a bounded correction')
-assert(chainCorrected.resetBaselineSource=='observed-halving-chain',
- 'the correction retains its distinct sequence-based provenance')
+assert(chainCorrected.resetEvidence==nil and chainCorrected.fullDurationBaseline==nil
+ and chainCorrected.uncertain,'partial halving samples cannot teach a reset baseline')
+assert(chainCorrected.resetBaselineSource==nil,
+ 'no sequence-based provenance is claimed without complete coverage')
 ns.UI.bars.player.icons[1].scripts.OnEnter(ns.UI.bars.player.icons[1])
-assert(table.concat(ns.UI.tip.lines,'\n'):find(
+assert(not table.concat(ns.UI.tip.lines,'\n'):find(
  'Baseline learned from three consecutive full/half/quarter observations (provisional profile).',1,true),
- 'tooltip identifies the observed sequence as provisional baseline evidence')
-assert(ns.BuildStatus():find('Baseline evidence: observed full/half/quarter sequence.',1,true),
- 'status exposes the correction baseline source')
+ 'tooltip does not turn incomplete samples into a learned baseline')
+assert(ns.BuildStatus():find('Full-duration baseline: not learned; sequence 0/3.',1,true),
+ 'status preserves the partial-coverage limitation')
 advanceObserved(2660120.941)
 handoffLoC={spellID=2637,auraInstanceID=483,startTime=2660121,duration=10,timeRemaining=10}
-handoffEvent(2660120.941,'LOSS_OF_CONTROL_UPDATE',1,2660110)
-handoffEvent(2660121.074,'LOSS_OF_CONTROL_UPDATE',2,2660121)
+handoffEvent(2660120.941,'LOSS_OF_CONTROL_UPDATE',3,2660110)
+handoffEvent(2660121.074,'LOSS_OF_CONTROL_UPDATE',3,2660121)
 advanceObserved(2660130.879); handoffLoC=nil
-handoffEvent(2660130.879,'LOSS_OF_CONTROL_UPDATE',2,2660121)
-assert(ns.Observer.stats.handoffsPreserved==1 and ns.Observer.stats.handoffsInvalidated==0,
- 'the reported exact aura-to-LoC handoff remains preserved')
+handoffEvent(2660130.879,'LOSS_OF_CONTROL_UPDATE',3,2660121)
+assert(ns.Observer.stats.handoffsPreserved==0 and ns.Observer.stats.handoffsInvalidated==1,
+ 'matching identity cannot preserve complete coverage across a restricted player handoff')
 assert(ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
  'the a477 replay contains continuous observation without cast predictions')
 -- Synthetic extension, not part of the supplied trace: another distinct
--- five-second application must advance the corrected second cycle to three.
+-- five-second application remains stage three without inventing a prior reset.
 advanceObserved(2660132)
 handoffLoC={spellID=2637,auraInstanceID=485,startTime=2660132,duration=5,timeRemaining=5}
 handoffEvent(2660132,'LOSS_OF_CONTROL_ADDED',3,2660132)
@@ -708,15 +727,15 @@ handoffLoC={spellID=2637,auraInstanceID=519,startTime=2661812.250,duration=20,ti
 handoffEvent(2661812.161,'LOSS_OF_CONTROL_ADDED',1,2661812.161)
 handoffEvent(2661812.334,'LOSS_OF_CONTROL_UPDATE',1,2661812.250)
 assert(ns.UI.bars.player.icons[1].row.fullDurationBaseline==nil
- and ns.UI.bars.player.icons[1].row.durationCandidateStep==1,
- 'the short initial quiet period begins a sequence without inventing a full baseline')
+ and ns.UI.bars.player.icons[1].row.durationCandidateStep==nil,
+ 'a partial first application cannot begin a complete duration-learning sequence')
 advanceObserved(2661831.139); handoffLoC=nil
 handoffEvent(2661831.139,'LOSS_OF_CONTROL_UPDATE',1,2661812.250)
 handoffLoC={spellID=2637,auraInstanceID=521,startTime=2661831.750,duration=10,timeRemaining=10}
 handoffEvent(2661831.598,'LOSS_OF_CONTROL_ADDED',2,2661831.598)
 handoffEvent(2661831.934,'LOSS_OF_CONTROL_UPDATE',2,2661831.750)
-assert(ns.UI.bars.player.icons[1].row.durationCandidateStep==2,
- 'the ten-second application supplies the second observation')
+assert(ns.UI.bars.player.icons[1].row.durationCandidateStep==nil,
+ 'the partial ten-second sample cannot supply complete sequence evidence')
 advanceObserved(2661841.677)
 handoffLoC={spellID=2637,auraInstanceID=521,startTime=2661841.750,duration=5,timeRemaining=5}
 handoffEvent(2661841.677,'LOSS_OF_CONTROL_UPDATE',2,2661831.750)
@@ -726,25 +745,25 @@ handoffEvent(2661846.575,'LOSS_OF_CONTROL_UPDATE',3,2661841.750)
 advanceObserved(2661863.386)
 handoffLoC={spellID=2637,auraInstanceID=523,startTime=2661863.500,duration=20,timeRemaining=19.999}
 handoffEvent(2661863.386,'LOSS_OF_CONTROL_ADDED',3,2661863.386)
-handoffEvent(2661863.671,'LOSS_OF_CONTROL_UPDATE',1,2661863.500)
+handoffEvent(2661863.671,'LOSS_OF_CONTROL_UPDATE',3,2661863.500)
 local refreshCorrected=ns.UI.bars.player.icons[1].row
-assert(refreshCorrected.resetEvidence=='matching-full-duration'
- and refreshCorrected.resetBaselineSource=='observed-halving-chain'
- and refreshCorrected.resetBaselineDuration==20 and refreshCorrected.uncertain,
- 'a verified same-ID quarter refresh supports the later bounded reset correction')
+assert(refreshCorrected.resetEvidence==nil
+ and refreshCorrected.resetBaselineSource==nil
+ and refreshCorrected.fullDurationBaseline==nil and refreshCorrected.uncertain,
+ 'same-ID refresh identity does not supply missing full-coverage duration proof')
 advanceObserved(2661873.175); handoffLoC=nil
-handoffEvent(2661873.175,'LOSS_OF_CONTROL_UPDATE',1,2661863.500)
+handoffEvent(2661873.175,'LOSS_OF_CONTROL_UPDATE',3,2661863.500)
 advanceObserved(2661876.116)
 handoffLoC={spellID=2637,auraInstanceID=525,startTime=2661876.250,duration=10,timeRemaining=10}
-handoffEvent(2661876.116,'LOSS_OF_CONTROL_ADDED',2,2661876.116)
-handoffEvent(2661876.289,'LOSS_OF_CONTROL_UPDATE',2,2661876.250)
+handoffEvent(2661876.116,'LOSS_OF_CONTROL_ADDED',3,2661876.116)
+handoffEvent(2661876.289,'LOSS_OF_CONTROL_UPDATE',3,2661876.250)
 advanceObserved(2661886.108); handoffLoC=nil
-handoffEvent(2661886.108,'LOSS_OF_CONTROL_UPDATE',2,2661876.250)
+handoffEvent(2661886.108,'LOSS_OF_CONTROL_UPDATE',3,2661876.250)
 advanceObserved(2661896.789)
-handoffEvent(2661896.789,'LOSS_OF_CONTROL_UPDATE',2,2661876.250)
-assert(ns.Observer.stats.handoffsPreserved==1 and ns.Observer.stats.handoffsInvalidated==0
+handoffEvent(2661896.789,'LOSS_OF_CONTROL_UPDATE',3,2661876.250)
+assert(ns.Observer.stats.handoffsPreserved==0 and ns.Observer.stats.handoffsInvalidated==1
  and ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
- 'the exact a521 refresh replay preserves its handoff, continuous polling and observed-only stages')
+ 'the a521 replay keeps observed-only stages and reports its partial source handoff')
 
 -- Real settings callbacks must change one clock without silently changing the
 -- other, and rebuild tracking so old observations cannot keep stale settings.
@@ -786,7 +805,7 @@ ns.demo=false; ns.db.locked=true
 for _,key in ipairs({'player','target','focus'}) do
  ns.db.bars[key].vertical=true; ns.db.bars[key].reverse=true; ns.db.bars[key].maxIcons=30
 end
-for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
+for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4'},{3,'3'},{2.44,'2.4'},{.24,'0.2'},{12,''}}) do
  remaining=case[1]; ns.UI.Update(315)
  for _,key in ipairs({'player','target','focus'}) do
   local bar=ns.UI.bars[key]; local first,second=bar.icons[1],bar.icons[2]
@@ -805,4 +824,93 @@ for _,case in ipairs({{5.01,''},{5,'5'},{4.44,'4.4'},{.24,'0.2'},{12,''}}) do
  assert(ns.UI.bars.cooldown.icons[1].time.text=='40','enemy cooldown numbers retain normal full-duration display')
 end
 ns.UI.GetRows=originalRows
+
+-- Synthetic complete-evidence controls, separate from the supplied player
+-- traces above. Target supplies explicit ByUnit LoC timing; same-GUID Focus
+-- supplies a complete matching aura snapshot. The real Observer must authorize
+-- that alias coverage before Model, UI and status may show a learned correction.
+local function completeAliasCorrection(base, quiet, expectedSource)
+ local guid='Player-1-COMPLETE'..base
+ units.target,units.focus=guid,guid
+ ns.db.resetSeconds,ns.db.stageResetSeconds=20,18
+ now=base
+ local current
+ C_UnitAuras={GetAuraDataByIndex=function(unit,index,filter)
+  if filter~='HARMFUL' or index~=1 then return nil end
+  if unit=='target' then return {spellId=handoffSecret,auraInstanceID=999999} end
+  if unit=='focus' and current then
+   return {spellId=2637,auraInstanceID=current.id,expirationTime=current.start+current.duration,
+    duration=current.duration}
+  end
+ end}
+ C_LossOfControl={
+  GetActiveLossOfControlDataCountByUnit=function(unit) return unit=='target' and current and 1 or 0 end,
+  GetActiveLossOfControlDataByUnit=function(unit,index)
+   assert(unit=='target' and index==1 and current,'only the positive target LoC is enumerated')
+   return {spellID=2637,auraInstanceID=current.id,startTime=current.start,duration=current.duration}
+  end,
+ }
+ SlashCmdList.BJARKICC('clear')
+ local function sample(at)
+  now=at
+  ns.eventFrame.scripts.OnEvent(ns.eventFrame,'UNIT_AURA','target')
+  ns.UI.Update(now)
+  local state=ns.Observer.GetUnitState('target')
+  assert(state.auraComplete==true and state.aliasCoverage=='complete'
+   and state.authoritativeUnit=='focus' and state.sensor=='aura-alias',
+   'complete matching focus coverage, not LoC alone, authorizes the positive control')
+ end
+ local function before(at)
+  while now+.5<at do sample(now+.5) end
+ end
+ local function apply(at,duration,id)
+  before(at); current={start=at,duration=duration,id=id}; sample(at)
+ end
+ local function remove(at)
+  before(at); current=nil; sample(at)
+ end
+ sample(base)
+ local first=base+(quiet and 21 or 1)
+ apply(first,20,9101)
+ remove(first+20)
+ apply(first+22,10,9102)
+ remove(first+32)
+ apply(first+33,5,9103)
+ remove(first+38)
+ local beforeReset=ns.model:GetDR(guid,now)[1]
+ assert(beforeReset.stage==3 and beforeReset.fullDurationBaseline==20
+  and beforeReset.fullDurationBaselineSource==expectedSource,
+  'complete evidence learns the expected quiet or halving-chain baseline')
+ local fourth=first+53.5
+ apply(fourth,20,9104)
+ local row=ns.model:GetDR(guid,now)[1]
+ assert(row.stage==1 and row.observedStage==1 and row.started==fourth
+  and row.resetEvidence=='matching-full-duration' and row.resetBaselineDuration==20
+  and row.resetBaselineSource==expectedSource and row.resetPreviousStage==3 and row.uncertain,
+  'sufficient complete evidence corrects the retained stage without changing its application clock')
+ for _,unit in ipairs({'target','focus'}) do
+  local icon=ns.UI.bars[unit].icons[1]
+  assert(icon.shown and icon.row.stage==1 and icon.swipe.cooldown[1]==fourth,
+   'both GUID aliases render the same corrected application')
+  icon.scripts.OnEnter(icon)
+  local tooltip=table.concat(ns.UI.tip.lines,'\n')
+  assert(tooltip:find('Full-duration match: 20s',1,true),
+   'tooltip explains the valid correction as duration evidence')
+  if expectedSource=='observed-halving-chain' then
+   assert(tooltip:find('Baseline learned from three consecutive full/half/quarter observations',1,true),
+    'tooltip preserves the complete sequence-based provenance')
+  end
+ end
+ local status=ns.BuildStatus()
+ assert(status:find('Stage correction: matching full duration (20.000s)',1,true),
+  'status records the sufficient duration-supported correction')
+ if expectedSource=='observed-halving-chain' then
+  assert(status:find('Baseline evidence: observed full/half/quarter sequence.',1,true),
+   'status exposes complete sequence evidence')
+ end
+ assert(ns.Observer.stats.scanGaps==0 and ns.OwnCasts.stats.estimated==0,
+  'positive controls have continuous coverage and no cast-derived stage overlay')
+end
+completeAliasCorrection(4000000,true,'quiet-observation')
+completeAliasCorrection(5000000,false,'observed-halving-chain')
 print('integration: TOC-order initialization, events, commands, settings, demo and bars passed')

@@ -9,8 +9,15 @@ local stageColors = {{.25,1,.3},{1,.8,.15},{1,.2,.15}}
 function UI.FormatTime(seconds)
     if seconds >= 60 then return math.ceil(seconds/60)..'m' end
     if seconds <= 0 then return '0' end
-    -- Match the updated native-style portrait text without changing either clock.
+    -- Enemy cooldown estimates retain their existing countdown formatting.
     if seconds < 5 then return string.format('%.1f', seconds) end
+    return tostring(math.floor(seconds))
+end
+
+function UI.FormatDRTime(seconds)
+    if seconds <= 0 then return '0' end
+    -- The DR timer still becomes visible at 5s, but only uses decimals below 3s.
+    if seconds < 3 then return string.format('%.1f', seconds) end
     return tostring(math.floor(seconds))
 end
 
@@ -18,9 +25,9 @@ local function demoRows(key, now)
     local remaining = 20 - (now % 20)
     if key == 'cooldown' then
         return {
-            {spellID=853,category='stun',name='Paladin',started=now-12,duration=60,remaining=48,earlyRemaining=33},
-            {spellID=408,category='kidney',name='Rogue',started=now-6,duration=20,remaining=14,earlyRemaining=14},
-            {spellID=122,category='root',name='Mage',started=now-15,duration=25,remaining=10,earlyRemaining=6},
+            {spellID=853,category='stun',started=now-12,duration=60,remaining=48,earlyRemaining=33},
+            {spellID=408,category='kidney',started=now-6,duration=20,remaining=14,earlyRemaining=14},
+            {spellID=122,category='root',started=now-15,duration=25,remaining=10,earlyRemaining=6},
         }
     end
     return {
@@ -47,7 +54,7 @@ function UI.GetRows(key, now)
     else
         local state = ns.Observer.GetUnitState(key)
         if not state.guid then return out end
-        rows = ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates)
+        rows = ns.model:GetDR(state.guid, now, ns.db.ownCastEstimates, ns.db.aoeCastEstimates)
         for _, row in ipairs(rows) do
             -- Retained stage history belongs to the model; expired application
             -- countdowns must not occupy icon slots or inflate the overflow.
@@ -73,7 +80,27 @@ end
 -- textures stretch natively; unlike BackdropTemplate they never divide a
 -- GetWidth/GetHeight result in an OnSizeChanged callback.
 local function setBorderColor(frame,r,g,b,a)
-    for _,edge in ipairs(frame.borderTextures) do edge:SetVertexColor(r,g,b,a or 1) end
+    local opacity = a or 1
+    if frame._borderR == r and frame._borderG == g and frame._borderB == b
+        and frame._borderA == opacity then return end
+    for _,edge in ipairs(frame.borderTextures) do edge:SetVertexColor(r,g,b,opacity) end
+    frame._borderR, frame._borderG, frame._borderB, frame._borderA = r,g,b,opacity
+end
+
+-- The native Cooldown widget advances its own swipe. Reasserting an unchanged
+-- start and duration every render tick is unnecessary and may reset its artwork.
+local function updateNativeClock(icon, started, duration)
+    if icon._clockStart ~= started or icon._clockDuration ~= duration then
+        icon.swipe:SetCooldown(started, duration)
+        icon._clockStart, icon._clockDuration = started, duration
+    end
+end
+
+local function setTextIfChanged(region, value)
+    if region._displayText ~= value then
+        region:SetText(value)
+        region._displayText = value
+    end
 end
 
 local function panelBackground(frame,alpha)
@@ -110,13 +137,35 @@ local function tooltip(owner, row, key)
     local ability = ns.Data.spells[row.spellID]
     tip:SetText(ability and ability.name or (cat and cat.name or 'Crowd control'), gold[1],gold[2],gold[3])
     if key == 'cooldown' then
-        tip:AddLine(row.name or 'Observed enemy',1,1,1)
-        tip:AddLine(row.manual and 'Manually marked use' or 'Observed successful cast',.7,.7,.7)
+        if ns.demo then
+            tip:AddLine('SAMPLE ONLY: no enemy cast was observed.',1,.58,.34,true)
+        elseif row.anonymous then
+            tip:AddLine('CC landed on you. CASTER UNKNOWN; this does not identify the attacker.',1,.68,.31,true)
+            tip:AddLine('Cooldown start approximates the landed effect, not a confirmed cast time.',.75,.75,.75,true)
+        elseif row.evidenceSource == 'helpful-aura' then
+            tip:AddLine('Readable self-only helpful aura; cooldown is an inference.',1,.78,.42,true)
+            if row.timingEstimated then
+                tip:AddLine('Aura start was not readable: timer begins at first sighting.',1,.62,.31,true)
+            end
+        else
+            tip:AddLine(row.manual and 'Manually marked use' or 'Readable successful cast event',.7,.7,.7)
+        end
         tip:AddLine('Estimated remaining: '..math.ceil(row.remaining)..'s',1,.85,.4)
         if row.earlyRemaining and row.earlyRemaining < row.remaining then
             tip:AddLine('May be ready in '..math.ceil(row.earlyRemaining)..'s with talents.',1,.65,.25,true)
         end
+        if not ns.demo and row.claimID then
+            tip:AddLine('Claim #'..row.claimID..' | '..(row.claimBasis or 'estimated'),.68,.82,.94,true)
+            if (row.claimRevisionCount or 0)>0 then
+                tip:AddLine('Revised from newer evidence. /bcc why '..row.spellID,.65,.86,.65,true)
+            else
+                tip:AddLine('Reasoning: /bcc why '..row.spellID,.62,.70,.75,true)
+            end
+        end
         tip:AddLine('Talents and unseen resets can change this timer.',.7,.7,.7,true)
+        if not ns.demo then
+            tip:AddLine('Automatic enemy cast events may be unavailable on Forever.',1,.65,.35,true)
+        end
     else
         tip:AddLine('Next duration: '..(row.uncertain and 'unknown' or ({'50%','25%','immune'})[row.stage]),1,1,1)
         if row.uncertain then
@@ -132,19 +181,26 @@ local function tooltip(owner, row, key)
                 tip:AddLine('Baseline learned from three consecutive full/half/quarter observations (provisional profile).',1,.55,.25,true)
             end
         end
-        tip:AddLine(row.remaining>0 and ('Application countdown: '..UI.FormatTime(row.remaining)..'s')
+        tip:AddLine(row.remaining>0 and ('Application countdown: '..UI.FormatDRTime(row.remaining)..'s')
             or 'Application countdown finished; DR stage is still retained.',1,.85,.4,true)
         tip:AddLine('Starts on application. Breaking or removing CC does not restart it.',.7,.7,.7,true)
         if not row.estimated then
             if row.stageRemaining then
-                local basis=row.stageResetSource=='observed-end' and 'observed disappearance' or 'predicted CC end'
+                local basis=row.stageResetSource=='observed-end' and 'observed disappearance'
+                    or row.stageResetSource=='unseen-end-estimate' and 'unseen end (bounded estimate)'
+                    or 'predicted CC end'
                 tip:AddLine('Estimated stage reset in '..math.ceil(row.stageRemaining)..'s ('..basis..').',1,.85,.4,true)
             else
                 tip:AddLine('Stage reset waits for a readable CC end.',.7,.7,.7,true)
             end
         end
         if row.estimated then
-            tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
+            if row.estimateKind == 'aoe' then
+                tip:AddLine('Unconfirmed AoE cast. Target/focus are POSSIBLE victims only.',1,.55,.25,true)
+                tip:AddLine('War Stomp/Grenade/Mortar may miss, be immune, or affect another player. This is not observed DR.',1,.55,.25,true)
+            else
+                tip:AddLine('Estimate from your cast. Application was not confirmed; it may have missed or been immune.',1,.55,.25,true)
+            end
         else
             if row.stageEstimated then
                 tip:AddLine('Current application observed. Earlier applications remain inferred; observed stage '..row.observedStage..'.',1,.55,.25,true)
@@ -158,6 +214,22 @@ local function tooltip(owner, row, key)
         tip:AddLine('Stage resets '..ns.db.stageResetSeconds..'s after CC ends (provisional estimate).',.7,.7,.7,true)
     end
     tip:Show()
+end
+
+-- Stage pips live in the icon's text layer, above the native swipe.
+-- They indicate the same stage as the existing border and never introduce
+-- additional inference about CC applications or next duration.
+local function updateStagePips(icon, stage, uncertain, enabled)
+    local count = (enabled and (stage == 1 or stage == 2 or stage == 3)) and stage or 0
+    if icon._pipCount ~= count then
+        for i, pip in ipairs(icon.stagePips) do pip:SetShown(i <= count) end
+        icon._pipCount = count
+    end
+    local opacity = uncertain and .55 or 1
+    if icon._pipOpacity ~= opacity then
+        for _, pip in ipairs(icon.stagePips) do pip:SetAlpha(opacity) end
+        icon._pipOpacity = opacity
+    end
 end
 
 local function makeIcon(bar)
@@ -186,7 +258,15 @@ local function makeIcon(bar)
     end
     icon.time=font(icon.textLayer,nil,16); icon.time:SetPoint('CENTER',0,0)
     icon.state=font(icon.textLayer,nil,10); icon.state:SetPoint('TOPRIGHT',-1,-1)
-    icon.caption=font(icon.textLayer,nil,10); icon.caption:SetPoint('TOP',icon,'BOTTOM',0,-3)
+    icon.stagePips = {}
+    if bar.key ~= 'cooldown' then
+        for i=1,3 do
+            local pip=icon.textLayer:CreateTexture(nil,'OVERLAY')
+            pip:SetColorTexture(gold[1],gold[2],gold[3],1)
+            pip:Hide()
+            icon.stagePips[i]=pip
+        end
+    end
     icon:EnableMouse(true)
     icon:SetScript('OnEnter',function(self) if self.row then tooltip(self,self.row,bar.key) end end)
     icon:SetScript('OnLeave',function() if UI.tip then UI.tip:Hide() end end)
@@ -252,25 +332,30 @@ function UI.Update(now)
                 local grid = key ~= 'cooldown'
                 local count = math.min(#rows,grid and 4 or settings.maxIcons)
                 local setup=ns.demo or not ns.db.locked
-                local captions=key=='cooldown' and ns.db.showNames
-                local captionHeight=captions and 13 or 0
                 bar:SetShown(setup or (count>0 and ns.Anchors.Visible(bar)))
-                bar.title:SetText(titles[key]..(ns.demo and ' (test)' or ''))
+                bar.title:SetText(key == 'cooldown'
+                    and (ns.demo and 'Enemy cooldowns (SAMPLE)' or 'Enemy cooldowns (experimental)')
+                    or (titles[key]..(ns.demo and ' (test)' or '')))
                 bar.title:SetShown(setup)
-                local step=settings.size+settings.gap+(settings.vertical and captionHeight or 0)
+                local step=settings.size+settings.gap
                 local span=settings.size+math.max(count-1,0)*step
+                local width, height
                 if grid then
                     local side=settings.size*2+settings.gap
-                    bar:SetSize(side,side)
+                    width, height = side, side
                 else
-                    bar:SetSize(settings.vertical and settings.size or math.max(span,count==0 and 96 or 1),
-                        settings.vertical and span or settings.size)
+                    width = settings.vertical and settings.size or math.max(span,count==0 and 96 or 1)
+                    height = settings.vertical and span or settings.size
+                end
+                if bar._renderWidth ~= width or bar._renderHeight ~= height then
+                    bar:SetSize(width,height)
+                    bar._renderWidth, bar._renderHeight = width,height
                 end
                 bar.overflow:SetShown(not grid and #rows>count)
                 bar.overflow:SetText('+'..(#rows-count))
                 bar.overflow:ClearAllPoints()
                 if settings.vertical then
-                    bar.overflow:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'TOP' or 'BOTTOM',0,settings.reverse and 5 or -(5+captionHeight))
+                    bar.overflow:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'TOP' or 'BOTTOM',0,settings.reverse and 5 or -5)
                 else
                     bar.overflow:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'LEFT' or 'RIGHT',settings.reverse and -5 or 5,0)
                 end
@@ -278,52 +363,76 @@ function UI.Update(now)
                     local row=rows[i]
                     if not bar.icons[i] then bar.icons[i]=makeIcon(bar) end
                     local icon=bar.icons[i]
-                    icon.row=row; icon:Show(); icon:SetSize(settings.size,settings.size); icon:ClearAllPoints()
-                    -- Native action buttons use a 46x45 bevel on a 45x45 button.
-                    -- Derive it from our saved size, never protected frame dimensions.
-                    if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
-                    local offset=(i-1)*step
-                    if grid then
-                        local point=key=='player' and 'TOPRIGHT' or 'TOPLEFT'
-                        icon:SetPoint(point,bar,point,((i-1)%2)*step*(key=='player' and -1 or 1),-math.floor((i-1)/2)*step)
-                    elseif settings.vertical then
-                        icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'BOTTOM' or 'TOP',0,settings.reverse and offset or -offset)
-                    else
-                        icon:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'RIGHT' or 'LEFT',settings.reverse and -offset or offset,0)
+                    icon.row=row; icon:Show()
+                    if icon._renderSize ~= settings.size then
+                        icon:SetSize(settings.size,settings.size)
+                        -- Native action buttons use a 46x45 bevel on a 45x45 button.
+                        -- Derive it from saved size, not protected frame dimensions.
+                        if icon.actionBorder then icon.actionBorder:SetSize(settings.size*46/45,settings.size) end
+                        icon.time:SetFont(STANDARD_TEXT_FONT,math.floor(settings.size*.47),'OUTLINE')
+                        icon.time:SetTextColor(1,1,1)
+                        icon.state:SetFont(STANDARD_TEXT_FONT,math.max(9,math.floor(settings.size*.3)),'OUTLINE')
+                        local pipSize=math.max(3,math.floor(settings.size*.14+.5))
+                        local pipInset=math.max(2,math.floor(settings.size*.07+.5))
+                        local pipGap=math.max(1,math.floor(settings.size*.035+.5))
+                        for j,pip in ipairs(icon.stagePips) do
+                            pip:SetSize(pipSize,pipSize)
+                            pip:ClearAllPoints()
+                            pip:SetPoint('BOTTOMLEFT',icon,'BOTTOMLEFT',
+                                pipInset+(j-1)*(pipSize+pipGap),pipInset)
+                        end
+                        icon._renderSize=settings.size
                     end
+                    local layoutKey=table.concat({settings.size,settings.gap,settings.vertical and 1 or 0,
+                        settings.reverse and 1 or 0,i,key},":")
+                    if icon._layoutKey ~= layoutKey then
+                        icon:ClearAllPoints()
+                        local offset=(i-1)*step
+                        if grid then
+                            local point=key=='player' and 'TOPRIGHT' or 'TOPLEFT'
+                            icon:SetPoint(point,bar,point,((i-1)%2)*step*(key=='player' and -1 or 1),-math.floor((i-1)/2)*step)
+                        elseif settings.vertical then
+                            icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'BOTTOM' or 'TOP',0,settings.reverse and offset or -offset)
+                        else
+                            icon:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'RIGHT' or 'LEFT',settings.reverse and -offset or offset,0)
+                        end
+                        icon._layoutKey=layoutKey
+                    end
+                    -- Keep spell texture resolution dynamic when the client
+                    -- makes an initially unavailable public icon accessible.
                     icon.texture:SetTexture(textureFor(row))
-                    icon.time:SetFont(STANDARD_TEXT_FONT,math.floor(settings.size*.47),'OUTLINE')
-                    icon.time:SetTextColor(1,1,1)
-                    icon.time:ClearAllPoints(); icon.time:SetPoint('CENTER',0,0)
-                    icon.state:SetFont(STANDARD_TEXT_FONT,math.max(9,math.floor(settings.size*.3)),'OUTLINE')
-                    icon.state:ClearAllPoints(); icon.state:SetPoint('TOPRIGHT',-1,-1)
-                    icon.state:Hide()
-                    icon.caption:SetWidth(settings.size+settings.gap)
-                    icon.caption:SetShown(captions)
                     if key=='cooldown' then
-                        icon.time:SetText(UI.FormatTime(row.remaining))
+                        setTextIfChanged(icon.time,UI.FormatTime(row.remaining))
                         local maybe=row.earlyRemaining and row.earlyRemaining<=0
-                        icon.state:SetText(maybe and '?' or (row.manual and 'M' or ''))
-                        icon.state:SetShown(maybe or row.manual==true)
+                        setTextIfChanged(icon.state,(row.anonymous or maybe) and '?' or (row.manual and 'M' or ''))
+                        icon.state:SetShown(maybe or row.anonymous==true or row.manual==true)
                         icon.state:SetTextColor(1,.82,.36)
-                        icon.caption:SetText((row.name or 'Enemy'):sub(1,12))
-                        icon.caption:SetTextColor(.85,.85,.85)
                         setBorderColor(icon,1,1,1,1)
-                        icon.swipe:Show(); icon.swipe:SetCooldown(row.started,row.duration)
+                        icon.swipe:Show(); updateNativeClock(icon,row.started,row.duration)
                     else
-                        icon.time:SetText(row.remaining>0 and row.remaining<=5 and UI.FormatTime(row.remaining) or '')
-                        -- Keep uncertainty in the tooltip and status report. An
-                        -- inferred stage cannot supply an exact percentage.
-                        icon.state:SetText(row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])
-                        icon.state:SetShown(not row.uncertain and ns.db.showDRText)
-                        if not row.uncertain and ns.db.showDRText then
-                            icon.state:ClearAllPoints(); icon.state:SetPoint('BOTTOM',0,1)
-                            icon.time:ClearAllPoints(); icon.time:SetPoint('CENTER',0,4)
+                        setTextIfChanged(icon.time,row.remaining>0 and row.remaining<=5 and UI.FormatDRTime(row.remaining) or '')
+                        -- Keep all uncertain DR rows visually consistent:
+                        -- color shows the estimated stage; the tooltip and
+                        -- diagnostics distinguish unconfirmed AoE hits.
+                        setTextIfChanged(icon.state,row.uncertain and '' or ({'50%','25%','IMM'})[row.stage])
+                        local pctVisible=not row.uncertain and ns.db.showDRText
+                        icon.state:SetShown(pctVisible)
+                        if icon._percentLayout ~= pctVisible then
+                            icon.state:ClearAllPoints()
+                            icon.state:SetPoint(pctVisible and 'BOTTOM' or 'TOPRIGHT',
+                                pctVisible and 0 or -1,pctVisible and 1 or -1)
+                            icon.time:ClearAllPoints()
+                            icon.time:SetPoint('CENTER',0,pctVisible and 4 or 0)
+                            icon._percentLayout=pctVisible
                         end
                         local color=stageColors[row.stage]
-                        icon.state:SetTextColor(color[1],color[2],color[3]); setBorderColor(icon,color[1],color[2],color[3],1)
+                        icon.state:SetTextColor(color[1],color[2],color[3])
+                        setBorderColor(icon,color[1],color[2],color[3],1)
+                        -- Percentage labels already carry stage information and
+                        -- occupy the bottom edge on smaller default icon sizes.
+                        updateStagePips(icon,row.stage,row.uncertain,not pctVisible)
                         icon.swipe:SetShown(row.remaining>0)
-                        if row.remaining>0 then icon.swipe:SetCooldown(row.started,row.duration) end
+                        if row.remaining>0 then updateNativeClock(icon,row.started,row.duration) end
                     end
                 end
                 for i=count+1,#bar.icons do bar.icons[i]:Hide(); bar.icons[i].row=nil end
@@ -349,7 +458,7 @@ local function check(parent,text,x,y,get,set)
     b:SetSize(24,24); b:SetPoint('TOPLEFT',x,y)
     local t=font(b,'GameFontHighlightSmall'); t:SetPoint('LEFT',b,'RIGHT',3,0); t:SetText(text)
     b:SetScript('OnShow',function(self) self:SetChecked(get()) end)
-    b:SetScript('OnClick',function(self) set(self:GetChecked() and true or false); UI.ApplyLayout() end)
+    b:SetScript('OnClick',function(self) set(self:GetChecked() and true or false); self:SetChecked(get()); UI.ApplyLayout() end)
     b:SetChecked(get()); return b
 end
 
@@ -359,11 +468,21 @@ local function slider(parent,text,x,y,low,high,get,set,width)
     s:SetPoint('TOPLEFT',x,y-22); s:SetSize(width or 230,14); s:SetOrientation('HORIZONTAL')
     s:SetMinMaxValues(low,high); s:SetValueStep(1); s:SetObeyStepOnDrag(true)
     backdrop(s,.8); s:SetThumbTexture('Interface\\Buttons\\UI-SliderBar-Button-Horizontal')
+    local syncing=false
+    local function syncValue()
+        local value=get()
+        syncing=true; s:SetValue(value); syncing=false
+        title:SetText(text..': '..value)
+    end
     s:SetScript('OnValueChanged',function(_,v)
-        v=math.floor(v+.5); title:SetText(text..': '..v); set(v); UI.ApplyLayout()
+        if syncing then return end
+        set(math.floor(v+.5))
+        -- Setters may reject or normalize a request, and need not return a
+        -- success flag. The getter is the authoritative displayed value.
+        syncValue(); UI.ApplyLayout()
     end)
-    s:SetScript('OnShow',function(self) self:SetValue(get()); title:SetText(text..': '..get()) end)
-    s:SetValue(get()); title:SetText(text..': '..get())
+    s:SetScript('OnShow',syncValue)
+    syncValue()
     return s
 end
 
@@ -377,12 +496,12 @@ function UI.OpenOptions()
     local title=label(panel,'bjarkiCC',18,-18,440); title:SetTextColor(gold[1],gold[2],gold[3])
     button(panel,'X',462,-10,24,function() panel:Hide() end)
     local pages={}
-    for i=1,3 do
+    for i=1,4 do
         pages[i]=CreateFrame('Frame',nil,panel); pages[i]:SetPoint('TOPLEFT',18,-94); pages[i]:SetPoint('BOTTOMRIGHT',-18,54)
         if i>1 then pages[i]:Hide() end
     end
-    for i,text in ipairs({'Display','DR','Cooldowns'}) do
-        button(panel,text,18+(i-1)*157,-52,150,function() for j,p in ipairs(pages) do p:SetShown(i==j) end end)
+    for i,text in ipairs({'Display','DR','Cooldowns','GCD flashes'}) do
+        button(panel,text,18+(i-1)*118,-52,112,function() for j,p in ipairs(pages) do p:SetShown(i==j) end end)
     end
     local preview,move
     local function refreshActions()
@@ -401,7 +520,8 @@ function UI.OpenOptions()
     for i,key in ipairs(order) do
         local settings=ns.db.bars[key]
         local y=-(i-1)*50
-        check(page,titles[key],0,y-7,function() return settings.enabled end,function(v) settings.enabled=v end)
+        check(page,key=='cooldown' and 'Enemy CDs (beta)' or titles[key],0,y-7,
+            function() return settings.enabled end,function(v) settings.enabled=v end)
         if key=='cooldown' then
             check(page,'Vertical',164,y-7,function() return settings.vertical end,function(v) settings.vertical=v end)
         else
@@ -409,8 +529,7 @@ function UI.OpenOptions()
         end
         slider(page,'Size',280,y,24,72,function() return settings.size end,function(v) settings.size=v end,170)
     end
-    check(page,'Caster names',0,-211,function() return ns.db.showNames end,function(v) ns.db.showNames=v end)
-    check(page,'DR percentages',240,-211,function() return ns.db.showDRText end,function(v) ns.db.showDRText=v end)
+    check(page,'DR percentages',0,-211,function() return ns.db.showDRText end,function(v) ns.db.showDRText=v end)
     label(page,'DR bars follow player, target and focus frames.\nUnlock outside combat to adjust their offsets.',6,-254,450)
 
     page=pages[2]
@@ -424,15 +543,18 @@ function UI.OpenOptions()
         function() return ns.db.ownCastEstimates end,function(v) ns.db.ownCastEstimates=v; ns.OwnCasts.Init() end)
     slider(page,'Application countdown (s)',6,-218,10,30,function() return ns.db.resetSeconds end,function(v)
         if v~=ns.db.resetSeconds then
-            ns.db.resetSeconds=v; ns.model=ns.Model.New(v,ns.db.stageResetSeconds); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
+            ns.db.resetSeconds=v; ns.ResetTracking()
         end
     end,210)
     slider(page,'Stage reset after CC (s)',246,-218,10,30,function() return ns.db.stageResetSeconds end,function(v)
         if v~=ns.db.stageResetSeconds then
-            ns.db.stageResetSeconds=v; ns.model=ns.Model.New(ns.db.resetSeconds,v); ns.Observer.Init(); ns.OwnCasts.Init(); ns.drTrace={}
+            ns.db.stageResetSeconds=v; ns.ResetTracking()
         end
     end,210)
-    label(page,'Green / yellow / red: stages 1 / 2 / 3. Hover for tracking details.',6,-266,450)
+    label(page,'Green / yellow / red: stages 1 / 2 / 3. Hover for estimate uncertainty.',6,-266,450)
+    check(page,'Estimate Stomp / Grenade / Mortar',6,-288,
+        function() return ns.db.aoeCastEstimates end
+        ,function(v) ns.db.aoeCastEstimates=v; ns.OwnCasts.Init(); UI.Update(GetTime()) end)
 
     page=pages[3]
     check(page,'Only current target',0,0,function() return ns.db.targetOnly end,function(v) ns.db.targetOnly=v end)
@@ -449,6 +571,25 @@ function UI.OpenOptions()
             function() return not ns.db.disabledSpells[id] end,function(v) ns.db.disabledSpells[id]=not v end)
     end
     child:SetHeight(#abilities*29+10)
-    label(page,'Times are estimates. Use /bcc status for diagnostics.',6,-265,450)
+    label(page,'Experimental: automatic enemy casts are not verified on Forever.\nNo icon does not mean an ability is ready.',6,-265,450)
+
+    page=pages[4]
+    if ns.GCD then
+    check(page,'Show compact GCD flashes on enemy nameplates',0,0,
+        function() return ns.GCD.Get('enabled') end,function(v) ns.GCD.Set('enabled',v) end)
+    check(page,'Enemy successful casts (gold)',0,-37,
+        function() return ns.GCD.Get('casts') end,function(v) ns.GCD.Set('casts',v) end)
+    check(page,'New enemy buffs (green)',0,-73,
+        function() return ns.GCD.Get('buffs') end,function(v) ns.GCD.Set('buffs',v) end)
+    check(page,'My new debuffs on likely duel opponent (red)',0,-109,
+        function() return ns.GCD.Get('debuffs') end,function(v) ns.GCD.Set('debuffs',v) end)
+    check(page,'Show names below icons (may overlap in dense fights)',0,-145,
+        function() return ns.GCD.Get('name') end,function(v) ns.GCD.Set('name',v) end)
+    slider(page,'Icon size',0,-191,24,50,
+        function() return ns.GCD.Get('size') end,function(v) ns.GCD.Set('size',v) end,205)
+    slider(page,'Flash duration (tenths)',235,-191,5,40,
+        function() return ns.GCD.Get('tenths') end,function(v) ns.GCD.Set('tenths',v) end,205)
+    label(page,'36px default. All recent flashes grow LEFT, not down.\nSecret enemy casts are DRAWN only; they do not advance DR.\nUse /bcc gcd preview on visible nameplates.',5,-255,460)
+    end
     panel:Show()
 end

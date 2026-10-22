@@ -1,10 +1,50 @@
 # bjarkiCC architecture and DR research
 
+## Current v15 foundation runtime
+
+Version **0.4.17.31-foundation-v15-fixes-test** synchronizes the verified v15 suite into this repository. Both TOCs use the following order; every listed module is required in a runtime package.
+
+| Order | Module | Responsibility |
+| --- | --- | --- |
+| 1 | Bootstrap.lua | Guarded helpers, saved settings and schema 8 migration |
+| 2 | SharedEvidence.lua | Bounded, versioned bridge for readable positive evidence |
+| 3 | Data.lua | Provisional categories, spells, cooldowns and reviewed evidence mappings |
+| 4 | Claims.lua | Bounded explanations, revisions and witnesses for Model-owned cooldown claims |
+| 5 | Model.lua | Observed DR, separate cast predictions, timing, bounded history and cooldown state |
+| 6 | Observer.lua | Guarded aura/LoC input, GUID and source ownership, qualified nameplates and diagnostics |
+| 7 | CooldownEvidence.lua | Readable helpful-aura and player-LoC witnesses, including shared evidence |
+| 8 | OwnCasts.lua | Eligible direct-cast and explicitly unconfirmed AoE predictions |
+| 9 | Anchors.lua | Frame geometry, saved offsets and combat deferral |
+| 10 | UI.lua | DR grids, stage pips, cooldown estimates, tooltips and settings |
+| 11 | NativeStuns.lua | Optional native visual; no readable-hit or DR authority |
+| 12 | GCDCore.lua | GCD display settings and callbacks |
+| 13 | GCDFlash.lua | Display-only cast/aura flashes |
+| 14 | GCDPlates.lua | GCD display placement and lifecycle on nameplates |
+| 15 | Main.lua | Initialization, events, commands, diagnostics and scan/render scheduling |
+
+### v15 identity and timing repairs
+
+Continuous genuine nameplate ownership can retain the canonical witness independently of a borrowing target/focus view's freshness. Only the caller's permitted matching view participates in reconciliation, and only current effects reach `Model:Observe`. Removing or rebinding the owning token revokes its proof. Retained and matching witnesses share the existing 512-witness bound; registration remains limited to 40 plates and the Model to 128 actors.
+
+When bounded history discards an effect, a scalar frontier records the maximum positive-observation time represented by the discarded summary. A strictly later accepted occurrence start, or an unambiguous retained exact category witness, can resolve the ambiguity. Complete and partial first sightings use the same proof requirement. Carrying a hidden effect through a partial scan does not advance its positive-observation time; repeated old records cannot manufacture new proof.
+
+A current explicit LoC sample can correct the expiry of a continuing occurrence when its start agrees with the accepted start within the existing epsilon and its finite end follows that start. This can lengthen or shorten the bound without advancing the stage. The accepted refresh baseline stays anchored; weaker aura timing, older explicit starts and missing expiry cannot displace it. A genuinely later explicit start still follows the normal refresh path.
+
+These are the only behavioral changes from v14 to v15. The larger repository diff also includes previously developed foundation modules that were absent from the older `main` branch. Cast predictions, native visuals and GCD flashes remain distinct from observed hit evidence. Saved settings are initialized by the runtime; the historical rollback command is not a migration requirement.
+
+Fresh verification of all three synchronized addons confirms 36/36 runtime/package files match v15, 42/42 cross-addon scripts pass under Lua 5.4, and 28/28 runtime modules pass syntax checks under both Lua 5.1 and Lua 5.4. This repository accounts for 18 runtime/package files and 15 Lua modules. Its existing nine-suite runner also passes under Lua 5.1 with `lupa==2.8`, after six focused fixture/contract adaptations documented in [KNOWN_ISSUES.md](KNOWN_ISSUES.md); independent review and separate reruns confirm the result.
+
+The integration suite loads the actual TOC order. Restricted aura snapshots with positive LoC records remain partial and cannot establish the complete observation needed to learn a full-duration baseline. Positive correction controls exercise real event dispatch, Observer, Model and UI with complete matching focus-aura coverage for the same target GUID. They assert the alias coverage and authoritative unit, both quiet-observation and halving-chain baseline provenance, and the resulting stage, clocks, tooltip and status. The v15 runtime remains byte-for-byte unchanged by these test adaptations. No live-client validation is implied.
+
+## Historical research and 0.4.17.1 architecture
+
+The remainder records the earlier research, implementation and validation at the versions named. Its eight-module load order, schema 7 description and older test claims describe that baseline; use the current inventory and repair description above for v15.
+
 ## Nature's Grasp exact lookup supplement (0.4.17.1)
 
 On an incomplete target/focus indexed scan, the observer supplements its existing War Stomp exact lookup with the six mapped Nature's Grasp proc-root IDs (19975 through 19970). The API's non-secret-aura result must pass matching spell and instance checks. Positive records merge by aura instance into the existing observation model; nil or unavailable records never make incomplete coverage complete or prove an aura ended. The self-buff cast supplies no victim and is not a DR application. This is a bounded observation change over the 0.4.17 baseline, with no model, UI, anchor or saved-settings migration changes. Live evidence that the fallback is readable during the reported restricted interval is still required.
 
-## Current runtime baseline and persistent settings (2026-10-17)
+## Historical runtime baseline and persistent settings (2026-10-17)
 
 The original 0.4.17 runtime and tests form the baseline for the narrow observation supplement above. SavedVariables are a separate persistence layer: replacing addon files leaves valid saved booleans and numbers intact. The verified recovery restores this version's defaults (`ownCastEstimates=true`, application countdown 20 seconds, stage retention 18 seconds after CC ends); only the first and third values needed changing in the inspected profiles. See [RECOVERY.md](RECOVERY.md) for evidence, instructions and unresolved live limitations. No later tracking or visual changes are included in this baseline.
 

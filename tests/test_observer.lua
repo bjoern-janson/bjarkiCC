@@ -23,7 +23,7 @@ function ns.Safe.String(v) if ns.Safe.Readable(v) and type(v) == "string" then r
 function ns.Safe.Boolean(v) if ns.Safe.Readable(v) and type(v) == "boolean" then return v end end
 function ns.Safe.Call(fn, ...) local ok,v=pcall(fn,...); if ok and ns.Safe.Readable(v) then return v end end
 
-local fixture, observed, forgotten, casts
+local fixture, observed, forgotten, paused, casts
 local function reset()
     fixture = {
         guid = {player = "Player-1-Self", target = "Player-1-A", nameplate1 = "Player-1-A"},
@@ -32,7 +32,7 @@ local function reset()
         hostile = {player = false, target = true, nameplate1 = true},
         auras = {player = {}, target = {}, focus = {}}, loc = {}, auraScans = {},
     }
-    observed, forgotten, casts = {}, {}, {}
+    observed, forgotten, paused, casts = {}, {}, {}, {}
     UnitGUID = function(unit) return fixture.guid[unit] end
     UnitName = function(unit) return fixture.name[unit] end
     UnitIsPlayer = function(unit) return fixture.player[unit] end
@@ -54,8 +54,14 @@ local function reset()
             observed[#observed+1] = {guid=guid,effects=effects,now=now,complete=complete}
         end,
         Forget = function(_,guid) forgotten[#forgotten+1] = guid end,
+        Pause = function(self,guid,now)
+            paused[#paused+1] = guid
+            self:Observe(guid,{},now,false)
+            return true
+        end,
         Cast = function(_,guid,name,id,now,castID,manual,overrides)
             casts[#casts+1] = {guid=guid,name=name,id=id,now=now,castID=castID,manual=manual,overrides=overrides}
+            return true
         end,
     }
     ns.db.interrupts = true
@@ -78,6 +84,9 @@ if bootstrap then
     canaccessvalue = function(v) return not rawequal(v,secret) end
     bootstrap("bjarkiCC",ns)
 end
+-- Ownership reconciliation uses the real Model's pure refresh predicate even
+-- when the observation sink below is a spy without persistent actor storage.
+assert(loadfile(addonDir .. "/Model.lua"))("bjarkiCC",ns)
 local loader = loadfile(addonDir .. "/Observer.lua")
 if loader then loader("bjarkiCC",ns) end
 truth(ns.Observer and type(ns.Observer.Scan)=="function", "Observer must expose the scan boundary")
@@ -120,14 +129,14 @@ test("missing application identity invalidates a known aura", function()
     reset(); fixture.auras.target={{spellId=853,expirationTime=15}}
     ns.Observer.Scan(10); equal(last("Player-1-A").complete,false)
 end)
-test("target identity change forgets previous continuity", function()
+test("target identity change pauses previous continuity without forgetting", function()
     reset(); ns.Observer.Scan(10)
     fixture.guid.target="Player-1-B"; ns.Observer.Scan(11)
-    truth(contains(forgotten,"Player-1-A")); equal(ns.Observer.GetUnitState("target").guid,"Player-1-B")
+    truth(contains(paused,"Player-1-A")); equal(#forgotten,0); equal(ns.Observer.GetUnitState("target").guid,"Player-1-B")
 end)
 test("secret GUID is unavailable and clears old identity", function()
     reset(); ns.Observer.Scan(10); fixture.guid.target=secret
-    ns.Observer.Scan(11); truth(contains(forgotten,"Player-1-A"))
+    ns.Observer.Scan(11); truth(contains(paused,"Player-1-A")); equal(#forgotten,0)
     equal(ns.Observer.GetUnitState("target").guid,nil); equal(ns.Observer.GetUnitState("target").status,"unavailable")
 end)
 test("NPC and pet targets are excluded from DR", function()
@@ -142,7 +151,7 @@ test("player LoC fallback uses stable aura identity and known spell IDs", functi
     reset(); fixture.auras.player={{spellId=secret,auraInstanceID=8}}
     fixture.loc={{spellID=118,locType="CONFUSE",auraInstanceID=72,startTime=8,duration=6,timeRemaining=4}}
     ns.Observer.Scan(10)
-    local row=last("Player-1-Self"); truth(row.complete); equal(effect(row).category,"incapacitate")
+    local row=last("Player-1-Self"); equal(row.complete,false); equal(effect(row).category,"incapacitate")
     equal(effect(row).expires,14); local key=next(row.effects)
     fixture.loc[1].timeRemaining=3; ns.Observer.Scan(11)
     truth(last("Player-1-Self").effects[key]); equal(ns.Observer.GetUnitState("player").sensor,"loc")
@@ -156,7 +165,7 @@ end)
 test("LoC fallback key is stable when no aura instance is provided", function()
     reset(); C_UnitAuras=nil
     fixture.loc={{spellID=853,locType="STUN",startTime=8,duration=6}}
-    ns.Observer.Scan(10); local row=last("Player-1-Self"); truth(row.complete); local key=next(row.effects)
+    ns.Observer.Scan(10); local row=last("Player-1-Self"); equal(row.complete,false); local key=next(row.effects)
     truth(key); ns.Observer.Scan(11); truth(last("Player-1-Self").effects[key])
 end)
 test("secret LoC data is incomplete rather than empty", function()
@@ -168,7 +177,7 @@ test("first successful LoC switch invalidates confidence without forgetting witn
     fixture.auras.player={{spellId=secret,auraInstanceID=8}}
     ns.Observer.Scan(11); equal(#forgotten,0)
     equal(#observed,2); equal(observed[1].complete,false); equal(size(observed[1].effects),0)
-    equal(observed[2].complete,true)
+    equal(observed[2].complete,false,"LoC positives do not complete restricted harmful-aura coverage")
     observed={}; ns.Observer.Scan(12); equal(#observed,1,"stable sensor cannot repeat handoff invalidation")
 end)
 test("LoC observed removal preserves the original application timer", function()
@@ -186,15 +195,15 @@ test("LoC observed removal preserves the original application timer", function()
     local rows=ns.model:GetDR("Player-1-Self",24)
     equal(#rows,1,"removing CC must retain its DR window")
     equal(rows[1].active,false); equal(rows[1].remaining,18); equal(rows[1].started,22); equal(rows[1].stage,1)
-    equal(ns.Observer.GetUnitState("player").sensor,"loc")
+    equal(ns.Observer.GetUnitState("player").sensor,"aura")
     ns.Observer.Scan(25); equal(ns.model:GetDR("Player-1-Self",25)[1].remaining,17)
 end)
-test("selected LoC remains incomplete if its API vanishes despite readable auras", function()
+test("complete player aura coverage can recover after the LoC API vanishes", function()
     reset(); fixture.auras.player={{spellId=secret,auraInstanceID=8}}
     ns.Observer.Scan(10)
     fixture.auras.player={}; C_LossOfControl=nil; ns.Observer.Scan(11)
-    equal(ns.Observer.GetUnitState("player").sensor,"loc")
-    equal(last("Player-1-Self").complete,false)
+    equal(ns.Observer.GetUnitState("player").sensor,"aura")
+    equal(last("Player-1-Self").complete,true)
 end)
 test("observer Init permits a fresh aura sensor selection", function()
     reset(); fixture.auras.player={{spellId=secret,auraInstanceID=8}}
@@ -238,7 +247,7 @@ test("expired or secret optional timing does not force unsafe arithmetic", funct
 end)
 test("hostile cast observations preserve caster and rank ID for model", function()
     reset(); ns.Observer.OnCast("nameplate1","Cast-44",853,10)
-    equal(#casts,1); equal(casts[1].guid,"Player-1-A"); equal(casts[1].name,"Enemy")
+    equal(#casts,1); equal(casts[1].guid,"Player-1-A"); equal(casts[1].name,nil,"caster names are not forwarded")
     equal(casts[1].id,853); equal(casts[1].castID,"Cast-44"); equal(casts[1].manual,false)
     equal(casts[1].overrides[853],55); equal(ns.Observer.stats.acceptedCasts,1)
 end)
@@ -256,9 +265,12 @@ test("secret input cannot be normalized into an accepted cast", function()
     ns.Observer.OnCast(secret,"Cast-1",853,10)
     ns.Observer.OnCast("target",secret,853,10)
     ns.Observer.OnCast("target","Cast-2",secret,10)
-    fixture.name.target=secret; ns.Observer.OnCast("target","Cast-3",853,10)
-    fixture.name.target="Enemy"; fixture.hostile.target=secret; ns.Observer.OnCast("target","Cast-4",853,10)
-    equal(#casts,0)
+    fixture.hostile.target=secret; ns.Observer.OnCast("target","Cast-4",853,10)
+    equal(#casts,0,"required protected identity, cast and hostility never become evidence")
+    fixture.hostile.target=true; fixture.name.target=secret
+    ns.Observer.OnCast("target","Cast-3",853,10)
+    equal(#casts,1,"a readable GUID and hostile cast do not require a name")
+    equal(casts[1].name,nil); equal(ns.Observer.stats.castNameUnavailable,1)
 end)
 test("known reset casts reach model even without a cooldown row", function()
     reset(); ns.Observer.OnCast("target","Cast-1",11958,10); equal(#casts,1); equal(casts[1].id,11958)
@@ -571,26 +583,33 @@ test("an active aura handoff neither removes nor recounts the application", func
     truth(row); equal(row.stage,1); equal(row.active,true); equal(row.uncertain,false)
 end)
 
-test("clearing the last focus identity removes its stale DR history", function()
+test("clearing the last focus pauses bounded history without creating a new application", function()
     reset(); realModel(); fixture.guid.focus="Player-1-B"
     fixture.auras.focus={{spellId=853,auraInstanceID=44}}
     ns.Observer.Scan(10); equal(#ns.model:GetDR("Player-1-B",10),1)
     fixture.guid.focus=nil; fixture.auras.focus={}; ns.Observer.Scan(11)
-    equal(#ns.model:GetDR("Player-1-B",11),0)
+    local retained=ns.model:GetDR("Player-1-B",11)
+    equal(#retained,1); equal(retained[1].started,10); equal(retained[1].stage,1)
+    truth(ns.model.units["Player-1-B"].paused,"loss of the final observer pauses continuity")
     local state=ns.Observer.GetUnitState("focus")
     truth(state); equal(state.guid,nil); equal(state.status,"unavailable")
     fixture.guid.focus="Player-1-B"; ns.Observer.Scan(12)
-    equal(#ns.model:GetDR("Player-1-B",12),0)
+    retained=ns.model:GetDR("Player-1-B",12)
+    equal(#retained,1); equal(retained[1].started,10); equal(retained[1].stage,1)
+    equal(retained[1].active,false,"complete reacquisition ends the absent effect without recounting")
+    fixture.guid.focus=nil; ns.Observer.Scan(13)
+    ns.Observer.Scan(73)
+    equal(ns.model.units["Player-1-B"],nil,"dormant history expires at the bounded retention limit")
 end)
 
-test("shared GUID is forgotten once only after both aliases disappear", function()
+test("shared GUID is paused once only after both aliases disappear", function()
     reset(); fixture.guid.focus="Player-1-A"; ns.Observer.Scan(10)
     local focus=ns.Observer.GetUnitState("focus"); truth(focus); equal(focus.guid,"Player-1-A")
     fixture.guid.focus=nil; ns.Observer.Scan(11)
     equal(contains(forgotten,"Player-1-A"),nil)
     fixture.guid.focus="Player-1-A"; ns.Observer.Scan(12)
     fixture.guid.target=nil; fixture.guid.focus=nil; ns.Observer.Scan(13)
-    equal(#forgotten,1); equal(forgotten[1],"Player-1-A")
+    equal(#paused,1); equal(paused[1],"Player-1-A"); equal(#forgotten,0)
 end)
 
 test("self focus shares player LoC and clearing it preserves player history", function()
@@ -628,18 +647,18 @@ test("self focus sensor handoffs preserve observed stage and application clock",
     equal(ns.Observer.GetUnitState("focus").sensor,"loc")
 end)
 
-test("restricted or nonplayer focus identity cannot retain old history", function()
+test("unavailable or contradictory focus identity pauses old history", function()
     local invalid={
         {guid=secret,player=true}, {guid="invalid",player=true},
         {guid="Pet-1-B",player=false}, {guid="Creature-1-B",player=false},
-        {guid="Player-1-B",player=secret}, {guid="Player-1-B",player=false},
+        {guid="Player-1-B",player=false},
     }
     for _,case in ipairs(invalid) do
         reset(); fixture.guid.focus="Player-1-B"; ns.Observer.Scan(10)
         truth(last("Player-1-B"),"readable focus must first establish identity")
         fixture.guid.focus=case.guid; fixture.player.focus=case.player
         ns.Observer.Scan(11)
-        truth(contains(forgotten,"Player-1-B"))
+        truth(contains(paused,"Player-1-B")); equal(#forgotten,0)
         equal(ns.Observer.GetUnitState("focus").guid,nil)
         equal(ns.Observer.GetUnitState("focus").status,"unavailable")
     end
@@ -648,10 +667,20 @@ end)
 test("restricted focus alias cannot erase a readable target", function()
     reset(); fixture.guid.focus="Player-1-A"; ns.Observer.Scan(10)
     truth(ns.Observer.GetUnitState("focus"))
-    fixture.player.focus=secret; ns.Observer.Scan(11)
+    fixture.guid.focus=secret; ns.Observer.Scan(11)
     equal(ns.Observer.GetUnitState("focus").guid,nil)
     equal(ns.Observer.GetUnitState("target").guid,"Player-1-A")
     equal(contains(forgotten,"Player-1-A"),nil)
+end)
+
+test("a readable player GUID remains eligible when the redundant player flag is hidden", function()
+    reset(); fixture.guid.focus="Player-1-B"; fixture.player.focus=secret
+    ns.Observer.Scan(10)
+    equal(ns.Observer.GetUnitState("focus").guid,"Player-1-B")
+    truth(last("Player-1-B"),"positive readable GUID type supplies player identity")
+    fixture.player.focus=false; ns.Observer.Scan(11)
+    equal(ns.Observer.GetUnitState("focus").guid,nil,"a readable contradictory flag vetoes identity")
+    truth(contains(paused,"Player-1-B")); equal(#forgotten,0)
 end)
 
 test("scan gaps invalidate focus histories before fresh snapshots", function()
@@ -1097,7 +1126,7 @@ test("a current aura handoff cannot reuse a prior LoC reported duration", functi
     equal(effect(last("Player-1-A")).reportedDuration,nil)
 end)
 
-test("exact player aura to LoC handoff preserves full duration learning and later reset correction", function()
+test("restricted player aura to LoC handoff preserves occurrences but cannot learn a reset", function()
     for _,lateStart in ipairs({false,true}) do
         reset(); realModel(); fixture.guid.target="Player-1-Self"; fixture.guid.focus="Player-1-Self"
         for now=0,20 do ns.Observer.Scan(now) end
@@ -1113,10 +1142,11 @@ test("exact player aura to LoC handoff preserves full duration learning and late
             ns.Observer.Scan(21.3)
         end
         local tracked=ns.model.units["Player-1-Self"]
-        truth(tracked.durationBaselines[2637],"same complete identity must retain pre-CC quiet evidence")
-        equal(tracked.durationBaselines[2637].duration,20)
-        equal(ns.Observer.stats.handoffsPreserved,1)
-        equal(ns.Observer.stats.handoffsInvalidated,0)
+        equal(tracked.durationBaselines[2637],nil,"matching identity cannot complete restricted aura coverage")
+        equal(ns.model:GetDR("Player-1-Self",lateStart and 21.3 or 21)[1].stage,1,
+            "same occurrence is not recounted when the source changes")
+        equal(ns.Observer.stats.handoffsPreserved,0)
+        equal(ns.Observer.stats.handoffsInvalidated,1)
         fixture.loc={}; ns.Observer.Scan(22)
         fixture.loc={{spellID=2637,auraInstanceID=701,startTime=23,duration=10}}
         ns.Observer.Scan(23); equal(ns.model:GetDR("Player-1-Self",23)[1].stage,2)
@@ -1129,13 +1159,14 @@ test("exact player aura to LoC handoff preserves full duration learning and late
         ns.Observer.Scan(41.25)
         for _,unit in ipairs({"player","target","focus"}) do
             local row=ns.model:GetDR(ns.Observer.GetUnitState(unit).guid,41.25)[1]
-            equal(row.stage,1,"matching full duration corrects retained immunity")
-            equal(row.started,41.25); equal(row.resetEvidence,"matching-full-duration")
+            equal(row.stage,3,"partial coverage cannot supply a learned full-duration reset")
+            equal(row.started,41.25); equal(row.resetEvidence,nil)
         end
         fixture.loc={}; ns.Observer.Scan(42)
         fixture.loc={{spellID=2637,auraInstanceID=704,startTime=43,duration=10}}
         ns.Observer.Scan(43)
-        equal(ns.model:GetDR("Player-1-Self",43)[1].stage,2,"next half-duration application advances from corrected stage")
+        equal(ns.model:GetDR("Player-1-Self",43)[1].stage,3,
+            "later applications preserve bounded stage history without fabricated reset evidence")
     end
 end)
 
@@ -1206,12 +1237,13 @@ test("restricted prior aura coverage cannot become a readable player handoff pro
     equal(ns.Observer.stats.handoffsPreserved,0); equal(ns.Observer.stats.handoffsInvalidated,1)
 end)
 
-test("reverse LoC to aura handoffs still invalidate learned duration evidence", function()
+test("reverse partial LoC to complete aura handoff restores coverage without inventing duration evidence", function()
     reset(); realModel(); fixture.guid.target=nil; C_UnitAuras=nil
     for now=0,21 do ns.Observer.Scan(now) end
     fixture.loc={{spellID=2637,auraInstanceID=700,startTime=22,duration=20}}
     ns.Observer.Scan(22)
-    truth(ns.model.units["Player-1-Self"].durationBaselines[2637])
+    equal(ns.model.units["Player-1-Self"].durationBaselines[2637],nil,
+        "LoC-only coverage cannot teach a full-duration baseline")
     local before=ns.model.units["Player-1-Self"].durationEpoch
     fixture.guid.player=nil; fixture.guid.target="Player-1-Self"
     C_UnitAuras={GetAuraDataByIndex=function(unit,index)
@@ -1222,6 +1254,9 @@ test("reverse LoC to aura handoffs still invalidate learned duration evidence", 
     ns.Observer.Scan(22.1)
     local tracked=ns.model.units["Player-1-Self"]
     truth(tracked.durationEpoch>before); equal(tracked.durationBaselines[2637],nil)
+    local row=ns.model:GetDR("Player-1-Self",22.1)[1]
+    equal(row.stage,1); equal(row.started,22)
+    equal(ns.Observer.GetUnitState("target").auraComplete,true)
     equal(ns.Observer.stats.handoffsPreserved,0)
     equal(ns.Observer.stats.handoffsInvalidated,1,"reverse switch still invalidates")
 end)
@@ -1404,7 +1439,7 @@ test("non-secret exact War Stomp aura confirms a hit when enumeration is blocked
     equal(ns.Observer.GetUnitState("target").auraComplete,false,"one hit cannot prove full aura coverage")
     equal(ns.Observer.GetUnitState("target").byUnitCount,0)
     ns.Observer.Scan(10.2); equal(ns.model:GetDR("Player-1-A",10.2)[1].stage,2)
-    equal(calls,14,"shared target/focus identity queries seven reviewed effects once per scan")
+    equal(calls,16,"shared target/focus identity queries eight reviewed effects once per scan")
     fixture.locByUnit.target={{spellID=20549,auraInstanceID=900,startTime=10,duration=2}}
     ns.Observer.Scan(10.3)
     equal(ns.model:GetDR("Player-1-A",10.3)[1].stage,2,"matching LoC cannot count the exact aura twice")
@@ -1470,13 +1505,13 @@ test("exact Grasp observes the root immediately and later indexed discovery dedu
     equal(state.graspLookup,"confirmed"); equal(state.stompLookup,"none")
     equal(state.status,"restricted"); equal(state.auraComplete,false)
     equal(state.sensor,"aura+exact"); equal(state.byUnitAvailable,false)
-    equal(calls,7,"shared target/focus GUID is queried once")
-    ns.Observer.Scan(10.2); equal(calls,14)
+    equal(calls,8,"shared target/focus GUID is queried once")
+    ns.Observer.Scan(10.2); equal(calls,16)
     fixture.auraError=false; fixture.auras.target={current}
     ns.Observer.Scan(10.4)
     row=ns.model:GetDR("Player-1-A",10.4)[1]
     equal(row.observedStage,1); equal(row.started,10)
-    equal(calls,14,"complete enumeration skips every exact query")
+    equal(calls,16,"complete enumeration skips every exact query")
     equal(size(ns.Observer.GetUnitState("target").witnesses),1)
     ns.Data=fixtureData
 end)
@@ -1583,9 +1618,9 @@ test("exact lookups remain bounded per distinct readable target and focus identi
         calls[unit]=(calls[unit] or 0)+1
     end
     ns.Observer.Scan(10)
-    equal(calls.target,7); equal(calls.focus,7); equal(calls.player,nil)
+    equal(calls.target,8); equal(calls.focus,8); equal(calls.player,nil)
     fixture.guid.focus=secret; calls={}; ns.Observer.Scan(10.2)
-    equal(calls.target,7); equal(calls.focus,nil)
+    equal(calls.target,8); equal(calls.focus,nil)
 end)
 
 local failures={}

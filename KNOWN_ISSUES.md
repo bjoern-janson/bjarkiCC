@@ -1,5 +1,30 @@
 # bjarkiCC known issues and validation status
 
+## v15 repository synchronization (2026-10-22)
+
+The runtime is **0.4.17.31-foundation-v15-fixes-test**, matching the verified v15 suite. Fresh verification of the three synchronized addons confirms **36/36 runtime/package files** match the release, **42/42 cross-addon scripts** pass under Lua 5.4, and **28/28 runtime syntax checks** pass under both Lua 5.1 and Lua 5.4. This repository contributes 18 runtime/package files, including 15 TOC-loaded Lua modules. The v15 repairs address continuous-owner identity, discarded-history proof resolution and same-start explicit LoC expiry correction. These results do not certify native-client behavior or resolve every historical live report below.
+
+With Python 3 and the unchanged `lupa==2.8` dependency, `python tests/run_tests.py` now passes **all nine repository suites under Lua 5.1**. Independent review and separate reruns confirm 134 model cases, 108 observer cases and 15 own-cast cases passing. The three suites for anchors, own casts and UI remain unchanged. The other six were adapted to current contracts; no suite was deleted or disabled.
+
+### Resolved test compatibility failures
+
+All nine original suites passed on the previous `0.4.17.1-beta` source. The first v15 run exposed the following six compatibility failures, which were resolved without changing the v15 runtime:
+
+| Suite | Initial failure against v15 | Focused adaptation |
+| --- | --- | --- |
+| test_backdrops.lua | `UI.lua:230`: missing texture `SetAlpha` | Supply the stage-pip texture method while retaining the protected-geometry regression. |
+| test_bootstrap.lua | Line 40: `fresh bars omit optional text` | Check removed caster-name settings stay absent, schema 8 migrates correctly, and the experimental cooldown HUD defaults off. |
+| test_diagnostics.lua | `Main.lua:77`: `CooldownEvidence` is nil | Load current dependencies and check the explicit unconfirmed-AoE status contract. |
+| test_integration.lua | `Main.lua:77`: `CooldownEvidence` is nil | Load the actual TOC order and check current controls, displays, retained observations and evidence requirements. |
+| test_model.lua | Cooldown row name: expected `Alice`, got nil | Require absent caster-name output while preserving GUID identity and all 134 model cases. |
+| test_observer.lua | `Observer.lua:731`: `ns.Model` is nil | Load the actual Model for `Model.IsRefresh`; model Pause/cast acceptance and assert retained history, identity and coverage rules. |
+
+Subsequent assertions were reviewed against the runtime. Token loss pauses retained history instead of forgetting it, so cast cancellation must preserve an existing observed stun. A readable positive player GUID remains usable when a redundant player flag is hidden, while a false flag still vetoes it. Removed names cannot reappear through saved options, and the final-five-second DR display uses decimals below three seconds. The observer now has one additional GUID-identity control; the supplied historical trace inputs and timestamps remain unchanged.
+
+Restricted aura coverage with positive LoC records does not establish complete observation. The historical partial-source traces therefore assert that unsupported full-duration learning and reset correction stay absent. Two added positive controls preserve correction coverage through real `UNIT_AURA` dispatch and complete matching focus-aura coverage of the target GUID. They assert complete alias coverage, authoritative focus ownership, continuous sampling, both quiet-observation and halving-chain baseline provenance, and correction results in Model, both alias displays, tooltip and status, with no cast prediction supplying evidence. See [architecture.md](architecture.md) for the current module inventory and evidence flow.
+
+The remaining sections are historical issue records. Their references to current recovery, confirmed-hit-only War Stomp policy, old display settings and passing nine-suite results apply to the versions named. Current optional AoE predictions remain explicitly unconfirmed, while the native stun visual and GCD flashes have no DR authority.
+
 ## Nature's Grasp arrives late on the caster (0.4.17)
 
 **Reported:** Nature's Grasp does not trigger caster-side root DR promptly.
@@ -10,7 +35,7 @@
 
 **Validation ceiling:** Offline tests cover early readable confirmation, all ranks, deduplication and rejected evidence. Live retesting remains pending; this patch cannot make restricted root data readable.
 
-## Current recovery status (2026-10-17)
+## Historical recovery status (2026-10-17)
 
 The user returned to 0.4.17 after reporting later builds unusable. Installed Lua and TOC files matched the original release, but two saved profiles retained disabled caster estimates and the later stage-reset value. Replaying the original initializer reproduced this mismatch. Backed-up repairs restored `ownCastEstimates=true` and `stageResetSeconds=18`, preserving every other setting; both writes were read back and hash-verified.
 

@@ -1,12 +1,57 @@
 # bjarkiCC for WoW Forever beta
 
+## Current release: 0.4.17.31-foundation-v15-fixes-test
+
+The runtime and both TOCs match the verified **v15 foundation suite** release, targeting interface **16001**. This brings `main` forward from `0.4.17.1-beta`; it includes the intervening foundation work as well as the three v15 repairs. The older experiment branches remain historical checkpoints.
+
+The v15 repairs preserve a continuously qualified nameplate owner's CC identity across target/focus handoffs, resolve discarded-history ambiguity only when sufficient current evidence distinguishes a new occurrence, and accept coherent same-start Loss of Control expiry corrections without counting another application. Retention remains bounded, and retained identity alone does not create a new positive observation.
+
+The current foundation also includes bounded cooldown claims and readable evidence sharing with bjarkiPortraits, qualified nameplate observation, optional War Stomp/Iron Grenade/Goblin Mortar cast estimates, the optional native stun visual, and display-only GCD flashes. A successful cast or a native visual does not confirm a landed hit. AoE estimates retain clean icons with their uncertainty explained in tooltips and status.
+
+### Current display and settings
+
+- Player, target and focus retain the fixed 2 x 2 DR grids. Colored borders and stage pips show the retained stage; optional percentage text remains available. DR numbers appear at five seconds and use decimals below three seconds. The former caster-name display option has been removed.
+- The application countdown defaults to 20 seconds. The separate stage-retention estimate defaults to 18 seconds after CC ends; neither is a new claim about the server's exact rules.
+- The enemy cooldown HUD is experimental and defaults off. Schema 8 moves only its untouched legacy placement; configured DR positions and clock preferences remain saved.
+- Direct-cast and AoE predictions are separate from observed applications. AoE estimates are enabled by default and also require the master own-cast setting. The native stun visual defaults off. GCD flashes are display-only and supply no DR or cooldown authority.
+
+### Current installation and controls
+
+Install the complete `bjarkiCC` folder under `Interface/AddOns/`, with `bjarkiCC.toc` directly inside it, and enable **bjarkiCC**. Both TOCs load all 15 runtime modules; copying only the eight files from the older baseline is incomplete. No other addon is required. The matching bjarkiPortraits release can supply optional readable evidence through the shared bridge.
+
+| Command | Action |
+| --- | --- |
+| `/bcc` | Open settings |
+| `/bcc test` | Toggle synthetic preview icons |
+| `/bcc unlock` / `/bcc lock` | Move the bars outside combat, or lock them |
+| `/bcc reset` | Restore bar positions |
+| `/bcc clear` | Clear tracking history |
+| `/bcc status` | Show build, evidence and API diagnostics |
+| `/bcc aoe on\|off\|status` | Control unconfirmed War Stomp/Grenade/Mortar estimates |
+| `/bcc cooldowns on\|off\|status` | Control the experimental enemy cooldown HUD |
+| `/bcc why [spellID]` | Explain retained cooldown claims |
+| `/bcc gcd on\|off\|preview\|status` | Control display-only GCD flashes |
+| `/bcc aura on\|off\|status` | Control the independent native stun visual |
+
+### Verification status
+
+Fresh verification of the three synchronized addons confirms **36/36 runtime/package files** match the verified v15 release, **42/42 cross-addon regression scripts** pass under Lua 5.4, and **28/28 runtime syntax checks** pass under both Lua 5.1 and Lua 5.4. The CC portion contains 18 runtime/package files, including all 15 TOC-loaded Lua modules.
+
+The repository's existing runner also passes **9/9 suites under Lua 5.1** using Python 3 and the unchanged `lupa==2.8` dependency. Six suites received focused fixture and assertion updates for the current module order, removed caster names, retained actor history and complete-evidence requirements. The model retains 134 passing cases; the observer has 108, including an added GUID-identity control. Independent review and two separate reruns confirm the result without changing runtime bytes. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the compatibility changes and [architecture.md](architecture.md) for the current module order.
+
+These checks use modeled WoW APIs. They do not establish live API availability, protected execution, rendered appearance or server DR rules.
+
+## Historical 0.4.17.1 baseline notes and guide
+
+The sections below preserve the earlier release notes, usage guide and validation history. Statements about defaults, available options, module inventories and tests apply to those older versions; the current release summary above takes precedence. [RECOVERY.md](RECOVERY.md) records the old rollback procedure, not a required v15 upgrade step.
+
 ## 0.4.17.1: Nature's Grasp confirmation fallback
 
 This narrow patch keeps the 0.4.17 artwork, layout, timers and saved-setting policy. When target/focus indexed aura scanning is restricted, it also checks the six known Nature's Grasp root-effect IDs through the same guarded exact-spell API used for War Stomp. Only a readable matching spell and aura instance can add a root application; activating the self-buff never assigns a victim.
 
 The supplied caster report first saw root 19975 at 2672672.095, despite its application time being 2672665.719: 6.376 seconds late. The mapping worked, but indexed access was blocked initially. The fallback can recover an individually readable root when enumeration fails; it cannot read a root whose own data is restricted. Live availability of this alternate source is unverified. `/bcc status` records its outcome as `graspLookup`.
 
-## Current baseline: 0.4.17 rollback
+## Historical baseline: 0.4.17 rollback
 
 The original 0.4.17-beta is the baseline for the narrow observation patch above. Newer SavedVariables can survive reinstalling it and change its behavior. See [RECOVERY.md](RECOVERY.md) for the verified two-setting recovery and remaining limitations. This rollback does not establish reliable live DR tracking; direct-cast false positives, caster-side War Stomp and enemy cooldown coverage remain unresolved.
 

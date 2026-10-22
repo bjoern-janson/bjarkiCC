@@ -1,15 +1,22 @@
 ## Interface: 16001
-## Title: bjarkiCC |cffffd36a(Forever)|r
+## Title: bjarkiCC
 ## Notes: Player/target/focus DR estimates and observed enemy CC cooldowns. /bcc
 ## Author: bjarki
-## Version: 0.4.17.1-beta
+## Version: 0.4.17.31-foundation-v15-fixes-test
 ## SavedVariables: bjarkiCCDB
 
 Bootstrap.lua
+SharedEvidence.lua
 Data.lua
+Claims.lua
 Model.lua
 Observer.lua
+CooldownEvidence.lua
 OwnCasts.lua
 Anchors.lua
 UI.lua
+NativeStuns.lua
+GCDCore.lua
+GCDFlash.lua
+GCDPlates.lua
 Main.lua
