@@ -1,6 +1,16 @@
 # bjarkiCC known issues and validation status
 
-## v15 repository synchronization (2026-10-22)
+## v16 timing repairs (2026-10-22)
+
+Current runtime: **0.4.17.32-foundation-v16-fixes-test**. The external v15 audit's three confirmed timing bugs are repaired and covered by reproducible tests: T1 mixed-source expiry promotion (a v15 regression), T2 predecessor expiry retained across refresh (inherited), and T3 equal-start LoC alias endpoint loss (inherited). Both inherited failures also reproduce on v14.
+
+The fix keeps `expires`, `expirySource` and `expiryAppliedAt` together. A tagged missing donor start remains unbound. A genuine refresh never inherits a predecessor end; later stale samples cannot fill its unknown end. Current same-occurrence aliases can supply a missing readable bound without transferring an older ordinary-player observation's removal authority. Historical candidate endpoints are not presented as new observations.
+
+Verification: 49/49 full-suite scripts on Lua 5.1 and 5.4, including seven new timing groups (1,239 assertions per engine); 28/28 Lua syntax checks on both engines; original 42 v15 scripts unchanged. The repository's nine existing suites are unchanged and pass alongside the new timing suite (10/10 under Lua 5.1). The original audit assertions, review controls, capacity checks and historical checks are retained in the separate verification archive.
+
+These repairs do not close the historical client-observed issues below. Native event ordering, secret-value enforcement, taint, rendering and live frame-time behavior still require in-game validation.
+
+## Historical v15 repository synchronization (2026-10-22)
 
 The runtime is **0.4.17.31-foundation-v15-fixes-test**, matching the verified v15 suite. Fresh verification of the three synchronized addons confirms **36/36 runtime/package files** match the release, **42/42 cross-addon scripts** pass under Lua 5.4, and **28/28 runtime syntax checks** pass under both Lua 5.1 and Lua 5.4. This repository contributes 18 runtime/package files, including 15 TOC-loaded Lua modules. The v15 repairs address continuous-owner identity, discarded-history proof resolution and same-start explicit LoC expiry correction. These results do not certify native-client behavior or resolve every historical live report below.
 

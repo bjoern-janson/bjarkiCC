@@ -163,6 +163,7 @@ local function auraSnapshot(unit, now)
                     end
                     effects["a:" .. tostring(instanceID)] = {
                         category = category, spellID = spellID, expires = expires,
+                        expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
                         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
                     }
                 end
@@ -210,6 +211,7 @@ local function exactAura(unit, wantedSpellID, now)
     end
     return {["a:" .. tostring(instanceID)] = {
         category = category, spellID = spellID, expires = expires,
+        expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
     }}, "confirmed"
 end
@@ -273,6 +275,7 @@ local function addedAoEEvent(unit, updateInfo, now)
                         local key = "a:" .. tostring(instance)
                         results[key] = {category = "stun", spellID = id,
                             expires = expires, appliedAt = appliedAt,
+                            expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
                             applicationSource = appliedAt and "aura" or nil}
                         accepted = accepted + 1
                     end
@@ -361,6 +364,7 @@ local function lossOfControlSnapshot(now, unit)
                             if remaining and remaining > 0 then expires = now + remaining end
                         end
                         effects[key] = {category = category, spellID = spellID, expires = expires,
+                            expirySource = expires and "loc" or nil, expiryAppliedAt = expires and start or nil,
                             appliedAt = start, applicationSource = start and "loc" or nil,
                             reportedDuration = reportedDuration,
                             fallbackIdentity = not instanceID}
@@ -374,6 +378,21 @@ local function lossOfControlSnapshot(now, unit)
     return effects, complete, boundedIDs(unmapped), count
 end
 
+-- The endpoint keeps its own sensor and original start even if another
+-- observation calibrates the application's clock. Nil start means unbound;
+-- copying an explicit LoC start must not lend that authority to this end.
+local function copyExpiry(destination, source)
+    destination.expires = source.expires
+    destination.expirySource = source.expirySource
+    destination.expiryAppliedAt = source.expiryAppliedAt
+end
+
+local function boundLoCExpiry(effect, start)
+    return effect.expirySource == "loc" and effect.expiryAppliedAt and start
+        and math.abs(effect.expiryAppliedAt - start) <= APPLICATION_EPSILON
+        and effect.expires and effect.expires > start and effect.expires < math.huge
+end
+
 local function mergeEffects(effects, additional)
     for key, effect in pairs(additional) do
         -- An exact native key can have a newer explicit occurrence in either
@@ -384,13 +403,16 @@ local function mergeEffects(effects, additional)
             and effect.applicationSource == "loc" and effect.appliedAt
             and effect.appliedAt < existing.appliedAt - APPLICATION_EPSILON
         if not stale then
-            if existing and ns.Model.IsRefresh(existing, effect, effect.appliedAt) then
+            local refreshed = existing and ns.Model.IsRefresh(existing, effect, effect.appliedAt)
+            if refreshed then
                 existing.playerLoC = effect.playerLoC
             elseif existing and effect.playerLoC then existing.playerLoC = true end
             if not existing then effects[key] = effect
             elseif effect.applicationSource == "loc" and effect.appliedAt then
                 existing.appliedAt, existing.applicationSource = effect.appliedAt, effect.applicationSource
-                existing.expires = effect.expires or existing.expires
+                -- Missing timing can retain a same-occurrence end, but a
+                -- positive refresh cannot inherit its predecessor's endpoint.
+                if effect.expires or refreshed then copyExpiry(existing, effect) end
                 existing.reportedDuration = effect.reportedDuration
             end
         end
@@ -450,8 +472,26 @@ local function reconcileWitnesses(effects, previous)
         local sameOccurrence = existing and existing.appliedAt and effect.appliedAt
             and math.abs(existing.appliedAt - effect.appliedAt) <= APPLICATION_EPSILON
         local playerLoC = sameOccurrence and (existing.playerLoC or effect.playerLoC)
-        if not existing or (effect.applicationSource == "loc" and effect.appliedAt
+        if sameOccurrence and existing.applicationSource == "loc" and effect.applicationSource == "loc" then
+            -- Native identity wins an ambiguous match, not missing optional
+            -- timing. Both readings must describe this explicit occurrence.
+            -- Current conflicting LoC endpoints keep the native-first choice.
+            local incomingEnd = boundLoCExpiry(effect, existing.appliedAt)
+            local existingEnd = boundLoCExpiry(existing, existing.appliedAt)
+            if incomingEnd and not existingEnd then copyExpiry(existing, effect) end
+            if incomingEnd and not existing.reportedDuration
+                and effect.reportedDuration and existing.expires == effect.expires then
+                existing.reportedDuration = effect.reportedDuration
+            end
+        elseif not existing or (effect.applicationSource == "loc" and effect.appliedAt
             and (existing.applicationSource ~= "loc" or not existing.appliedAt or effect.appliedAt > existing.appliedAt)) then
+            -- A current native/aura reading can supply an optional end while
+            -- the fallback supplies its first explicit clock. Keep that end's
+            -- provenance; a genuine explicit refresh cannot borrow it.
+            if existing and not effect.expires
+                and not ns.Model.IsRefresh(existing, effect, effect.appliedAt) then
+                copyExpiry(effect, existing)
+            end
             result[key] = effect
         end
         if playerLoC then result[key].playerLoC = true end
@@ -553,6 +593,10 @@ local function reconcileWitnesses(effects, previous)
                     -- Identity may survive a sensor handoff, but raw duration is
                     -- evidence only from this observation's accepted LoC start.
                     witness.reportedDuration = nil
+                    -- Do not present a historical candidate's endpoint as a
+                    -- current sensor reading. Model retains its accepted end
+                    -- only if this still represents the same occurrence.
+                    copyExpiry(witness, effect)
                     if effect.applicationSource == "loc" and effect.appliedAt then
                         -- Identity ambiguity does not erase a readable start.
                         -- Keep the canonical key/fallback policy so repeated
@@ -564,7 +608,6 @@ local function reconcileWitnesses(effects, previous)
                         -- slide the tolerance forward on every poll.
                         timed.appliedAt = sameFallbackTime(witness, effect) and witness.appliedAt or effect.appliedAt
                         timed.applicationSource = "loc"
-                        timed.expires = effect.expires or witness.expires
                         timed.reportedDuration = effect.reportedDuration
                         witness = timed
                     end

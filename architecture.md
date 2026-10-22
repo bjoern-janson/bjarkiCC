@@ -1,8 +1,8 @@
 # bjarkiCC architecture and DR research
 
-## Current v15 foundation runtime
+## Current v16 foundation runtime
 
-Version **0.4.17.31-foundation-v15-fixes-test** synchronizes the verified v15 suite into this repository. Both TOCs use the following order; every listed module is required in a runtime package.
+Version **0.4.17.32-foundation-v16-fixes-test** synchronizes the verified v16 suite into this repository. Both TOCs use the following order; every listed module is required in a runtime package.
 
 | Order | Module | Responsibility |
 | --- | --- | --- |
@@ -22,7 +22,17 @@ Version **0.4.17.31-foundation-v15-fixes-test** synchronizes the verified v15 su
 | 14 | GCDPlates.lua | GCD display placement and lifecycle on nameplates |
 | 15 | Main.lua | Initialization, events, commands, diagnostics and scan/render scheduling |
 
-### v15 identity and timing repairs
+### v16 endpoint authority and occurrence boundaries
+
+Application identity, its accepted start, and endpoint evidence are separate. Each normalized readable endpoint has `expires`, `expirySource` (`loc` or `aura`), and `expiryAppliedAt` (its donor's original validated start). These scalar fields are copied and cleared together. A tagged nil donor start remains unbound even after another source supplies an application start. Legacy direct Model records without tags are interpreted as homogeneous sensor records; an unresolved source is retained as explicit `unknown` so later calibration cannot upgrade it retrospectively. The existing `endSource` still describes removal provenance and has a different role.
+
+A same-start correction requires a LoC endpoint with its own start matching the accepted occurrence. Raw `reportedDuration` remains separate; a valid `timeRemaining` endpoint does not invent a full-duration witness. Model rejects a mismatched or unbound donor on a genuine explicit refresh, and rejects an older donor even when the current accepted end is unknown. Missing-end retention applies only within the same occurrence.
+
+Observer clears historical endpoint donation when canonicalizing a current reading. It combines bound current same-occurrence LoC timing after native/fallback identity reconciliation. Conflicting readable current LoC endpoints retain native-first precedence; optional raw duration is combined only when the selected endpoint agrees. First-clock calibration may retain a useful endpoint from the current selected reading, with its original source/start. Model's accepted refresh history still decides whether that endpoint belongs to the current occurrence. Same-occurrence `playerLoC` sharing and existing ownership/capacity limits are preserved.
+
+These repairs address the three externally reproduced v15 audit failures. The full suite runs 49 scripts on both Lua 5.1 and Lua 5.4; the seven new groups execute 1,239 assertions per engine. The repository adds one portable entry point for those groups and leaves its nine existing suites unchanged. Runtime changes are limited to Model and Observer plus release-version metadata.
+
+### Historical v15 identity and timing repairs
 
 Continuous genuine nameplate ownership can retain the canonical witness independently of a borrowing target/focus view's freshness. Only the caller's permitted matching view participates in reconciliation, and only current effects reach `Model:Observe`. Removing or rebinding the owning token revokes its proof. Retained and matching witnesses share the existing 512-witness bound; registration remains limited to 40 plates and the Model to 128 actors.
 

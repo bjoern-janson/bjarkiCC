@@ -2,7 +2,7 @@
 ## Title: bjarkiCC
 ## Notes: Player/target/focus DR estimates and observed enemy CC cooldowns. /bcc
 ## Author: bjarki
-## Version: 0.4.17.31-foundation-v15-fixes-test
+## Version: 0.4.17.32-foundation-v16-fixes-test
 ## SavedVariables: bjarkiCCDB
 
 Bootstrap.lua

@@ -214,6 +214,17 @@ end
 -- Observer ownership uses exactly the same accepted refresh boundary.
 Model.IsRefresh = refreshedApplication
 
+local function expiryEvidence(effect)
+    if not effect.expires then return nil end
+    -- Direct Model callers historically supplied a homogeneous sensor record.
+    -- Tagged Observer records keep the endpoint donor's own start; nil there
+    -- is genuinely unbound, never permission to borrow the merged LoC start.
+    if effect.expirySource ~= nil then
+        return effect.expires, effect.expirySource, effect.expiryAppliedAt
+    end
+    return effect.expires, effect.applicationSource or "unknown", effect.appliedAt
+end
+
 local function durationContext(unit, state, effects, key, category)
     local overlap = false
     for otherKey, other in pairs(effects or {}) do
@@ -783,15 +794,31 @@ function Model:Observe(guid, effects, now, complete, removedKeys)
                     and math.abs(effect.expires - previous.expires) > APPLICATION_EPSILON)) then
             state.uncertain = true
         end
-        -- A same-start explicit LoC correction supports a new end without a
-        -- new occurrence. Keep start authority separate: weaker aura timing,
-        -- stale explicit starts and missing ends retain the accepted bound.
+        local incomingExpires, expirySource, expiryAppliedAt = expiryEvidence(effect)
+        if refreshed and effect.applicationSource == "loc" and incomingExpires
+            and (not expiryAppliedAt or math.abs(expiryAppliedAt - preciseStart) > APPLICATION_EPSILON) then
+            -- An aura/native merge can be a first-clock calibration locally
+            -- while Model already knows it is a new explicit occurrence.
+            incomingExpires, expirySource, expiryAppliedAt = nil, nil, nil
+        elseif retainTiming and previous.applicationSource == "loc" and expiryAppliedAt
+            and acceptedStart and expiryAppliedAt < acceptedStart - APPLICATION_EPSILON then
+            -- A delayed predecessor end cannot fill this occurrence's unknown
+            -- end on a later scan either.
+            incomingExpires, expirySource, expiryAppliedAt = nil, nil, nil
+        end
+        -- A correction needs its own same-start LoC endpoint. Start authority
+        -- alone cannot promote a merged aura end or an unbound remaining time.
         local correctedLoCExpiry = same and not refreshed and previous.applicationSource == "loc"
             and effect.applicationSource == "loc" and acceptedStart and preciseStart
             and math.abs(preciseStart - acceptedStart) <= APPLICATION_EPSILON
-            and type(effect.expires) == "number" and effect.expires < math.huge and effect.expires > preciseStart
-        local expires = correctedLoCExpiry and effect.expires
-            or retainTiming and previous.expires or effect.expires or (same and previous.expires or nil)
+            and expirySource == "loc" and expiryAppliedAt
+            and math.abs(expiryAppliedAt - acceptedStart) <= APPLICATION_EPSILON
+            and type(incomingExpires) == "number" and incomingExpires < math.huge and incomingExpires > preciseStart
+        local expires = incomingExpires
+        if not correctedLoCExpiry and ((retainTiming and previous.expires)
+            or (not incomingExpires and same and not refreshed)) then
+            expires, expirySource, expiryAppliedAt = expiryEvidence(previous)
+        end
         local endedAt = same and not refreshed and previous.endedAt or nil
         if endedAt and expires and expires > now then
             -- A still-live identical witness can repair a transient empty
@@ -801,6 +828,7 @@ function Model:Observe(guid, effects, now, complete, removedKeys)
         end
         nextEffects[key] = {category = category, spellID = effect.spellID,
             expires = expires, endedAt = endedAt,
+            expirySource = expirySource, expiryAppliedAt = expiryAppliedAt,
             endSource = endedAt and previous.endSource or nil,
             appliedAt = retainTiming and previous.appliedAt or preciseStart or (same and previous.appliedAt or nil),
             applicationSource = retainTiming and previous.applicationSource

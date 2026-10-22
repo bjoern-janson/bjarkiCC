@@ -1,6 +1,24 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.31-foundation-v15-fixes-test
+## Current release: 0.4.17.32-foundation-v16-fixes-test
+
+The runtime and both TOCs match the **v16 foundation suite** (2026-10-22), targeting interface **16001**. This release repairs three independently reproduced timing defects in bjarkiCC. The behavior changes are confined to `Model.lua` and `Observer.lua`; the module inventory, saved settings, scan schedule, spell rules and display policy retain their v15 behavior.
+
+- **T1, introduced in v15:** a merged aura end could acquire the authority of an explicit Loss of Control start. Endpoints now keep their own sensor and original start, so a missing LoC end cannot make weaker timing replace an accepted LoC bound.
+- **T2, inherited from v14:** a genuine refresh could reuse its predecessor's expiry. A new occurrence with no readable end now remains active with its reset pending, including same-scan merges and later stale predecessor readings.
+- **T3, inherited from v14:** native and start-only LoC aliases could discard a readable same-occurrence endpoint. Current matching observations now combine optional timing while preserving one application, canonical identity and the existing removal-authority rules.
+
+Same-start LoC corrections can still shorten or extend an end. Remaining-time evidence with its own readable start remains valid without becoming raw-duration evidence. First timing calibration and useful current aura bounds remain supported. Missing fields do not create a new occurrence or erase an accepted end of the same occurrence.
+
+### v16 verification
+
+The complete suite passes **49/49 regression scripts under both Lua 5.1 and Lua 5.4**, including all **42 unchanged v15 scripts** and seven new timing groups with **1,239 assertions per runtime**. All 45 original test/support/runner files remain byte-identical. All **28 runtime Lua files** compile under both engines. Independent review covers endpoint authority, refresh recovery and native/fallback ownership.
+
+The repository runner passes **10/10 suites under Lua 5.1**: its nine v15 suites are unchanged, and `test_timing_v16.lua` runs the seven added groups using the real addon modules. Run `python tests/run_tests.py` with `lupa==2.8` available. Suite-wide verification and source hashes are included in the v16 verification archive. These checks use modeled WoW APIs; live-client validation remains outstanding.
+
+Installation and commands are listed below. Historical release/test claims are retained under their original version and do not substitute for the v16 results above.
+
+## Historical v15 repository synchronization
 
 The runtime and both TOCs match the verified **v15 foundation suite** release, targeting interface **16001**. This brings `main` forward from `0.4.17.1-beta`; it includes the intervening foundation work as well as the three v15 repairs. The older experiment branches remain historical checkpoints.
 
