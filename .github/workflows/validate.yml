@@ -1,0 +1,57 @@
+name: Validate bjarkiCC
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1 and 5.4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 lua5.4
+      - name: Compile addon and exercise repository regression suites
+        run: |
+          set -euo pipefail
+          for version in 5.1 5.4; do
+            echo "Checking Lua ${version}"
+            while IFS= read -r module; do
+              "luac${version}" -p "$module"
+            done < <(grep -vE '^#|^[[:space:]]*$' bjarkiCC.toc)
+            for test in tests/test_*.lua; do
+              "luac${version}" -p "$test"
+              "lua${version}" -e 'ADDON_DIR = "."; unpack = table.unpack or unpack' "$test"
+            done
+          done
+      - name: Verify both manifests and stage clean addon
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from shutil import copy2
+          from hashlib import sha256
+          root = Path('.')
+          manifests = [root/'bjarkiCC.toc', root/'bjarkiCC_Camelot.toc']
+          assert manifests[0].read_bytes() == manifests[1].read_bytes(), "mismatched TOCs"
+          modules = [line.strip() for line in manifests[0].read_text().splitlines()
+                     if line.strip() and not line.startswith('#')]
+          assert len(modules) == 15 and len(set(modules)) == 15, "unexpected module inventory"
+          dest = root/'dist'/'bjarkiCC'
+          dest.mkdir(parents=True, exist_ok=True)
+          for path in [*manifests, *(root/p for p in modules)]:
+              assert path.is_file(), f"missing {path}"
+              copy2(path, dest/path.name)
+          assert {p.name for p in dest.glob('*.lua')} == set(modules), "packaging mismatch"
+          sums = ['%s  %s' % (sha256((dest/p.name).read_bytes()).hexdigest(), p.name)
+                  for p in [*manifests, *(root/p for p in modules)]]
+          (dest/'SHA256SUMS.txt').write_text('\n'.join(sums)+'\n')
+          print("Packaged %s runtime modules" % len(modules))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bjarkiCC
+          path: dist
+          if-no-files-found: error

@@ -1,5 +1,11 @@
 # bjarkiCC known issues and validation status
 
+## Horizontal DR presentation and countdown update (2026-10-26)
+
+Current runtime: **0.4.17.33-horizontal-dr-five-seconds-test**. The three DR strips use 32px default icons instead of 28px and grow outward horizontally beside the native unit frame, capped at four categories per tracked unit. Full DR application timers and enemy cooldown estimates use decimals strictly below five seconds, whole seconds from 5 to 359, and compact minute/hour/day units afterward. The separate model timing policy, cast evidence restrictions, cooldown HUD opt-in, and uncertainty semantics remain unchanged.
+
+A saved schema-8 layout with default-size 28px icons upgrades that default to 32 once, preserving customized sizes and drag offsets. Old two-row grids are no longer rendered; unlocked Edit Mode /bcc movement stays supported. Release requires client-side visual verification at common UI scales, with PvP badge and nearby nameplates visible; a screenshot alone does not establish protected-frame safety.
+
 ## v16 timing repairs (2026-10-22)
 
 Current runtime: **0.4.17.32-foundation-v16-fixes-test**. The external v15 audit's three confirmed timing bugs are repaired and covered by reproducible tests: T1 mixed-source expiry promotion (a v15 regression), T2 predecessor expiry retained across refresh (inherited), and T3 equal-start LoC alias endpoint loss (inherited). Both inherited failures also reproduce on v14.

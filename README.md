@@ -1,6 +1,16 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.32-foundation-v16-fixes-test
+## Current release: 0.4.17.33-horizontal-dr-five-seconds-test (2026-10-26)
+
+The DR trackers for Player, Target and Focus are now slightly larger **32px default icons**, displayed as **one horizontal row** beside the native portraits. Player DR grows to the left; Target and Focus DR grow to the right, starting at the same near-portrait anchor as before. The number of visible icons determines the row's width (up to four as previously); native unit-frame coordinates, frames and click behavior are never changed.
+
+DR application countdown numbers now remain visible for the full observed/estimated interval, not only the final five seconds. Both DR and experimental enemy cooldown estimates use the same readable timing ladder as bjarkiUI: **one decimal strictly below 5 seconds, integer seconds from 5 through 359, compact minutes/hours/days thereafter**. No tracked application clock, stage reset, uncertainty label, evidence source or cooldown readiness is changed. This is a display-only alteration, and model-derived numbers remain distinguishable from guaranteed server DR deadlines.
+
+Saved-layout schema 9 converts only default 28px DR icon sizes to 32px once. Custom sizes and dragged unit-frame offsets remain saved; /bcc reset restores the new unit-side default. The independent enemy cooldown bar retains its vertical/horizontal option and placement.
+
+Regression tests cover the existing model/observer/claim logic, updated Bootstrap migrations, and full UI integration including horizontal growth, strict 5-second transition and simultaneous DRs. A new GitHub Actions test workflow checks Lua syntax and the repository suites. Live-client appearance and taint safety remain unverified.
+
+## Previous foundation v16 release: 0.4.17.32-foundation-v16-fixes-test
 
 The runtime and both TOCs match the **v16 foundation suite** (2026-10-22), targeting interface **16001**. This release repairs three independently reproduced timing defects in bjarkiCC. The behavior changes are confined to `Model.lua` and `Observer.lua`; the module inventory, saved settings, scan schedule, spell rules and display policy retain their v15 behavior.
 
@@ -26,7 +36,7 @@ The v15 repairs preserve a continuously qualified nameplate owner's CC identity 
 
 The current foundation also includes bounded cooldown claims and readable evidence sharing with bjarkiPortraits, qualified nameplate observation, optional War Stomp/Iron Grenade/Goblin Mortar cast estimates, the optional native stun visual, and display-only GCD flashes. A successful cast or a native visual does not confirm a landed hit. AoE estimates retain clean icons with their uncertainty explained in tooltips and status.
 
-### Current display and settings
+### Historical v16 display and settings
 
 - Player, target and focus retain the fixed 2 x 2 DR grids. Colored borders and stage pips show the retained stage; optional percentage text remains available. DR numbers appear at five seconds and use decimals below three seconds. The former caster-name display option has been removed.
 - The application countdown defaults to 20 seconds. The separate stage-retention estimate defaults to 18 seconds after CC ends; neither is a new claim about the server's exact rules.
@@ -57,7 +67,7 @@ Fresh verification of the three synchronized addons confirms **36/36 runtime/pac
 
 The repository's existing runner also passes **9/9 suites under Lua 5.1** using Python 3 and the unchanged `lupa==2.8` dependency. Six suites received focused fixture and assertion updates for the current module order, removed caster names, retained actor history and complete-evidence requirements. The model retains 134 passing cases; the observer has 108, including an added GUID-identity control. Independent review and two separate reruns confirm the result without changing runtime bytes. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the compatibility changes and [architecture.md](architecture.md) for the current module order.
 
-These checks use modeled WoW APIs. They do not establish live API availability, protected execution, rendered appearance or server DR rules.
+These historical v16 checks use modeled WoW APIs. They do not establish live API availability, protected execution, rendered appearance or server DR rules.
 
 ## Historical 0.4.17.1 baseline notes and guide
 

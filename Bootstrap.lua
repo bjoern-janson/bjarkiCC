@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.17.32-foundation-v16-fixes-test'
+ns.name, ns.version = addonName, '0.4.17.33-horizontal-dr-five-seconds-test'
 ns.Safe = {}
 local S = ns.Safe
 
@@ -70,6 +70,7 @@ function ns.InitializeDB()
     local migrateVisualDefaults = savedSchema < 2
     local migrateUnitOffsets = savedSchema < 7
     local migrateCooldownDefault = savedSchema < 8
+    local migrateHorizontalDRSize = savedSchema < 9
     db.locked = bool(db.locked, true)
     db.targetOnly = bool(db.targetOnly, false)
     db.interrupts = bool(db.interrupts, false)
@@ -134,11 +135,16 @@ function ns.InitializeDB()
             if S.Number(bar.gap) == 8 then bar.gap = 3 end
             bar.label = false
         end
+        -- Enlarge the former default 28px DR icons once, without changing
+        -- user-selected custom sizes, native anchors, or saved drag offsets.
+        if key ~= 'cooldown' and migrateHorizontalDRSize and S.Number(bar.size) == 28 then
+            bar.size = 32
+        end
         bar.enabled = bool(bar.enabled, key ~= 'cooldown')
         bar.label = bool(bar.label, false)
-        bar.vertical = bool(bar.vertical, key ~= 'cooldown')
+        bar.vertical = bool(bar.vertical, false)
         bar.reverse = bool(bar.reverse, key ~= 'cooldown')
-        bar.size = bounded(bar.size, key == 'cooldown' and 32 or 28, 24, 72)
+        bar.size = bounded(bar.size, 32, 24, 72)
         bar.gap = bounded(bar.gap, 3, 0, 30)
         bar.maxIcons = key ~= 'cooldown' and 4 or math.floor(bounded(bar.maxIcons, 12, 3, 30))
         bar.x = bounded(bar.x, position[1], -10000, 10000)
@@ -161,7 +167,7 @@ function ns.InitializeDB()
         end
         db.bars[key] = bar
     end
-    db.schema = 8
+    db.schema = 9
     bjarkiCCDB, ns.db = db, db
 end
 

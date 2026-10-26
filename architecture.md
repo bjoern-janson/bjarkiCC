@@ -1,6 +1,13 @@
 # bjarkiCC architecture and DR research
 
-## Current v16 foundation runtime
+## Current layout and countdown contract: 0.4.17.33-horizontal-dr-five-seconds-test (2026-10-26)
+
+- **Countdowns:** the model's existing normalized DR application clocks and experimental enemy cooldown estimates share one display function in `UI.lua`. Seconds strictly below five use `%.1f`; seconds from five to under 360 are whole numbers rounded down; larger values show compact minutes/hours/days. Positive DR countdowns are displayed throughout the application timer, rather than hiding before five seconds. Native cooldown swipes, exact DR occurrence timing, post-CC stage-retention estimates and all uncertainty/tooltip metadata remain unchanged.
+- **DR placement:** `UI.lua` no longer forces a 2×2 grid. Each DR bar is a horizontal strip whose first icon stays anchored beside its native portrait, with subsequent icons growing outward: left from Player, right from Target/Focus. An icon uses the exact existing native action border and stage pips. Four visible DR icons are retained as the previous display cap; no permanent oversize or background when locked. The cooldown HUD still honors its independent horizontal/vertical choice.
+- **Defaults/migration:** `Bootstrap.lua` schema 9 defaults DR icons to 32px instead of 28px and updates only saved default-size 28px icons once. Customized icon sizes, relative offsets, manual anchor kinds, active categories, recorded evidence and separately positioned cooldown HUD remain owned by the user. `/bcc reset` restores unit-side anchors with 18px outer portrait clearance.
+- **Verification:** `tests/test_ui.lua`, `tests/test_bootstrap.lua` and the existing full integration fixture are updated to check five-second formatting, six-minute rollover, row width/height, mirror directions, one-to-four icons, distinct cooldown HUD orientation and versioned settings migration. A separate CI workflow executes all 10 repository tests and syntax-checks the 15 runtime modules with Lua 5.1/5.4. These checks are not live-client pixel or taint certification.
+
+## Historical v16 foundation runtime
 
 Version **0.4.17.32-foundation-v16-fixes-test** synchronizes the verified v16 suite into this repository. Both TOCs use the following order; every listed module is required in a runtime package.
 

@@ -6,19 +6,21 @@ local titles = {player='Player DR',target='Target DR',focus='Focus DR',cooldown=
 local order = {'player','target','focus','cooldown'}
 local stageColors = {{.25,1,.3},{1,.8,.15},{1,.2,.15}}
 
+-- All model-derived countdowns use the same display ladder as the native
+-- action bars: decimals strictly below five seconds, then whole seconds
+-- until six minutes, followed by compact minute/hour/day labels. The model
+-- already stores checked, readable times; this does not query secret APIs.
 function UI.FormatTime(seconds)
-    if seconds >= 60 then return math.ceil(seconds/60)..'m' end
     if seconds <= 0 then return '0' end
-    -- Enemy cooldown estimates retain their existing countdown formatting.
-    if seconds < 5 then return string.format('%.1f', seconds) end
+    if seconds >= 86400 then return math.ceil(seconds/86400)..'d' end
+    if seconds >= 3600 then return math.ceil(seconds/3600)..'h' end
+    if seconds >= 360 then return math.ceil(seconds/60)..'m' end
+    if seconds < 5 then return string.format('%.1f',seconds) end
     return tostring(math.floor(seconds))
 end
 
 function UI.FormatDRTime(seconds)
-    if seconds <= 0 then return '0' end
-    -- The DR timer still becomes visible at 5s, but only uses decimals below 3s.
-    if seconds < 3 then return string.format('%.1f', seconds) end
-    return tostring(math.floor(seconds))
+    return UI.FormatTime(seconds)
 end
 
 local function demoRows(key, now)
@@ -329,8 +331,12 @@ function UI.Update(now)
                 bar:Hide()
             else
                 local rows = UI.GetRows(key,now)
-                local grid = key ~= 'cooldown'
-                local count = math.min(#rows,grid and 4 or settings.maxIcons)
+                local drRow = key ~= 'cooldown'
+                -- DR rows always grow horizontally away from their portrait.
+                -- The experimental enemy-cooldown bar retains its own
+                -- independent vertical/horizontal display preference.
+                local vertical = not drRow and settings.vertical
+                local count = math.min(#rows,drRow and 4 or settings.maxIcons)
                 local setup=ns.demo or not ns.db.locked
                 bar:SetShown(setup or (count>0 and ns.Anchors.Visible(bar)))
                 bar.title:SetText(key == 'cooldown'
@@ -340,21 +346,17 @@ function UI.Update(now)
                 local step=settings.size+settings.gap
                 local span=settings.size+math.max(count-1,0)*step
                 local width, height
-                if grid then
-                    local side=settings.size*2+settings.gap
-                    width, height = side, side
-                else
-                    width = settings.vertical and settings.size or math.max(span,count==0 and 96 or 1)
-                    height = settings.vertical and span or settings.size
-                end
+                width = vertical and settings.size or math.max(span,
+                    not drRow and count==0 and 96 or settings.size)
+                height = vertical and span or settings.size
                 if bar._renderWidth ~= width or bar._renderHeight ~= height then
                     bar:SetSize(width,height)
                     bar._renderWidth, bar._renderHeight = width,height
                 end
-                bar.overflow:SetShown(not grid and #rows>count)
+                bar.overflow:SetShown(not drRow and #rows>count)
                 bar.overflow:SetText('+'..(#rows-count))
                 bar.overflow:ClearAllPoints()
-                if settings.vertical then
+                if vertical then
                     bar.overflow:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'TOP' or 'BOTTOM',0,settings.reverse and 5 or -5)
                 else
                     bar.overflow:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'LEFT' or 'RIGHT',settings.reverse and -5 or 5,0)
@@ -383,18 +385,22 @@ function UI.Update(now)
                         end
                         icon._renderSize=settings.size
                     end
-                    local layoutKey=table.concat({settings.size,settings.gap,settings.vertical and 1 or 0,
+                    local layoutKey=table.concat({settings.size,settings.gap,vertical and 1 or 0,
                         settings.reverse and 1 or 0,i,key},":")
                     if icon._layoutKey ~= layoutKey then
                         icon:ClearAllPoints()
                         local offset=(i-1)*step
-                        if grid then
-                            local point=key=='player' and 'TOPRIGHT' or 'TOPLEFT'
-                            icon:SetPoint(point,bar,point,((i-1)%2)*step*(key=='player' and -1 or 1),-math.floor((i-1)/2)*step)
-                        elseif settings.vertical then
-                            icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,settings.reverse and 'BOTTOM' or 'TOP',0,settings.reverse and offset or -offset)
+                        if vertical then
+                            icon:SetPoint(settings.reverse and 'BOTTOM' or 'TOP',bar,
+                                settings.reverse and 'BOTTOM' or 'TOP',0,
+                                settings.reverse and offset or -offset)
                         else
-                            icon:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,settings.reverse and 'RIGHT' or 'LEFT',settings.reverse and -offset or offset,0)
+                            -- Keep the first icon fixed against the bar's
+                            -- near edge; later DR icons grow left for Player,
+                            -- right for Target/Focus without moving it.
+                            icon:SetPoint(settings.reverse and 'RIGHT' or 'LEFT',bar,
+                                settings.reverse and 'RIGHT' or 'LEFT',
+                                settings.reverse and -offset or offset,0)
                         end
                         icon._layoutKey=layoutKey
                     end
@@ -410,7 +416,7 @@ function UI.Update(now)
                         setBorderColor(icon,1,1,1,1)
                         icon.swipe:Show(); updateNativeClock(icon,row.started,row.duration)
                     else
-                        setTextIfChanged(icon.time,row.remaining>0 and row.remaining<=5 and UI.FormatDRTime(row.remaining) or '')
+                        setTextIfChanged(icon.time,row.remaining>0 and UI.FormatDRTime(row.remaining) or '')
                         -- Keep all uncertain DR rows visually consistent:
                         -- color shows the estimated stage; the tooltip and
                         -- diagnostics distinguish unconfirmed AoE hits.
@@ -525,7 +531,7 @@ function UI.OpenOptions()
         if key=='cooldown' then
             check(page,'Vertical',164,y-7,function() return settings.vertical end,function(v) settings.vertical=v end)
         else
-            label(page,'2 x 2',164,y-7,90)
+            label(page,'1 x 4 row',164,y-7,90)
         end
         slider(page,'Size',280,y,24,72,function() return settings.size end,function(v) settings.size=v end,170)
     end

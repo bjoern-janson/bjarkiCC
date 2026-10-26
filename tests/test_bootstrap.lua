@@ -28,14 +28,14 @@ assert(ns.db.resetSeconds >= 10 and ns.db.locked == true, 'malformed defaults re
 assert(ns.db.cooldownOverrides[853] == nil and ns.db.cooldownOverrides[408] == 30, 'overrides sanitized')
 ns.db.bars.player.x = 300
 ns.ResetPositions()
-assert(ns.db.bars.player.x == -230 and ns.db.bars.player.vertical == false, 'reset adopts the fixed grid layout')
+assert(ns.db.bars.player.x == -230 and ns.db.bars.player.vertical == false, 'reset adopts the horizontal unit-side layout')
 
 -- Loading without saved settings produces the compact, icon-only layout.
 bjarkiCCDB = nil
 ns.InitializeDB()
-assert(ns.db.bars.player.size == 28 and ns.db.bars.target.size == 28, 'fresh DR bars use compact icons')
+assert(ns.db.bars.player.size == 32 and ns.db.bars.target.size == 32, 'fresh DR bars use slightly enlarged 32px icons')
 assert(ns.db.bars.focus, 'fresh settings include a focus DR bar')
-assert(ns.db.bars.focus.size == 28 and ns.db.bars.focus.x == 230 and ns.db.bars.focus.y == -230, 'focus gets compact icons and its fallback placement')
+assert(ns.db.bars.focus.size == 32 and ns.db.bars.focus.x == 230 and ns.db.bars.focus.y == -230, 'focus gets compact icons and its fallback placement')
 assert(ns.db.bars.cooldown.size == 32, 'fresh cooldown bar uses compact icons')
 assert(ns.db.showNames == nil and ns.db.showDRText == false, 'caster names are removed and optional DR text defaults off')
 assert(ns.db.bars.cooldown.enabled == false, 'experimental cooldown HUD defaults off')
@@ -63,8 +63,8 @@ local function sideDefaults()
     for _,key in ipairs({'player','target','focus'}) do
         local bar=ns.db.bars[key]
         assert(bar.anchorKind=='unit-side' and bar.offsetX==(key=='player' and -18 or 18) and bar.offsetY==0,
-            'requested grid sits beyond the outer portrait edge with badge clearance')
-        assert(not bar.vertical and bar.reverse==(key=='player') and bar.maxIcons==4,'fixed two-row grid is capped at four icons')
+            'horizontal DR strip starts beyond the outer portrait edge with badge clearance')
+        assert(not bar.vertical and bar.reverse==(key=='player') and bar.maxIcons==4,'mirrored horizontal DR row remains capped at four icons')
     end
 end
 sideDefaults()
@@ -81,7 +81,7 @@ for _,oldSchema in ipairs({0,1,2,3,4,5,6}) do
             focus={anchorKind='portrait',offsetX=10,offsetY=0},
             cooldown={x=444,y=-333,size=48,gap=5,vertical=false,reverse=false,enabled=false}}}
     ns.InitializeDB(); sideDefaults()
-    assert(ns.db.schema==8,'current schema records the one-time layout and cooldown migrations')
+    assert(ns.db.schema==9,'schema 9 includes one-time default-size migration')
     assert(ns.db.bars.player.size==44 and ns.db.bars.player.gap==5
         and not ns.db.bars.player.enabled and ns.db.bars.player.maxIcons==4,'DR appearance and enable preferences survive')
     local cd=ns.db.bars.cooldown
@@ -102,7 +102,7 @@ end
 -- Existing compact visual migration still applies only to old visual defaults.
 bjarkiCCDB={schema=1,bars={player={size=36,gap=8,label=true},cooldown={size=40,gap=8,label=true}}}
 ns.InitializeDB()
-assert(ns.db.bars.player.size==28 and ns.db.bars.player.gap==3 and not ns.db.bars.player.label,
+assert(ns.db.bars.player.size==32 and ns.db.bars.player.gap==3 and not ns.db.bars.player.label,
     'old default DR styling still migrates')
 assert(ns.db.bars.cooldown.size==32 and ns.db.bars.cooldown.gap==3,'old default cooldown styling still migrates')
 ns.db.bars.player.size,ns.db.bars.player.gap=36,8
@@ -115,4 +115,21 @@ ns.InitializeDB()
 assert(ns.db.bars.player.offsetX==-18 and ns.db.bars.player.offsetY==0,'hidden and NaN offsets use safe defaults')
 assert(ns.db.bars.target.offsetX==18 and ns.db.bars.target.offsetY==0,'infinite offsets use safe defaults')
 assert(ns.db.bars.focus.offsetX==10000 and ns.db.bars.focus.offsetY==-10000,'finite offsets remain bounded')
-print('bootstrap: protected values, compact defaults, centered portrait migration and saved preferences passed')
+-- Schema-8 clients already saved the prior 28px defaults. Upgrade only
+-- those values; preserve any deliberately customized sizes and drag offsets.
+bjarkiCCDB={schema=8,bars={
+    player={size=28,anchorKind='unit-side',offsetX=-42,offsetY=11,reverse=true},
+    target={size=41,anchorKind='unit-side',offsetX=28,offsetY=-3,reverse=false},
+    focus={size=28,anchorKind='frame',offsetX=-71,offsetY=12}
+}}
+ns.InitializeDB()
+assert(ns.db.schema==9 and ns.db.bars.player.size==32
+    and ns.db.bars.focus.size==32,'schema-8 default sizes enlarge once')
+assert(ns.db.bars.target.size==41,'custom target icon size is preserved')
+assert(ns.db.bars.player.offsetX==-42 and ns.db.bars.player.offsetY==11
+    and ns.db.bars.focus.anchorKind=='frame' and ns.db.bars.focus.offsetX==-71
+    and ns.db.bars.focus.offsetY==12,'custom frame anchors and offsets are unchanged')
+ns.db.bars.player.size=30
+ns.InitializeDB()
+assert(ns.db.bars.player.size==30,'subsequent reload preserves later user size changes')
+print('bootstrap: protected values, 32px side rows, upgrade migration and saved preferences passed')

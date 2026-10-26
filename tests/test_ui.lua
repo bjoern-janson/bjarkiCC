@@ -43,7 +43,15 @@ assert(ns.UI.FormatTime(4.96)=='5.0' and ns.UI.FormatTime(.04)=='0.0',
  'decimal text rounds normally without shifting expiry or clamping tenths')
 assert(ns.UI.FormatTime(-.2)=='0' and ns.UI.FormatTime(0)=='0',
  'expired countdown text never becomes negative')
-assert(ns.UI.FormatTime(125)=='3m','long cooldowns use compact minutes')
+assert(ns.UI.FormatTime(125)=='125' and ns.UI.FormatTime(321)=='321',
+  'cooldown seconds remain visible without m:ss below six minutes')
+assert(ns.UI.FormatTime(359.9)=='359' and ns.UI.FormatTime(360)=='6m'
+    and ns.UI.FormatTime(361)=='7m','native action countdown boundary at 360 seconds')
+assert(ns.UI.FormatTime(3600)=='1h' and ns.UI.FormatTime(5400)=='2h'
+    and ns.UI.FormatTime(86400)=='1d','long timer units match action bars')
+assert(ns.UI.FormatDRTime(21)=='21' and ns.UI.FormatDRTime(5)=='5'
+    and ns.UI.FormatDRTime(4.9)=='4.9' and ns.UI.FormatDRTime(4.44)=='4.4',
+    'DR uses full count and the shared five-second decimal boundary')
 ns.demo=true
 local demo=ns.UI.GetRows('player',3)
 assert(#demo>0,'demo independent of live unit state')
