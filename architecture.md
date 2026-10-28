@@ -1,6 +1,18 @@
 # bjarkiCC architecture and DR research
 
-## Current layout and countdown contract: 0.4.17.33-horizontal-dr-five-seconds-test (2026-10-26)
+## Current evidence contract: 0.4.17.43-correction-fixes-test (2026-10-28)
+
+`Model:Cast` keeps its boolean activation result. When a helpful aura positively corroborates an existing near cast, it additionally returns that existing row. `CooldownEvidence` uses that result only to retain bounded occurrence custody; `Observer` continues to gate accepted-cast handling on the first return.
+
+`rememberCastHelpful` validates the cast's current evidence owner and native-ID compatibility before committing aliases. Compatible endpoints and incompatible sampled endpoints serve different purposes. Neither can change the successful-cast clock. Rejected alternate native IDs retain only their own sampled history; they cannot contaminate the current application or inherit removal/reset authority. Anonymous generations are committed only when the proposed owner is actually selected.
+
+Reset barriers, source observation clocks and immutable historical ownership reject stale replay while allowing admissible fresh timing to refine an independent estimate under its existing claim ID. Missing compatible timing remains conservative. The repair adds no polling, dependency, subscription, native write or unbounded history log. Existing helpful 256-record caps, 480-second witness retention and 512 DR effects per actor remain enforced by their respective owners.
+
+Runtime bytes match the independently audited `.43` archive. The 45 shipped test/support files remain unchanged, including the new cast-aura custody regression. Repository CI checks Lua 5.1/5.4 and stages the exact runtime inventory from both TOCs plus notices and the checked-in SHA256 manifest. Tests model native boundaries; live client behavior remains a separate verification requirement.
+
+The sections below describe the existing presentation and historical architecture.
+
+## Preserved layout and countdown contract: 0.4.17.33-horizontal-dr-five-seconds-test (2026-10-26)
 
 - **Countdowns:** the model's existing normalized DR application clocks and experimental enemy cooldown estimates share one display function in `UI.lua`. Seconds strictly below five use `%.1f`; seconds from five to under 360 are whole numbers rounded down; larger values show compact minutes/hours/days. Positive DR countdowns are displayed throughout the application timer, rather than hiding before five seconds. Native cooldown swipes, exact DR occurrence timing, post-CC stage-retention estimates and all uncertainty/tooltip metadata remain unchanged.
 - **DR placement:** `UI.lua` no longer forces a 2×2 grid. Each DR bar is a horizontal strip whose first icon stays anchored beside its native portrait, with subsequent icons growing outward: left from Player, right from Target/Focus. An icon uses the exact existing native action border and stage pips. Four visible DR icons are retained as the previous display cap; no permanent oversize or background when locked. The cooldown HUD still honors its independent horizontal/vertical choice.

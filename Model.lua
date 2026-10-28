@@ -187,6 +187,14 @@ local function inheritInference(state, prior, resetSeconds)
     refreshInference(state, resetSeconds)
 end
 
+local function auraExpiry(effect)
+    if effect.applicationSource ~= "aura" then return nil end
+    -- The reset endpoint may belong to a remaining-only LoC donor. Derived
+    -- refresh proof instead keeps the endpoint from the aura's own clock.
+    return effect.auraExpires or ((effect.expirySource == nil or effect.expirySource == "aura")
+        and effect.expires or nil)
+end
+
 local function refreshedApplication(previous, effect, start)
     -- An untimed identity already represents one observed application. Its
     -- first readable timestamp calibrates that application, even when the
@@ -195,7 +203,7 @@ local function refreshedApplication(previous, effect, start)
     if not previous or not start then return false end
     local acceptedStart = previous.refreshAppliedAt or previous.appliedAt
     local acceptedSource = previous.applicationSource
-    local acceptedExpires = previous.expires
+    local acceptedExpires = auraExpiry(previous)
     if not acceptedStart or start <= acceptedStart + APPLICATION_EPSILON then return false end
     if effect.applicationSource == "loc" then
         -- Aura expiration-duration and explicit LoC starts are different
@@ -207,8 +215,8 @@ local function refreshedApplication(previous, effect, start)
     -- A derived refresh needs both boundaries to change, from the same sensor.
     -- Diminished CC can end earlier even though its application is newer.
     return acceptedSource == "aura" and effect.applicationSource == "aura"
-        and acceptedExpires and effect.expires
-        and math.abs(effect.expires - acceptedExpires) > APPLICATION_EPSILON
+        and acceptedExpires and auraExpiry(effect)
+        and math.abs(auraExpiry(effect) - acceptedExpires) > APPLICATION_EPSILON
 end
 
 -- Observer ownership uses exactly the same accepted refresh boundary.
@@ -780,12 +788,12 @@ function Model:Observe(guid, effects, now, complete, removedKeys)
         -- newer explicit start creates a new witness normally. Same-ID aura
         -- changes after LoC are ambiguous until stronger evidence arrives.
         local acceptedStart = same and (previous.refreshAppliedAt or previous.appliedAt)
-        local acceptedExpires = same and previous.expires
+        local acceptedExpires = same and auraExpiry(previous)
         local staleAura = same and previous.applicationSource == "aura"
             and effect.applicationSource == "aura" and acceptedStart and preciseStart
             and preciseStart < acceptedStart - APPLICATION_EPSILON
-            and acceptedExpires and effect.expires
-            and math.abs(effect.expires - acceptedExpires) > APPLICATION_EPSILON
+            and acceptedExpires and auraExpiry(effect)
+            and math.abs(auraExpiry(effect) - acceptedExpires) > APPLICATION_EPSILON
         local retainTiming = same and not refreshed
             and (previous.applicationSource == "loc" or staleAura)
         if retainTiming and state and effect.applicationSource == "aura"
@@ -829,6 +837,8 @@ function Model:Observe(guid, effects, now, complete, removedKeys)
         nextEffects[key] = {category = category, spellID = effect.spellID,
             expires = expires, endedAt = endedAt,
             expirySource = expirySource, expiryAppliedAt = expiryAppliedAt,
+            auraExpires = retainTiming and auraExpiry(previous) or auraExpiry(effect)
+                or (same and not refreshed and auraExpiry(previous) or nil),
             endSource = endedAt and previous.endSource or nil,
             appliedAt = retainTiming and previous.appliedAt or preciseStart or (same and previous.appliedAt or nil),
             applicationSource = retainTiming and previous.applicationSource
@@ -1151,12 +1161,20 @@ function Model:Cast(guid, ignoredName, spellID, now, castID, manual, overrides, 
             ns.Claims.Witness(existing.claim, 'helpful-aura',
                 context and context.origin or 'CC aura',
                 context and context.observedAt or now)
-            existing.evidenceIdentity = context and context.identity or existing.evidenceIdentity
+            -- Provenance may fill a cast's missing aura identity, but cannot
+            -- replace an established occurrence owner. Its retained native
+            -- samples still belong to that identity after cast promotion.
+            existing.evidenceIdentity = existing.evidenceIdentity or (context and context.identity)
+            -- No activation occurred. Let the evidence owner distinguish this
+            -- positive association from rejection, without changing cast time.
+            return false, existing
         end
         return false
     end
     if evidenceSource == 'helpful-aura' and previous
-        and math.abs(now - previous.time) <= AURA_CAST_DEDUP_SECONDS then
+        and math.abs(now - previous.time) <= AURA_CAST_DEDUP_SECONDS
+        and not (context and context.newApplication and type(context.resetAt) == 'number'
+            and previous.time < context.resetAt and context.resetAt <= now) then
         return false
     end
     if not manual and evidenceSource ~= 'helpful-aura' and existing
@@ -1200,6 +1218,10 @@ function Model:Cast(guid, ignoredName, spellID, now, castID, manual, overrides, 
             local old = caster.cooldowns[resetSpellID]
             if old and ns.Claims then ns.Claims.Retire(self,old.claim,now,'reset-spell-witness') end
             caster.cooldowns[resetSpellID] = nil
+            -- An accepted reset separates occurrences even at equal clock
+            -- resolution. Retire only this obsolete short-window match;
+            -- native cast IDs remain retained to reject old-ID replays.
+            caster.recent[resetSpellID] = nil
         end
     end
     local duration = ability and ability.cdMax or 0

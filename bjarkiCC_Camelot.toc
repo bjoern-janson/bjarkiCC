@@ -2,7 +2,7 @@
 ## Title: bjarkiCC
 ## Notes: Player/target/focus DR estimates and observed enemy CC cooldowns. /bcc
 ## Author: bjarki
-## Version: 0.4.17.33-horizontal-dr-five-seconds-test
+## Version: 0.4.17.43-correction-fixes-test
 ## SavedVariables: bjarkiCCDB
 
 Bootstrap.lua

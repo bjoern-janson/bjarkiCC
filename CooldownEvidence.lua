@@ -33,15 +33,16 @@ local function playerGUID(value)
     if guid and #guid <= 128 and guid:match('^Player%-[%w%-]+$') then return guid end
 end
 
-local function eligibleToken(token)
+local function eligibleToken(token, includeDerived)
     local unit = Safe.String(token)
     if unit == 'target' or unit == 'focus' then return unit end
+    if includeDerived and (unit == 'targettarget' or unit == 'focustarget') then return unit end
     local suffix = unit and unit:match('^nameplate(%d+)$')
     if suffix and tonumber(suffix) and tonumber(suffix) <= 200 then return unit end
 end
 
-local function hostilePlayerGUID(unit)
-    unit = eligibleToken(unit)
+local function hostilePlayerGUID(unit, includeDerived)
+    unit = eligibleToken(unit, includeDerived)
     if not unit then return nil end
     local guid = playerGUID(Safe.Call(UnitGUID, unit))
     if not guid then return nil end
@@ -53,7 +54,8 @@ end
 
 local function pruneSeen(now)
     local count, oldestKey, oldestTime = 0
-    for key, stamp in pairs(Evidence.seenHelpful) do
+    for key, witness in pairs(Evidence.seenHelpful) do
+        local stamp = witness.seen
         if now - stamp >= SEEN_TTL then
             Evidence.seenHelpful[key] = nil
         else
@@ -66,7 +68,8 @@ local function pruneSeen(now)
         Evidence.seenHelpful[oldestKey] = nil
         count = count - 1
         oldestKey, oldestTime = nil, nil
-        for key, stamp in pairs(Evidence.seenHelpful) do
+        for key, witness in pairs(Evidence.seenHelpful) do
+            local stamp = witness.seen
             if not oldestTime or stamp < oldestTime then oldestKey, oldestTime = key, stamp end
         end
     end
@@ -93,6 +96,17 @@ local function pruneSeen(now)
     end
 end
 
+local function rememberSeen(key, identity, now)
+    local witness = Evidence.seenHelpful[key]
+    if witness then
+        witness.seen = math.max(witness.seen, now)
+    else
+        -- A correction alias belongs to the occurrence that first admitted
+        -- it. A later occurrence cannot acquire that historical ownership.
+        Evidence.seenHelpful[key] = {seen=now, identity=identity}
+    end
+end
+
 local function helpfulTime(aura, now)
     local expiry = currentTime(safeField(aura, 'expirationTime'))
     local duration = currentTime(safeField(aura, 'duration'))
@@ -100,7 +114,7 @@ local function helpfulTime(aura, now)
         local started = expiry - duration
         if started >= 0 and started <= now + HELPFUL_TIME_TOLERANCE
             and now - started <= duration + HELPFUL_TIME_TOLERANCE then
-            return math.min(started,now), false
+            return math.min(started,now), false, expiry
         end
     end
     return now, true -- first sighting, NOT a confirmed cast time
@@ -149,6 +163,14 @@ local function unknownIdentity(guid, canonical, now, newApplication)
         known.lastActivation = cast.started -- another accepted cast superseded it
     end
     if newApplication then
+        if known.resetPending then
+            local proposed = {generation=known.generation+1,lastActivation=now,
+                resetAt=known.resetAt, resetSerial=known.resetSerial,
+                resetInstance=known.resetInstance, resetExpiry=known.resetExpiry,
+                resetSampleExpiry=known.resetSampleExpiry,
+                resetSampleObservedAt=known.resetSampleObservedAt}
+            return 'unknown-cycle:'..proposed.generation, proposed, true
+        end
         local ability = ns.Data.spells[canonical]
         local earliest = ability and ability.cdMin or 1
         local override = ns.db and ns.db.cooldownOverrides
@@ -161,19 +183,45 @@ local function unknownIdentity(guid, canonical, now, newApplication)
                 -- Model owns the near-cast provenance window. Offer the report
                 -- only as an ordinary sighting of this still-active cast, so
                 -- it can link provenance but cannot admit an early activation.
-                local proposed = {generation=known.generation+1,lastActivation=now}
+                local proposed = {generation=known.generation+1,lastActivation=now,
+                    resetSerial=known.resetSerial}
                 return 'unknown-cycle:'..proposed.generation, proposed, false, true
             end
             return nil
         end
-        local proposed = {generation=known.generation+1,lastActivation=now}
+        local proposed = {generation=known.generation+1,lastActivation=now,
+            resetSerial=known.resetSerial}
         return 'unknown-cycle:'..proposed.generation, proposed, true
     else
         return nil -- another sighting is not another application
     end
 end
 
-local function rememberHelpful(guid, canonical, key, instance, now, activatedAt)
+local function rememberSample(record, expiry, now, compatible)
+    if record and expiry
+        and (not record.expiryObservedAt or now > record.expiryObservedAt
+            or (now == record.expiryObservedAt and expiry >= record.expiry))
+        and (not record.sampleObservedAt or now > record.sampleObservedAt
+            or (now == record.sampleObservedAt and expiry >= record.sampleExpiry)) then
+        -- Latest source precedence and replay protection have different jobs.
+        -- Incompatible shorter reads cannot erase an already sampled boundary;
+        -- accepted compatible timing can still correct it under these clocks.
+        local prior = record.sampleReplayExpiry or record.sampleExpiry or expiry
+        record.sampleReplayExpiry = compatible and expiry or math.max(prior, expiry)
+        record.sampleExpiry, record.sampleObservedAt = expiry, now
+    end
+end
+
+local function clearsResetSample(expiry, started, resetAt, sampleExpiry, sampleObservedAt)
+    -- An already sampled tuple can infer a future start only within the
+    -- tolerance accepted by helpfulTime. Shared source time may be ahead of
+    -- the reset clock, so keep that window as well. A genuinely later start
+    -- can clear the accepted endpoint without clearing an incompatible sample.
+    return not sampleExpiry or expiry > sampleExpiry + HELPFUL_TIME_TOLERANCE
+        or started > math.max(resetAt, sampleObservedAt or resetAt) + HELPFUL_TIME_TOLERANCE
+end
+
+local function rememberHelpful(guid, canonical, key, instance, now, activatedAt, expiry)
     local applicationKey = guid..':'..canonical
     local known = Evidence.helpfulApplications[applicationKey]
     if not known or known.identity ~= key then
@@ -181,6 +229,24 @@ local function rememberHelpful(guid, canonical, key, instance, now, activatedAt)
         Evidence.helpfulApplications[applicationKey] = known
     end
     known.instance = instance or known.instance
+    -- Keep this native ID's last compatible endpoint with its bounded witness,
+    -- even when an intervening untimed application replaces reset metadata.
+    -- This is timing evidence only; the witness's original owner never changes.
+    local nativeKey = known.instance and (guid..':'..canonical..':instance:'..known.instance)
+    local native = nativeKey and Evidence.seenHelpful[nativeKey]
+    if native and expiry and (not native.expiryObservedAt or now > native.expiryObservedAt
+        or (now == native.expiryObservedAt and expiry >= native.expiry)) then
+        native.expiry, native.expiryObservedAt = expiry, now
+    end
+    if expiry and (not known.expiryObservedAt or now > known.expiryObservedAt
+        or (now == known.expiryObservedAt and expiry >= known.expiry)) then
+        -- Endpoint corrections have their own observation clock. An older
+        -- shared report cannot roll back the current compatible boundary;
+        -- equal-time disagreement conserves the later endpoint.
+        known.expiry, known.expiryObservedAt = expiry, now
+    end
+    rememberSample(known, expiry, now, true)
+    rememberSample(native, expiry, now, true)
     known.seen = math.max(known.seen or now, now)
     if activatedAt then
         -- Strong identities also establish the last activation for later
@@ -189,6 +255,7 @@ local function rememberHelpful(guid, canonical, key, instance, now, activatedAt)
         local unknown = Evidence.unknownHelpful[applicationKey]
         if unknown then
             unknown.lastActivation = activatedAt
+            unknown.resetPending = nil
         else
             local count = 0
             for _ in pairs(Evidence.unknownHelpful) do count = count + 1 end
@@ -199,11 +266,47 @@ local function rememberHelpful(guid, canonical, key, instance, now, activatedAt)
     end
 end
 
+-- Corroborating a cast does not create an activation, but its associated aura
+-- still needs bounded identity/sample custody. Never reassign an old witness
+-- or replace a native ID that already belongs to this occurrence.
+local function rememberCastHelpful(guid, canonical, row, key, witness, instance,
+    started, approximate, expiry, now, proposedUnknown)
+    if not row or row.evidenceSource ~= 'cast' or type(row.evidenceIdentity) ~= 'string'
+        or now >= row.started + row.duration then return false end
+    local owner = row.evidenceIdentity
+    local applicationKey = guid..':'..canonical
+    local application = Evidence.helpfulApplications[applicationKey]
+    if application and application.identity ~= owner then return false end
+    local ownedNative = instance and application and application.instance == instance
+    if witness and witness.identity ~= owner and not ownedNative then return false end
+    local priorInstance = application and application.instance
+        or tonumber(owner:match(':instance:(%d+)$'))
+    if instance and priorInstance and instance ~= priorInstance then return false end
+    local compatibleExpiry = not approximate
+        and (math.abs(started - row.started) <= HELPFUL_TIME_TOLERANCE
+            or (application and application.expiry and expiry
+                and math.abs(expiry - application.expiry) <= HELPFUL_TIME_TOLERANCE)) and expiry or nil
+    -- An unaccepted anonymous proposal is not an extra identity cycle. Reserve
+    -- its generation only when Model actually chose it as the cast's owner.
+    if not proposedUnknown or key == owner then rememberSeen(key, owner, now) end
+    rememberHelpful(guid, canonical, owner, instance, now, row.started, compatibleExpiry)
+    if proposedUnknown and key == owner then
+        local known = Evidence.unknownHelpful[applicationKey]
+        if known then known.generation = math.max(known.generation, proposedUnknown.generation) end
+    end
+    application = Evidence.helpfulApplications[applicationKey]
+    rememberSample(application, expiry, now)
+    local nativeKey = application.instance and (applicationKey..':instance:'..application.instance)
+    rememberSample(nativeKey and Evidence.seenHelpful[nativeKey], expiry, now)
+    pruneSeen(now)
+    return true
+end
+
 -- Optional identity fields can disappear between sensors. Keep the original
 -- claim key for an active application, while remembering any stronger ID that
 -- becomes readable. A different readable ID, later exact start or explicit
 -- new application still takes the normal new-witness path.
-local function continuingHelpful(guid, canonical, instance, started, approximate, now, newApplication)
+local function continuingHelpful(guid, canonical, instance, started, approximate, now, newApplication, expiry)
     local row = activeHelpful(guid, canonical, now)
     if not row then return nil end
     local known = Evidence.helpfulApplications[guid..':'..canonical]
@@ -217,7 +320,11 @@ local function continuingHelpful(guid, canonical, instance, started, approximate
     if not approximate then
         if row.timingEstimated then
             if started > row.started + HELPFUL_TIME_TOLERANCE then return nil end
-        elseif math.abs(started - row.started) > HELPFUL_TIME_TOLERANCE then
+        elseif math.abs(started - row.started) > HELPFUL_TIME_TOLERANCE
+            and not (known and known.identity == row.evidenceIdentity and known.expiry and expiry
+                and math.abs(expiry - known.expiry) <= HELPFUL_TIME_TOLERANCE) then
+            -- Losing an optional ID can change expiry-duration without moving
+            -- the application endpoint. Preserve the precise occurrence.
             return nil
         end
     end
@@ -236,15 +343,104 @@ local function acceptHelpful(guid, aura, now, newApplication, origin)
     local canonical = effectID and ns.Data.helpfulCooldownAuras[effectID]
     if not canonical then return false end
     local instance = integer(safeField(aura,'auraInstanceID'))
-    local started, approximate = helpfulTime(aura, now)
+    local started, approximate, expiry = helpfulTime(aura, now)
+    local application = Evidence.helpfulApplications[guid..':'..canonical]
+    local current = activeHelpful(guid, canonical, now)
+    local caster = ns.model.casters[guid]
+    local sampleOwner = caster and caster.cooldowns[canonical]
+    if not approximate and instance and sampleOwner and application
+        and now < sampleOwner.started + sampleOwner.duration
+        and application.identity == sampleOwner.evidenceIdentity and instance == application.instance then
+        -- A readable boundary may be a correction rather than another activation.
+        -- Keep its observation separate from accepted timing, so another sensor
+        -- cannot replay it as a new occurrence across an equal-time reset.
+        -- Cast promotion preserves this occurrence's sample custody, but does
+        -- not grant the aura any authority to revise the successful-cast clock.
+        rememberSample(application, expiry, now)
+        -- Retain this ID's sampled boundary through intervening untimed uses.
+        -- Its scalar history has the same cap and lifetime as its native witness.
+        rememberSample(Evidence.seenHelpful[guid..':'..canonical..':instance:'..instance], expiry, now)
+    end
+    if not newApplication and not instance and not approximate and current and not current.timingEstimated
+        and application and application.identity == current.evidenceIdentity
+        and application.expiry and math.abs(expiry - application.expiry) > HELPFUL_TIME_TOLERANCE
+        and application.expiryObservedAt and (now < application.expiryObservedAt
+            or (now == application.expiryObservedAt and expiry < application.expiry))
+        and math.abs(started - current.started) > HELPFUL_TIME_TOLERANCE then
+        -- A delayed ordinary report cannot replace fresher compatible timing
+        -- merely because ID loss and duration imply another application start.
+        -- Equal-time disagreement conserves the later endpoint as below;
+        -- genuinely newer start AND endpoint still prove a new occurrence.
+        Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        return false
+    end
+    local known = Evidence.unknownHelpful[guid..':'..canonical]
+    if caster and caster.helpfulResetBlocked and caster.helpfulResetBlocked[canonical] then
+        Evidence.stats.unknownCapacityRejected = Evidence.stats.unknownCapacityRejected + 1
+        return false -- Required reset barrier could not fit; unrelated IDs remain eligible.
+    end
+    local resetAt = known and known.resetAt
+    if resetAt and (now < resetAt or (not approximate and started < resetAt)
+        or (known.resetPending and approximate and not newApplication)) then
+        Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        return false
+    end
+    -- A reused native ID needs a genuinely newer application clock. Losing
+    -- that optional ID on an ordinary sighting cannot turn a duration-only
+    -- correction into a new occurrence either. Independent added positives
+    -- and distinct readable IDs still follow their existing admission paths.
+    if resetAt and known.resetPending and not approximate and known.resetExpiry
+        and expiry <= known.resetExpiry + HELPFUL_TIME_TOLERANCE
+        and ((instance and instance == known.resetInstance) or (not instance and not newApplication)) then
+        Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        return false
+    end
+    local resetTimedApplication = resetAt and known.resetPending
+        and not approximate and started > resetAt
+    local resetApplication = resetAt and known.resetPending
+        and (newApplication == true or resetTimedApplication)
     pruneSeen(now)
     local continuing = continuingHelpful(guid, canonical, instance, started,
-        approximate, now, newApplication == true)
-    local identity, proposedUnknown, renewedUnknown, castCorroborationOnly
+        approximate, now, newApplication == true, expiry)
+    if resetAt and not instance and not approximate and not newApplication
+        and (not continuing or current.timingEstimated)
+        and not clearsResetSample(expiry, started, resetAt,
+            known.resetSampleExpiry, known.resetSampleObservedAt) then
+        -- Losing an optional ID cannot make an already sampled tuple fresh.
+        -- This also guards precision offered to an independent untimed use
+        -- after resetPending was consumed. Established precise corrections,
+        -- explicit added positives and genuinely later timing keep their paths.
+        Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        return false
+    end
+    local identity, preciseAlias, proposedUnknown, renewedUnknown, castCorroborationOnly
     if instance then
         identity = 'instance:'..instance
+        local nativeWitness = Evidence.seenHelpful[guid..':'..canonical..':'..identity]
+        if resetApplication and not approximate and instance == known.resetInstance and known.resetExpiry
+            and expiry > known.resetExpiry + HELPFUL_TIME_TOLERANCE
+            and clearsResetSample(expiry, started, resetAt, known.resetSampleExpiry, known.resetSampleObservedAt)
+            and nativeWitness
+            and clearsResetSample(expiry, started, resetAt,
+                nativeWitness.sampleReplayExpiry or nativeWitness.sampleExpiry, nativeWitness.sampleObservedAt) then
+            -- Retain the original native-ID key. An ordered added positive
+            -- can prove reset/use even at equal GetTime; an ordinary sighting
+            -- still needs a later start. The bounded reset cycle also keeps
+            -- distinct accepted uses from colliding in one rounded time bucket.
+            identity = 'reset-cycle:'..known.resetSerial..':instance:'..instance
+        end
     elseif not approximate then
         identity = 'start:'..math.floor(started*10+.5)
+        preciseAlias = guid..':'..canonical..':'..identity
+        local resetIdentity = known and known.resetSerial
+            and ('reset-cycle:'..known.resetSerial..':'..identity)
+        if resetApplication or (resetIdentity and current
+            and current.evidenceIdentity == guid..':'..canonical..':'..resetIdentity) then
+            -- Reset/use ordering separates occurrences even at equal GetTime.
+            -- Keep the original precise alias; namespace only the independently
+            -- positive post-reset occurrence inside the existing bounded set.
+            identity = resetIdentity
+        end
     elseif not continuing then
         identity, proposedUnknown, renewedUnknown, castCorroborationOnly =
             unknownIdentity(guid, canonical, now, newApplication == true)
@@ -254,17 +450,95 @@ local function acceptHelpful(guid, aura, now, newApplication, origin)
         end
     end
     local rawKey = identity and guid..':'..canonical..':'..identity
+    local rawWitness = rawKey and Evidence.seenHelpful[rawKey]
+    local oldAlias = preciseAlias and Evidence.seenHelpful[preciseAlias]
+    if continuing and not newApplication and oldAlias and oldAlias.identity ~= continuing
+        and known and known.resetExpiry and application and application.identity == continuing
+        and application.expiry and application.expiry > known.resetExpiry + HELPFUL_TIME_TOLERANCE
+        and expiry <= known.resetExpiry + HELPFUL_TIME_TOLERANCE then
+        -- A same-bucket old correction still carries the pre-reset endpoint.
+        -- Do not let the current reset namespace grant it endpoint ownership;
+        -- fresh corrections to the new occurrence keep their ordinary path.
+        Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        return false
+    end
+    if continuing and rawWitness and rawWitness.identity ~= continuing
+        and not (instance and application and application.identity == continuing
+            and application.instance == instance)
+        and not (instance and (rawWitness.identity == rawKey or (known and instance == known.resetInstance))
+            and current and current.timingEstimated
+            and not approximate and resetAt and started >= resetAt
+            and (not known.resetExpiry or expiry > known.resetExpiry + HELPFUL_TIME_TOLERANCE)
+            and (instance ~= known.resetInstance or clearsResetSample(expiry, started, resetAt,
+                known.resetSampleExpiry, known.resetSampleObservedAt))
+            and (not rawWitness.expiry or expiry > rawWitness.expiry + HELPFUL_TIME_TOLERANCE)
+            and clearsResetSample(expiry, started, resetAt,
+                rawWitness.sampleReplayExpiry or rawWitness.sampleExpiry, rawWitness.sampleObservedAt)) then
+        -- An independently accepted post-reset estimate can still learn a
+        -- primary native ID's first precise clock, or genuinely later known
+        -- boundaries. Its old endpoint and correction aliases cannot lend
+        -- historical ownership to the independently accepted occurrence.
+        Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        return false -- Historical correction/native aliases cannot change ownership.
+    end
     local key = continuing or rawKey
+    if sampleOwner and sampleOwner.evidenceSource == 'cast' and application
+        and application.identity == sampleOwner.evidenceIdentity and not approximate
+        and started <= sampleOwner.started + HELPFUL_TIME_TOLERANCE
+        and application.expiry and math.abs(expiry - application.expiry) <= HELPFUL_TIME_TOLERANCE
+        and rememberCastHelpful(guid, canonical, sampleOwner, key, rawWitness,
+            instance, started, approximate, expiry, now, proposedUnknown) then
+        -- A promoted cast can postdate its aura's original start. Its already
+        -- accepted endpoint still proves continuity when a native ID arrives;
+        -- the older aura start must never replace the successful-cast clock.
+        if ns.model:CorroborateHelpful(guid, canonical, sampleOwner.evidenceIdentity, now, origin) then
+            Evidence.stats.helpfulProvenanceLinked = Evidence.stats.helpfulProvenanceLinked + 1
+        end
+        Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        return false
+    end
     -- Expired keys are pruned BEFORE deduplication; an exact identity can only
     -- be replayed after TTL if the API truly reports it again. Anonymous
     -- reapplications still demand a positive added-aura event (above).
     if continuing or Evidence.seenHelpful[key] then
         Evidence.stats.helpfulDuplicate = Evidence.stats.helpfulDuplicate + 1
+        if sampleOwner and sampleOwner.evidenceSource == 'cast' and rawWitness
+            and (rawWitness.identity == sampleOwner.evidenceIdentity
+                or (instance and application and application.identity == sampleOwner.evidenceIdentity
+                    and application.instance == instance)) then
+            rememberCastHelpful(guid, canonical, sampleOwner, key, rawWitness,
+                instance, started, approximate, expiry, now, proposedUnknown)
+        end
+        if sampleOwner and sampleOwner.evidenceSource == 'cast'
+            and now < sampleOwner.started + sampleOwner.duration and instance and not approximate then
+            -- Rejected native reports retain their own sampled history only.
+            -- They cannot replace the current application's ID or endpoint.
+            rememberSample(Evidence.seenHelpful[guid..':'..canonical..':instance:'..instance], expiry, now)
+        end
+        local timingRefined = false
         if continuing then
-            rememberHelpful(guid, canonical, key, instance, now)
+            local row = activeHelpful(guid, canonical, now)
+            local application = Evidence.helpfulApplications[guid..':'..canonical]
+            if row and row.timingEstimated and not approximate
+                and ((instance and (not application or application.identity ~= key or application.instance ~= instance))
+                    or (rawKey and not rawWitness)) then
+                -- A rejected precise report must not commit a new native ID or
+                -- correction alias that would authorize its historical readings.
+                timingRefined = ns.model.RefineHelpfulTime
+                    and ns.model:RefineHelpfulTime(guid,canonical,key,started,now,origin) == true
+                if not timingRefined then return false end
+            end
+            local compatibleExpiry = not approximate and row and not row.timingEstimated
+                and (math.abs(started - row.started) <= HELPFUL_TIME_TOLERANCE
+                    or (application and application.identity == key and application.expiry and expiry
+                        and math.abs(expiry - application.expiry) <= HELPFUL_TIME_TOLERANCE)) and expiry or nil
+            -- A readable endpoint can correct this precise application even
+            -- when no first-sighting timestamp refinement remains possible.
+            -- Same ID alone does not bind a different application clock.
+            rememberHelpful(guid, canonical, key, instance, now, nil, compatibleExpiry)
             -- A stronger alias must also remain deduplicated if an older
             -- sensor reports it after a later genuine application.
-            if rawKey then Evidence.seenHelpful[rawKey] = now end
+            if rawKey then rememberSeen(rawKey, key, now) end
             pruneSeen(now)
         end
         -- A later exact timestamp can refine a first-sighting estimate, but
@@ -273,42 +547,103 @@ local function acceptHelpful(guid, aura, now, newApplication, origin)
             and ns.model:CorroborateHelpful(guid,canonical,key,now,origin) then
             Evidence.stats.helpfulProvenanceLinked = Evidence.stats.helpfulProvenanceLinked + 1
         end
-        if not approximate and ns.model.RefineHelpfulTime
-            and ns.model:RefineHelpfulTime(guid,canonical,key,started,now,origin) then
-            rememberHelpful(guid, canonical, key, instance, now, started)
+        if timingRefined or (not approximate and ns.model.RefineHelpfulTime
+            and ns.model:RefineHelpfulTime(guid,canonical,key,started,now,origin)) then
+            rememberHelpful(guid, canonical, key, instance, now, started, expiry)
             pruneSeen(now)
             Evidence.stats.helpfulTimingRefined = Evidence.stats.helpfulTimingRefined + 1
         end
         return false
     end
-    -- Keep rejected strong identities deduplicated, but a proposed anonymous
-    -- cycle must remain available for the next genuinely accepted application.
-    if not proposedUnknown then
-        Evidence.seenHelpful[key] = now
-        pruneSeen(now)
-    end
     Evidence.stats.helpfulPositive = Evidence.stats.helpfulPositive + 1
-    local accepted = ns.model:Cast(guid, nil, canonical, started,
+    local accepted, corroborated = ns.model:Cast(guid, nil, canonical, started,
         'helpful-aura:'..key, false, ns.db.cooldownOverrides,
         'helpful-aura', approximate, {
             identity=key, origin=origin, observedAt=now,
-            newApplication=newApplication == true and not castCorroborationOnly,
+            newApplication=(newApplication == true or resetTimedApplication) and not castCorroborationOnly,
+            resetAt=resetApplication and resetAt or nil,
         })
+    local associated = not accepted and corroborated and rememberCastHelpful(guid, canonical,
+        corroborated, key, rawWitness, instance, started, approximate, expiry, now, proposedUnknown)
+    -- Wait for Model's ownership decision before assigning a fresh alias.
+    -- Rejected strong keys stay deduplicated; unaccepted anonymous proposals
+    -- remain available for the next genuinely admitted occurrence.
+    if not proposedUnknown and not associated then
+        rememberSeen(key, key, now)
+        if not accepted and instance and not approximate and sampleOwner
+            and sampleOwner.evidenceSource == 'cast' and now < sampleOwner.started + sampleOwner.duration then
+            rememberSample(Evidence.seenHelpful[guid..':'..canonical..':instance:'..instance], expiry, now)
+        end
+        pruneSeen(now)
+    end
     if accepted then
         if proposedUnknown then
             Evidence.unknownHelpful[guid..':'..canonical] = proposedUnknown
-            Evidence.seenHelpful[key] = now
+            rememberSeen(key, key, now)
             if renewedUnknown then
                 Evidence.stats.unknownRenewed = Evidence.stats.unknownRenewed + 1
             end
         end
-        rememberHelpful(guid, canonical, key, instance, now, started)
+        rememberHelpful(guid, canonical, key, instance, now, started, expiry)
         pruneSeen(now)
         Evidence.stats.helpfulAccepted = Evidence.stats.helpfulAccepted + 1
     else
         Evidence.stats.helpfulAlreadyTracked = Evidence.stats.helpfulAlreadyTracked + 1
     end
     return accepted == true
+end
+
+-- Observer calls this only AFTER Model accepts the successful cast. Keep the
+-- reset barrier inside the existing bounded continuity records; never erase
+-- native witness keys or let an ordinary sighting spend a reset permission.
+function Evidence.OnAcceptedCast(guid, spellID, now)
+    local canonical = ns.Data.castToSpell[spellID] or spellID
+    local known = Evidence.unknownHelpful[guid..':'..canonical]
+    if known then
+        known.lastActivation, known.resetPending = now, nil
+    end
+    local applicationKey = guid..':'..canonical
+    local application = Evidence.helpfulApplications[applicationKey]
+    local caster = ns.model.casters[guid]
+    local current = caster and caster.cooldowns[canonical]
+    if application and (not current or current.evidenceIdentity ~= application.identity) then
+        -- A distinct successful cast supersedes that aura application. Its old
+        -- endpoint cannot later authorize a reused-ID refresh across a reset.
+        Evidence.helpfulApplications[applicationKey] = nil
+    end
+    local reset = ns.Data.resets[spellID] or ns.Data.resets[canonical]
+    for _, resetID in ipairs(reset or {}) do
+        if ns.Data.helpfulCooldownAuras[resetID] == resetID then
+            local key = guid..':'..resetID
+            known = Evidence.unknownHelpful[key]
+            if not known then
+                local count = 0
+                for _ in pairs(Evidence.unknownHelpful) do count = count + 1 end
+                if count < MAX_UNKNOWN then
+                    known = {generation=0,lastActivation=now}
+                    Evidence.unknownHelpful[key] = known
+                else
+                    -- Preserve the failed guard only for this fixed reset family
+                    -- on the already capped caster record. Do not evict another
+                    -- activation anchor or suppress unrelated strong identities.
+                    local caster = ns.model.casters[guid]
+                    if caster then
+                        caster.helpfulResetBlocked = caster.helpfulResetBlocked or {}
+                        caster.helpfulResetBlocked[resetID] = true
+                    end
+                end
+            end
+            if known then
+                local application = Evidence.helpfulApplications[key]
+                known.resetAt, known.resetPending = now, true
+                known.resetSerial = (known.resetSerial or 0) + 1
+                known.resetInstance = application and application.instance
+                known.resetExpiry = application and application.expiry
+                known.resetSampleExpiry = application and (application.sampleReplayExpiry or application.sampleExpiry)
+                known.resetSampleObservedAt = application and application.sampleObservedAt
+            end
+        end
+    end
 end
 
 local function exactHelpful(unit, guid, now)
@@ -329,6 +664,19 @@ function Evidence.OnUnitSeen(unit, now)
     if not now then return end
     local guid = hostilePlayerGUID(unit)
     if guid then exactHelpful(unit, guid, now) end
+end
+
+-- World entry resets the consumer after another addon's handler may already
+-- have published its current snapshot. Re-read the four fixed bindings once
+-- after that reset; replaying recent bus history cannot prove world freshness.
+-- Derived tokens are eligible only here, not in the general event/poll paths.
+function Evidence.OnWorldEntered(now)
+    now = currentTime(now)
+    if not now then return end
+    for _, unit in ipairs({'target','focus','targettarget','focustarget'}) do
+        local guid = hostilePlayerGUID(unit, true)
+        if guid then exactHelpful(unit, guid, now) end
+    end
 end
 
 function Evidence.OnAuraEvent(unit, updateInfo, now)

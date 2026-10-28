@@ -162,7 +162,7 @@ ns.Data = {
     -- These reset spells are inputs, not CC cooldown icons of their own.
     resets = {
         [12472] = { 122 },                -- Cold Snap -> Frost Nova
-        [14185] = { 408, 2094, 1776 },   -- Preparation -> Kidney Shot, Blind, Gouge
+        [14185] = { 408, 2094, 1776, 5277, 1766 }, -- Preparation -> tracked Rogue cooldowns
     },
 }
 
@@ -213,7 +213,7 @@ AddSpell(16689, "Nature's Grasp", "root", "Spell_Nature_NaturesWrath", 60, 60, {
 -- Cooldown predictions from a new, readable, self-applied helpful aura.
 -- These are provisional Forever timings, not server-authoritative readiness.
 AddSpell(22812, "Barkskin", "defensive", "Spell_Nature_StoneClawTotem", 60, 60)
-AddSpell(5277, "Evasion", "defensive", "Spell_Shadow_ShadowWard", 210, 300, {26669})
+AddSpell(5277, "Evasion", "defensive", "Spell_Shadow_ShadowWard", 120, 300, {26669})
 AddSpell(122, "Frost Nova", "root", "Spell_Frost_FrostNova", 21, 25, { 865, 6131, 10230 })
 AddSpell(408, "Kidney Shot", "kidney", "Ability_Rogue_KidneyShot", 20, 20, { 8643 })
 -- Blind and Death Coil have no DR entry in this Classic mapping.

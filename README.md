@@ -1,6 +1,22 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.33-horizontal-dr-five-seconds-test (2026-10-26)
+## Current release: 0.4.17.43-correction-fixes-test (2026-10-28)
+
+This publishes the verified `.43` build, including the correction and evidence-recovery repairs since `.33`. The existing horizontal DR layout and saved-setting policy remain in place. The repairs cover world-entry recovery, cast/aura occurrence ownership, reset replay, late timing corrections, and bounded history.
+
+The final repair retains aura identity and sample history when an aura corroborates an already accepted successful cast. Learning a native ID later does not create another activation or move the successful-cast clock. Old pre-reset samples cannot reopen a cooldown or refine a newer independent estimate; admissible fresh timing can still correct that estimate without replacing its claim. Foreign native IDs cannot take ownership of the current occurrence.
+
+The exact package passed 28 regression suites on each of Lua 5.1 and Lua 5.4 (56 executions), preserved earlier repair reproductions, and independent model, cooldown and actual-publisher integration reviews. Helpful evidence keeps its existing 256-record caps and 480-second witness retention; the DR model retains at most 512 effects per actor. Finite history does not provide unlimited replay protection.
+
+A documented conservative case remains: near-cast provenance can be accepted without a compatible timing endpoint, so direct reuse of that historical native ID after reset may stay suppressed. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md). This is still a `fixes-test` build: native secret-value enforcement, taint, rendering and in-game performance remain unverified.
+
+The repository includes all 45 verified test/support files unchanged. Run `python tests/run_tests.py` after installing `requirements-dev.txt`, or use the Lua 5.1/5.4 commands in `.github/workflows/validate.yml`. CI validates and packages all 19 runtime files against the checked-in `SHA256SUMS.txt`, including third-party notices.
+
+Verified addon ZIP SHA-256: `cebdfa194d836b33290e7084e453c0525b95e4790ba20fc69638f7adfb609d5d`.
+
+The release notes below are historical.
+
+## Previous release: 0.4.17.33-horizontal-dr-five-seconds-test (2026-10-26)
 
 The DR trackers for Player, Target and Focus are now slightly larger **32px default icons**, displayed as **one horizontal row** beside the native portraits. Player DR grows to the left; Target and Focus DR grow to the right, starting at the same near-portrait anchor as before. The number of visible icons determines the row's width (up to four as previously); native unit-frame coordinates, frames and click behavior are never changed.
 

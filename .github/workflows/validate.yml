@@ -21,7 +21,7 @@ jobs:
             echo "Checking Lua ${version}"
             while IFS= read -r module; do
               "luac${version}" -p "$module"
-            done < <(grep -vE '^#|^[[:space:]]*$' bjarkiCC.toc)
+            done < <(tr -d '\r' < bjarkiCC.toc | grep -vE '^#|^[[:space:]]*$')
             for test in tests/test_*.lua; do
               "luac${version}" -p "$test"
               "lua${version}" -e 'ADDON_DIR = "."; unpack = table.unpack or unpack' "$test"
@@ -41,14 +41,22 @@ jobs:
           assert len(modules) == 15 and len(set(modules)) == 15, "unexpected module inventory"
           dest = root/'dist'/'bjarkiCC'
           dest.mkdir(parents=True, exist_ok=True)
-          for path in [*manifests, *(root/p for p in modules)]:
+          names = [p.name for p in manifests] + modules + ['THIRD_PARTY_NOTICES.txt']
+          expected = {}
+          for line in (root/'SHA256SUMS.txt').read_text().splitlines():
+              digest, name = line.split('  ', 1)
+              assert name not in expected, f"duplicate checksum: {name}"
+              expected[name] = digest
+          assert set(expected) == set(names), "checksum inventory mismatch"
+          for name in names:
+              path = root/name
               assert path.is_file(), f"missing {path}"
-              copy2(path, dest/path.name)
-          assert {p.name for p in dest.glob('*.lua')} == set(modules), "packaging mismatch"
-          sums = ['%s  %s' % (sha256((dest/p.name).read_bytes()).hexdigest(), p.name)
-                  for p in [*manifests, *(root/p for p in modules)]]
-          (dest/'SHA256SUMS.txt').write_text('\n'.join(sums)+'\n')
-          print("Packaged %s runtime modules" % len(modules))
+              assert sha256(path.read_bytes()).hexdigest() == expected[name], f"checksum mismatch: {name}"
+              copy2(path, dest/name)
+          copy2(root/'SHA256SUMS.txt', dest/'SHA256SUMS.txt')
+          assert {p.name for p in dest.iterdir()} == set(names) | {'SHA256SUMS.txt'}, "packaging mismatch"
+          assert len(list(dest.iterdir())) == 19, "unexpected runtime inventory"
+          print("Packaged 19 verified runtime files, including notices and checksums")
           PY
       - uses: actions/upload-artifact@v4
         with:

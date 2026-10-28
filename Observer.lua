@@ -165,6 +165,7 @@ local function auraSnapshot(unit, now)
                         category = category, spellID = spellID, expires = expires,
                         expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
                         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
+                        auraExpires = appliedAt and expires or nil,
                     }
                 end
             else
@@ -213,6 +214,7 @@ local function exactAura(unit, wantedSpellID, now)
         category = category, spellID = spellID, expires = expires,
         expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
+        auraExpires = appliedAt and expires or nil,
     }}, "confirmed"
 end
 
@@ -276,7 +278,8 @@ local function addedAoEEvent(unit, updateInfo, now)
                         results[key] = {category = "stun", spellID = id,
                             expires = expires, appliedAt = appliedAt,
                             expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
-                            applicationSource = appliedAt and "aura" or nil}
+                            applicationSource = appliedAt and "aura" or nil,
+                            auraExpires = appliedAt and expires or nil}
                         accepted = accepted + 1
                     end
                 end
@@ -414,6 +417,33 @@ local function mergeEffects(effects, additional)
                 -- positive refresh cannot inherit its predecessor's endpoint.
                 if effect.expires or refreshed then copyExpiry(existing, effect) end
                 existing.reportedDuration = effect.reportedDuration
+            elseif effect.expirySource == "loc" and effect.expires
+                and not effect.appliedAt and not effect.expiryAppliedAt
+                and existing.spellID == effect.spellID and existing.category == effect.category
+                and not existing.appliedAt and existing.applicationSource ~= "loc"
+                and not existing.expires then
+                -- A native remaining-time reading can fill a missing end,
+                -- but cannot supply a start or full duration. Keep it unbound
+                -- so Model can reject inheritance by a later explicit refresh.
+                copyExpiry(existing, effect)
+            elseif effect.expirySource == "aura" and effect.expires
+                and existing.spellID == effect.spellID and existing.category == effect.category
+                and not existing.appliedAt and existing.applicationSource ~= "loc"
+                and (existing.expirySource ~= "loc"
+                    or (not existing.expiryAppliedAt and existing.expires
+                        and math.abs(existing.expires - effect.expires) <= APPLICATION_EPSILON))
+                and (not existing.expires
+                    or math.abs(existing.expires - effect.expires) <= APPLICATION_EPSILON) then
+                -- A matching aura can supply a missing application clock even
+                -- when endpoint arithmetic differs within the existing clock
+                -- tolerance or came from remaining-only LoC. Preserve
+                -- that endpoint's original unbound provenance; an aura start
+                -- must not turn it into a bound LoC end. Conflicting endpoints
+                -- and explicit LoC clocks remain authoritative. Model still
+                -- judges correction, refresh and stale replay at its boundary.
+                existing.appliedAt, existing.applicationSource = effect.appliedAt, effect.applicationSource
+                existing.auraExpires = effect.auraExpires
+                if existing.expirySource ~= "loc" then copyExpiry(existing, effect) end
             end
         end
     end
@@ -1004,6 +1034,7 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
             local acceptedBoundary = accepted and {
                 appliedAt = accepted.refreshAppliedAt or accepted.appliedAt,
                 expires = accepted.expires,
+                expirySource = accepted.expirySource, auraExpires = accepted.auraExpires,
                 applicationSource = accepted.applicationSource,
             }
             local staleAura = effects[key].applicationSource == "aura" and accepted
@@ -1514,6 +1545,9 @@ function Observer.OnCast(unit, castGUID, spellID, now)
     -- Interrupt settings are a view filter. No cast is a DR application.
     local accepted = ns.model:Cast(guid, nil, spellID, now, castGUID, false, ns.db.cooldownOverrides)
     if not accepted then return rejectCast("duplicateOrNoCooldown") end
+    if ns.CooldownEvidence and ns.CooldownEvidence.OnAcceptedCast then
+        ns.CooldownEvidence.OnAcceptedCast(guid, spellID, now)
+    end
     Observer.stats.acceptedCasts = Observer.stats.acceptedCasts + 1
     return true
 end

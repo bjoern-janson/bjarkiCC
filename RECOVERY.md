@@ -1,6 +1,6 @@
 # Recover the 0.4.17 settings after a rollback
 
-This document preserves the **historical 0.4.17 rollback**. The current repository runtime is **0.4.17.31-foundation-v15-fixes-test**. The command below is not required when upgrading to v15; use the current settings and migration described in [README.md](README.md). Historical statements about confirmed-hit-only War Stomp and the nine passing suites refer to the rollback source.
+This document preserves the **historical 0.4.17 rollback**. The current repository runtime is **0.4.17.43-correction-fixes-test**. The command below is not required when upgrading to the current build; use the current settings and migration described in [README.md](README.md). Historical statements about confirmed-hit-only War Stomp and the nine passing suites refer to the rollback source.
 
 Recovery recorded 2026-10-17. At this recovery checkpoint, runtime and tests were restored to the original 0.4.17-beta release (commit `9ad8325c460f5a2704a701b47e3de91ffd040935`). Later changes remain in Git history. This is a rollback, not a new tracking fix.
 

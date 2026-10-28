@@ -595,8 +595,7 @@ frame:SetScript('OnEvent',function(_,event,...)
             ns.Observer.OnNativeDR(...)
         elseif event=='PLAYER_ENTERING_WORLD' then
             ns.ResetTracking()
-            ns.CooldownEvidence.OnUnitSeen('target',GetTime())
-            ns.CooldownEvidence.OnUnitSeen('focus',GetTime())
+            ns.CooldownEvidence.OnWorldEntered(GetTime())
             if ns.NativeStuns then ns.NativeStuns.Init() end
             if ns.GCD then ns.GCD.Start() end
         elseif event=='PLAYER_REGEN_ENABLED' then

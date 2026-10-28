@@ -1,5 +1,18 @@
 # bjarkiCC known issues and validation status
 
+## Current validation status: 0.4.17.43-correction-fixes-test (2026-10-28)
+
+The exact `.43` ZIP passed the complete 28-suite battery on Lua 5.1 and Lua 5.4, preserved repair reproductions, and fresh independent reviews. No additional confirmed bug or regression was established in the reviewed paths. These are deterministic offline checks with modeled WoW APIs, not live-client validation. Historical reports below describe their named releases and are not blanket claims about the current build.
+
+Cast corroboration now preserves occurrence custody and sampled aura evidence without revising the successful-cast clock. Old samples remain rejected after reset and cannot falsely refine an independent estimate; fresh admissible timing remains supported. Foreign native IDs and historical aliases cannot acquire a newer occurrence's authority merely by reappearing.
+
+Remaining validation and policy limits:
+
+- Native secret-value enforcement, secure templates/taint, rendering, real event availability/cadence and frame-time cost still require an in-game smoke test.
+- A near-cast aura can corroborate provenance within 1.5 seconds while failing the 0.1-second compatible-timing criterion. Sample-only evidence does not establish a trusted endpoint; direct reuse of that historical native ID after reset can remain conservatively suppressed.
+- Helpful stores retain their 256-record caps and existing 480-second witness retention, and DR retains 512 effect records per actor. Evicted history does not offer unlimited replay protection.
+- Previously recorded OwnCasts terminal maps use TTL retention rather than universal cardinality caps. Conditional NativeStuns construction/recovery limitations remain outside the cast-custody repair. Passing modeled lifecycle controls do not prove all client construction failures recover.
+
 ## Horizontal DR presentation and countdown update (2026-10-26)
 
 Current runtime: **0.4.17.33-horizontal-dr-five-seconds-test**. The three DR strips use 32px default icons instead of 28px and grow outward horizontally beside the native unit frame, capped at four categories per tracked unit. Full DR application timers and enemy cooldown estimates use decimals strictly below five seconds, whole seconds from 5 to 359, and compact minute/hour/day units afterward. The separate model timing policy, cast evidence restrictions, cooldown HUD opt-in, and uncertainty semantics remain unchanged.
