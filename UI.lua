@@ -495,7 +495,7 @@ end
 function UI.OpenOptions()
     if UI.options then UI.options:Show(); return end
     local panel=CreateFrame('Frame','bjarkiCCOptions',UIParent,'BackdropTemplate')
-    UI.options=panel; panel:SetSize(500,430); panel:SetPoint('CENTER'); panel:SetFrameStrata('DIALOG')
+    UI.options=panel; panel:SetSize(500,470); panel:SetPoint('CENTER'); panel:SetFrameStrata('DIALOG')
     backdrop(panel); panel:SetMovable(true); panel:SetClampedToScreen(true); panel:EnableMouse(true)
     panel:RegisterForDrag('LeftButton'); panel:SetScript('OnDragStart',panel.StartMoving); panel:SetScript('OnDragStop',panel.StopMovingOrSizing)
     if UISpecialFrames then table.insert(UISpecialFrames,'bjarkiCCOptions') end
@@ -514,10 +514,10 @@ function UI.OpenOptions()
         preview:SetText(ns.demo and 'End preview' or 'Preview')
         move:SetText(ns.db.locked and 'Move bars' or 'Lock bars')
     end
-    preview=button(panel,'Preview',18,-392,110,function() ns.demo=not ns.demo; UI.Update(GetTime()); refreshActions() end)
-    move=button(panel,'Move bars',136,-392,110,function() ns.db.locked=not ns.db.locked; UI.ApplyLayout(); refreshActions() end)
-    button(panel,'Reset positions',254,-392,110,function() ns.ResetPositions(); UI.ApplyLayout() end)
-    button(panel,'Close',372,-392,110,function() panel:Hide() end)
+    preview=button(panel,'Preview',18,-432,110,function() ns.demo=not ns.demo; UI.Update(GetTime()); refreshActions() end)
+    move=button(panel,'Move bars',136,-432,110,function() ns.db.locked=not ns.db.locked; UI.ApplyLayout(); refreshActions() end)
+    button(panel,'Reset positions',254,-432,110,function() ns.ResetPositions(); UI.ApplyLayout() end)
+    button(panel,'Close',372,-432,110,function() panel:Hide() end)
     panel:SetScript('OnShow',refreshActions)
     panel.RefreshActions=refreshActions
     refreshActions()
@@ -566,7 +566,7 @@ function UI.OpenOptions()
     check(page,'Only current target',0,0,function() return ns.db.targetOnly end,function(v) ns.db.targetOnly=v end)
     check(page,'Include interrupts',240,0,function() return ns.db.interrupts end,function(v) ns.db.interrupts=v end)
     local scroll=CreateFrame('ScrollFrame',nil,page,'UIPanelScrollFrameTemplate')
-    scroll:SetPoint('TOPLEFT',4,-42); scroll:SetPoint('BOTTOMRIGHT',-28,36)
+    scroll:SetPoint('TOPLEFT',4,-42); scroll:SetPoint('BOTTOMRIGHT',-28,76)
     local child=CreateFrame('Frame',nil,scroll); child:SetWidth(420); scroll:SetScrollChild(child)
     local abilities={}; for _,spell in pairs(ns.Data.spells) do abilities[#abilities+1]=spell end
     table.sort(abilities,function(a,b) return a.name<b.name end)

@@ -1,6 +1,21 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.43-correction-fixes-test (2026-10-28)
+## Current release: 0.4.17.44-audit-fixes-test (2026-10-31)
+
+This build repairs the four findings from the `.43` source audit:
+
+- Duplicate nameplate positives no longer discard continuously complete target/focus duration history. Supplementary observations still cannot prove absence or restore history lost through an actual observation gap.
+- Same-scan aura/LoC merging retains coherent aura timing as a veto against contradictory full-duration learning. This evidence cannot supply a DR stage or override LoC timing.
+- The settings panel has enough vertical space for the AoE estimate checkbox and footer buttons.
+- Runtime startup/status and both TOCs report the same version.
+
+Validation covers 30 regression suites on each of Lua 5.1 and Lua 5.4 (60 suite executions), including 38 new cases for the two DR repairs. The packaged runtime is also syntax-checked under both engines. UI bounds and runtime/TOC version consistency are checked separately.
+
+The existing DR timing policy, tracked spells, saved settings, countdown precision and experimental cooldown HUD defaults remain unchanged. Native secret-value enforcement, taint, rendering and real event behavior still require an in-game smoke test.
+
+Verified addon ZIP SHA-256: `69e59fa5ed595acbd9854529009322f9dbaef325ca939c259780a7d63aa99f48`.
+
+## Previous release: 0.4.17.43-correction-fixes-test (2026-10-28)
 
 This publishes the verified `.43` build, including the correction and evidence-recovery repairs since `.33`. The existing horizontal DR layout and saved-setting policy remain in place. The repairs cover world-entry recovery, cast/aura occurrence ownership, reset replay, late timing corrections, and bounded history.
 

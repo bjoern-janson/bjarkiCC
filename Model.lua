@@ -253,14 +253,19 @@ end
 
 local function rememberAuraDuration(state, effect, preciseStart)
     local context = state and state.durationContext
-    if not context or context.initialAuraDuration or effect.applicationSource ~= "aura"
+    local merged = effect.applicationSource == "loc"
+    local auraStart, expires = preciseStart, effect.expires
+    if merged then auraStart, expires = effect.auraAppliedAt, effect.auraExpires end
+    if not context or context.initialAuraDuration
+        or (effect.applicationSource ~= "aura" and not merged)
         or not preciseStart or preciseStart >= math.huge
+        or type(auraStart) ~= "number" or auraStart ~= auraStart or auraStart >= math.huge
         or state.spellID ~= effect.spellID
         or math.abs(state.appliedAt - preciseStart) > APPLICATION_EPSILON
-        or (state.witness and state.witness.applicationSource == "loc") then return end
-    local expires = effect.expires
+        or math.abs(auraStart - preciseStart) > APPLICATION_EPSILON
+        or (not merged and state.witness and state.witness.applicationSource == "loc") then return end
     if type(expires) ~= "number" or expires ~= expires or expires >= math.huge then return end
-    local duration = expires - preciseStart
+    local duration = expires - auraStart
     if duration <= 0 or duration > 120 then return end
     -- This interval can only veto inconsistent baseline learning. It never
     -- teaches a full duration or infers a diminished stage. Freeze the first
@@ -475,12 +480,30 @@ local function boundEffects(unit, effects, incoming, resetSeconds)
     end
 end
 
-function Model:Observe(guid, effects, now, complete, removedKeys)
+function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
     if not guid then return end
     local unit = self.units[guid]
     if not unit then
         unit = {seen = now, effects = {}, categories = {}, durationBaselines = {}, durationLadders = {}, durationEpoch = 0}
         self.units[guid] = unit
+    end
+    -- A supplemental sensor repeating known applications says nothing about
+    -- primary coverage. Preserve that independently complete history without
+    -- granting this snapshot removal, quiet, or duration-learning authority.
+    -- New/conflicting applications still invalidate the incomplete history.
+    local preserveCoverage = positiveOnly and not complete and not removedKeys
+        and unit.completeSince ~= nil and not unit.paused
+    if preserveCoverage then
+        for key, effect in pairs(effects or {}) do
+            local previous = unit.effects[key]
+            if not previous or previous.endedAt or previous.gapUnresolved
+                or previous.fallbackIdentity or effect.fallbackIdentity
+                or previous.category ~= effect.category or previous.spellID ~= effect.spellID
+                or refreshedApplication(previous, effect, applicationTime(effect, now)) then
+                preserveCoverage = false
+                break
+            end
+        end
     end
     -- A tracking gap must not be mistaken for observed quiet or a known CC end.
     unit.paused, unit.pauseAt = false, nil
@@ -492,7 +515,7 @@ function Model:Observe(guid, effects, now, complete, removedKeys)
 
     if complete then
         if not unit.completeSince then unit.completeSince = now end
-    else
+    elseif not preserveCoverage then
         -- An unreadable/partial snapshot cannot establish a removal or preserve
         -- the earlier history proof. It also cannot change an observed timer.
         unit.completeSince = nil
@@ -868,7 +891,7 @@ function Model:Observe(guid, effects, now, complete, removedKeys)
     for category, state in pairs(unit.categories) do
         if complete and not presentCategories[category] then
             state.observedQuietSince = state.observedQuietSince or now
-        else
+        elseif presentCategories[category] or not preserveCoverage then
             state.observedQuietSince = nil
         end
     end

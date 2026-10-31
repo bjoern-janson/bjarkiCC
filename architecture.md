@@ -1,6 +1,15 @@
 # bjarkiCC architecture and DR research
 
-## Current evidence contract: 0.4.17.43-correction-fixes-test (2026-10-28)
+## Current DR evidence contract: 0.4.17.44-audit-fixes-test (2026-10-31)
+
+A supplementary nameplate is a positive-only source while a primary observer owns the GUID. Reobserving an already active occurrence must not discard primary duration continuity. Such a sample cannot establish completeness, removal, quiet time or new duration learning; actual coverage loss and contradictory/new occurrences keep their conservative handling.
+
+Aura timing retains its own occurrence binding through LoC normalization. A coherent current aura interval may veto contradictory full-duration learning even when the first model observation already carries authoritative LoC timing. It cannot teach a full duration, infer a diminished stage or replace the accepted endpoint, and predecessor timing cannot veto a later refresh.
+
+Cooldown claims, native visual ownership, saved settings and polling behavior retain their previous contracts. The runtime inventory remains 15 Lua modules, two TOCs, notices and the SHA256 manifest.
+
+
+## Previous evidence contract: 0.4.17.43-correction-fixes-test (2026-10-28)
 
 `Model:Cast` keeps its boolean activation result. When a helpful aura positively corroborates an existing near cast, it additionally returns that existing row. `CooldownEvidence` uses that result only to retain bounded occurrence custody; `Observer` continues to gate accepted-cast handling on the first return.
 

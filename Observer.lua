@@ -165,7 +165,7 @@ local function auraSnapshot(unit, now)
                         category = category, spellID = spellID, expires = expires,
                         expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
                         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
-                        auraExpires = appliedAt and expires or nil,
+                        auraAppliedAt = appliedAt, auraExpires = appliedAt and expires or nil,
                     }
                 end
             else
@@ -214,7 +214,7 @@ local function exactAura(unit, wantedSpellID, now)
         category = category, spellID = spellID, expires = expires,
         expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
-        auraExpires = appliedAt and expires or nil,
+        auraAppliedAt = appliedAt, auraExpires = appliedAt and expires or nil,
     }}, "confirmed"
 end
 
@@ -279,7 +279,7 @@ local function addedAoEEvent(unit, updateInfo, now)
                             expires = expires, appliedAt = appliedAt,
                             expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
                             applicationSource = appliedAt and "aura" or nil,
-                            auraExpires = appliedAt and expires or nil}
+                            auraAppliedAt = appliedAt, auraExpires = appliedAt and expires or nil}
                         accepted = accepted + 1
                     end
                 end
@@ -396,6 +396,31 @@ local function boundLoCExpiry(effect, start)
         and effect.expires and effect.expires > start and effect.expires < math.huge
 end
 
+-- Keep a current aura interval separate from the promoted explicit clock.
+-- It can only veto duration learning for this same occurrence; it supplies
+-- neither a reported LoC duration nor endpoint/application authority.
+local function matchingAuraInterval(effect, start)
+    local duration = effect.auraAppliedAt and effect.auraExpires
+        and effect.auraExpires - effect.auraAppliedAt
+    return duration and duration > 0 and duration <= 120
+        and math.abs(start - effect.auraAppliedAt) <= APPLICATION_EPSILON
+end
+
+local function copyAuraInterval(destination, source)
+    if destination.applicationSource ~= "loc" or not destination.appliedAt
+        or destination.spellID ~= source.spellID or destination.category ~= source.category then return end
+    local existing = matchingAuraInterval(destination, destination.appliedAt)
+    if existing and destination.auraDurationCaptured then return end
+    if matchingAuraInterval(source, destination.appliedAt)
+        and (source.auraDurationCaptured or not existing) then
+        destination.auraAppliedAt, destination.auraExpires = source.auraAppliedAt, source.auraExpires
+        existing = true
+    end
+    -- A complete alias reverses the merge arguments. Preserve the interval
+    -- already captured from the owning token, whichever side now carries it.
+    destination.auraDurationCaptured = existing or nil
+end
+
 local function mergeEffects(effects, additional)
     for key, effect in pairs(additional) do
         -- An exact native key can have a newer explicit occurrence in either
@@ -445,6 +470,7 @@ local function mergeEffects(effects, additional)
                 existing.auraExpires = effect.auraExpires
                 if existing.expirySource ~= "loc" then copyExpiry(existing, effect) end
             end
+            if existing then copyAuraInterval(existing, effect) end
         end
     end
 end
@@ -522,6 +548,7 @@ local function reconcileWitnesses(effects, previous)
                 and not ns.Model.IsRefresh(existing, effect, effect.appliedAt) then
                 copyExpiry(effect, existing)
             end
+            if existing then copyAuraInterval(effect, existing) end
             result[key] = effect
         end
         if playerLoC then result[key].playerLoC = true end
@@ -623,6 +650,10 @@ local function reconcileWitnesses(effects, previous)
                     -- Identity may survive a sensor handoff, but raw duration is
                     -- evidence only from this observation's accepted LoC start.
                     witness.reportedDuration = nil
+                    -- Only this scan's aura interval may veto its explicit
+                    -- duration; historical identity cannot donate that proof.
+                    witness.auraAppliedAt, witness.auraDurationCaptured = effect.auraAppliedAt, effect.auraDurationCaptured
+                    if effect.auraAppliedAt then witness.auraExpires = effect.auraExpires end
                     -- Do not present a historical candidate's endpoint as a
                     -- current sensor reading. Model retains its accepted end
                     -- only if this still represents the same occurrence.
@@ -1089,7 +1120,8 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
     }
     for key, value in pairs(diagnostics) do state[key] = value end
     if not supplementary or next(effects) then
-        ns.model:Observe(guid, effects, now, complete, removedKeys)
+        ns.model:Observe(guid, effects, now, complete, removedKeys,
+            supplementary and not ambiguous and not capped and not identitiesCapped)
         if ns.RecordDRObservation then ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostics) end
         retainGuidContext(guid, state)
     end

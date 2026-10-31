@@ -1,5 +1,14 @@
 # bjarkiCC known issues and validation status
 
+## Audit repairs: 0.4.17.44-audit-fixes-test (2026-10-31)
+
+The `.43` audit's four reproducible findings are repaired: duplicate supplementary nameplates erasing primary duration history, same-scan aura/LoC disagreement bypassing the learning veto, DR options overlapping the footer, and runtime version text lagging behind the TOCs.
+
+The two DR repairs are guarded by real Observer/Model regressions. Genuine incomplete primary coverage still invalidates proof; new supplementary applications still enter DR; incompatible aura timing only vetoes learning. Offline conflicting-sensor tests establish the provenance defect and repair, not the frequency of such disagreement in the client. Native rendering, secret/taint enforcement and event cadence remain unverified.
+
+The existing limitations listed under `.43` below remain applicable. Older sections preserve historical release findings.
+
+
 ## Current validation status: 0.4.17.43-correction-fixes-test (2026-10-28)
 
 The exact `.43` ZIP passed the complete 28-suite battery on Lua 5.1 and Lua 5.4, preserved repair reproductions, and fresh independent reviews. No additional confirmed bug or regression was established in the reviewed paths. These are deterministic offline checks with modeled WoW APIs, not live-client validation. Historical reports below describe their named releases and are not blanket claims about the current build.
