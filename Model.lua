@@ -256,20 +256,20 @@ local function rememberAuraDuration(state, effect, preciseStart)
     local merged = effect.applicationSource == "loc"
     local auraStart, expires = preciseStart, effect.expires
     if merged then auraStart, expires = effect.auraAppliedAt, effect.auraExpires end
-    if not context or context.initialAuraDuration
+    if not context or context.initialAuraDuration or state.reportedDurationWitness
         or (effect.applicationSource ~= "aura" and not merged)
         or not preciseStart or preciseStart >= math.huge
         or type(auraStart) ~= "number" or auraStart ~= auraStart or auraStart >= math.huge
         or state.spellID ~= effect.spellID
         or math.abs(state.appliedAt - preciseStart) > APPLICATION_EPSILON
-        or math.abs(auraStart - preciseStart) > APPLICATION_EPSILON
-        or (not merged and state.witness and state.witness.applicationSource == "loc") then return end
+        or math.abs(auraStart - preciseStart) > APPLICATION_EPSILON then return end
     if type(expires) ~= "number" or expires ~= expires or expires >= math.huge then return end
     local duration = expires - auraStart
     if duration <= 0 or duration > 120 then return end
     -- This interval can only veto inconsistent baseline learning. It never
     -- teaches a full duration or infers a diminished stage. Freeze the first
-    -- coherent interval, including one that becomes readable after identity.
+    -- coherent interval, including one read after a start-only LoC witness.
+    -- Once the first raw duration is consumed, that decision stays frozen.
     context.initialAuraDuration = duration
 end
 

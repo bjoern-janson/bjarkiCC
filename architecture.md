@@ -1,6 +1,11 @@
 # bjarkiCC architecture and DR research
 
-## Current DR evidence contract: 0.4.17.44-audit-fixes-test (2026-10-31)
+## Current duration decision contract: 0.4.17.45-audit-fixes-test (2026-10-31)
+
+An accepted LoC start does not close aura-duration evidence collection. Until the first coherent raw LoC duration is consumed, the current occurrence's first coherent same-start aura interval may veto inconsistent learning, even when a complete aura scan supplies it separately. `rememberAuraDuration` closes collection on `reportedDurationWitness`, rather than merely on LoC clock ownership. Existing same-start/spell binding, first-interval freezing and all LoC clock/endpoint rules are retained. Later aura evidence does not reopen a consumed duration decision.
+
+
+## Previous DR evidence contract: 0.4.17.44-audit-fixes-test (2026-10-31)
 
 A supplementary nameplate is a positive-only source while a primary observer owns the GUID. Reobserving an already active occurrence must not discard primary duration continuity. Such a sample cannot establish completeness, removal, quiet time or new duration learning; actual coverage loss and contradictory/new occurrences keep their conservative handling.
 

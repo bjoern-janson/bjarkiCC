@@ -1,5 +1,5 @@
 local addonName, ns = ...
-ns.name, ns.version = addonName, '0.4.17.44-audit-fixes-test'
+ns.name, ns.version = addonName, '0.4.17.45-audit-fixes-test'
 ns.Safe = {}
 local S = ns.Safe
 

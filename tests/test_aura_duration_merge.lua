@@ -165,6 +165,103 @@ test('fallback refresh cannot borrow historical aura duration',function()
  eq(state(ns).durationContext.initialAuraDuration,nil)
 end)
 
+-- LoC may reveal its start before either sensor reveals duration. A later
+-- complete aura scan bypasses LoC, so its first interval must survive until
+-- the first raw LoC duration, without acquiring LoC clock/endpoint authority.
+local function startOnly(remaining)
+ local e,ns=fresh();local hidden={}
+ local wasSecret,wasAccessible=issecretvalue,canaccessvalue
+ issecretvalue=function(v)return v==hidden or wasSecret(v)end
+ canaccessvalue=function(v)return v~=hidden and wasAccessible(v)end
+ local function hiddenAura()
+  local a=untimed();a.duration=hidden;a.expirationTime=hidden;return a
+ end
+ local loc=T.loc(SPELL,1,100,hidden);loc.timeRemaining=remaining or hidden
+ current(e,hiddenAura(),loc);ns.Observer.Scan(100)
+ eq(state(ns).reportedDurationWitness,nil,'first raw duration is unreadable')
+ eq(row(ns,100).fullDurationBaseline,nil)
+ return e,ns,hiddenAura
+end
+local function auraOnly(e,ns,start,duration,now)
+ e.auras.target={T.aura(SPELL,1,start,duration)}
+ e.auras.focus={T.aura(SPELL,1,start,duration)}
+ e.byloc.target={};ns.Observer.Scan(now)
+end
+
+for _,duration in ipairs({20,10}) do
+ for _,knownEnd in ipairs({false,true}) do
+  test('separate late aura '..duration..' known LoC end='..tostring(knownEnd),function()
+   local e,ns,hiddenAura=startOnly(knownEnd and 15 or nil)
+   auraOnly(e,ns,100,duration,100.2)
+   eq(row(ns,100.2).started,100,'accepted LoC start remains fixed')
+   eq(state(ns).witness.applicationSource,'loc','LoC retains clock authority')
+   if knownEnd then
+    eq(state(ns).witness.expires,115,'aura cannot replace accepted LoC end')
+    eq(state(ns).witness.expirySource,'loc')
+   end
+   eq(row(ns,100.2).fullDurationBaseline,nil,'aura alone never teaches full duration')
+   eq(state(ns).reportedDurationWitness,nil)
+   current(e,hiddenAura(),T.loc(SPELL,1,100,10));ns.Observer.Scan(100.4)
+   eq(state(ns).witness.expires,110,'readable same-start LoC can correct its end')
+   eq(row(ns,100.4).fullDurationBaseline,duration==10 and 10 or nil,'first aura interval governs learning veto')
+   local nextRow=successor(e,ns,100.4,110,125.5)
+   eq(nextRow.stage,duration==10 and 1 or 2,'late conflict cannot authorize early reset')
+   eq(nextRow.resetEvidence,duration==10 and 'matching-full-duration' or nil)
+  end)
+ end
+end
+
+for _,firstDuration in ipairs({20,10}) do
+ test('first separate late aura interval stays frozen '..firstDuration,function()
+  local e,ns,hiddenAura=startOnly()
+  auraOnly(e,ns,100,firstDuration,100.2)
+  auraOnly(e,ns,100,30-firstDuration,100.3)
+  current(e,hiddenAura(),T.loc(SPELL,1,100,10));ns.Observer.Scan(100.4)
+  local nextRow=successor(e,ns,100.4,110,125.5)
+  eq(nextRow.stage,firstDuration==10 and 1 or 2,'later aura interval cannot replace first veto')
+  eq(nextRow.resetEvidence,firstDuration==10 and 'matching-full-duration' or nil)
+ end)
+end
+
+for _,start in ipairs({90,100.1}) do
+ test('separate aura with mismatched start cannot veto '..start,function()
+  local e,ns,hiddenAura=startOnly(15)
+  auraOnly(e,ns,start,20,100.2)
+  eq(row(ns,100.2).started,100);eq(state(ns).witness.expires,115)
+  eq(state(ns).durationContext.initialAuraDuration,nil,'interval is not bound to accepted occurrence')
+  current(e,hiddenAura(),T.loc(SPELL,1,100,10));ns.Observer.Scan(100.4)
+  eq(row(ns,100.4).fullDurationBaseline,10)
+  eq(successor(e,ns,100.4,110,125.5).stage,1)
+ end)
+end
+
+test('aura after first accepted raw duration cannot reopen the decision',function()
+ local e,ns=fresh();current(e,untimed(),T.loc(SPELL,1,100,10));ns.Observer.Scan(100)
+ eq(row(ns,100).fullDurationBaseline,10);eq(state(ns).reportedDurationWitness,10)
+ auraOnly(e,ns,100,20,100.2)
+ eq(state(ns).witness.expires,110);eq(row(ns,100.2).started,100)
+ eq(state(ns).durationContext.initialAuraDuration,nil,'consumed duration decision stays frozen')
+ current(e,T.aura(SPELL,1,100,20),T.loc(SPELL,1,100,10));ns.Observer.Scan(100.4)
+ eq(state(ns).durationContext.initialAuraDuration,nil,'merged later aura cannot reopen decision either')
+ eq(row(ns,100.4).fullDurationBaseline,10)
+ eq(successor(e,ns,100.4,110,125.5).stage,1)
+end)
+
+test('separate predecessor aura cannot veto a start-only explicit refresh',function()
+ local e,ns,hiddenAura=startOnly(10)
+ current(e,hiddenAura(),T.loc(SPELL,1,100,10));ns.Observer.Scan(100.2)
+ poll(ns,100.2,109.8)
+ local loc=T.loc(SPELL,1,110,nil);loc.timeRemaining=5
+ current(e,hiddenAura(),loc);ns.Observer.Scan(110)
+ eq(row(ns,110).stage,2);eq(row(ns,110).started,110)
+ auraOnly(e,ns,100,20,110.2)
+ eq(state(ns).durationContext.initialAuraDuration,nil,'old occurrence cannot supply new veto')
+ eq(row(ns,110.2).started,110);eq(state(ns).witness.expires,115)
+ current(e,hiddenAura(),T.loc(SPELL,1,110,5));ns.Observer.Scan(110.4)
+ eq(row(ns,110.4).stage,2);eq(row(ns,110.4).fullDurationBaseline,10)
+ eq(ns.Observer.stats.scanGaps,0);eq(ns.Observer.stats.apiErrors,0)
+end)
+
 for _,failure in ipairs(failures) do print('FAIL aura duration merge: '..failure) end
 assert(#failures==0,tostring(#failures)..' aura duration merge case(s) failed')
 print('Aura duration merge: '..cases..' cases / '..checks..' checks passed')

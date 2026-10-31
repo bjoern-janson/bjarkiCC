@@ -1,6 +1,18 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.44-audit-fixes-test (2026-10-31)
+## Current release: 0.4.17.45-audit-fixes-test (2026-10-31)
+
+A readable aura interval arriving after a LoC start, but before its first readable duration, now remains available to veto contradictory full-duration learning. The audited 20-second aura / 10-second LoC sequence keeps the next application at stage 2 instead of authorizing an unsupported stage-1 reset.
+
+The interval must match the accepted occurrence's start. It cannot replace LoC timing or an earlier captured interval; once the first raw duration is consumed, the decision remains frozen. The `.44` repairs and existing timing, settings and display policies remain in place.
+
+The duration regression suite now includes 10 additional cases for this ordering, matching durations, endpoint custody, stale starts, explicit refreshes and frozen decisions. In-game sensor frequency, secret-value enforcement, taint and rendering remain unverified.
+
+Validation: all 30 repository suites pass on Lua 5.1 and Lua 5.4 (60 executions), all 61 Lua files parse on both engines, and independent review confirms the corrected original replay and positive controls. The exact 19-file package matches the checked-in payload checksums.
+
+Verified addon ZIP SHA-256: `ad8c7af4680f3dc69108b2602a4a555abd04a66fa691b2e6c0fe672bce16d409`.
+
+## Previous release: 0.4.17.44-audit-fixes-test (2026-10-31)
 
 This build repairs the four findings from the `.43` source audit:
 

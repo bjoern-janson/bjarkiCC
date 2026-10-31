@@ -1,5 +1,12 @@
 # bjarkiCC known issues and validation status
 
+## Late aura duration repair: 0.4.17.45-audit-fixes-test (2026-10-31)
+
+The `.44` ZIP re-audit found one inherited omission: a same-start aura interval arriving between the explicit LoC start and its first readable duration was discarded. This could learn a contradictory full-duration baseline and authorize an early DR stage reset. The interval now supplies its conservative veto before that first raw-duration decision, without changing LoC timing. First-interval and first-duration freezing remain enforced, and stale or mismatched starts cannot supply the veto. Focused controls use the real Observer/Model through native API fixtures.
+
+No new `.44` regression was confirmed by that re-audit. Existing native-client and conservative-history limitations below remain applicable.
+
+
 ## Audit repairs: 0.4.17.44-audit-fixes-test (2026-10-31)
 
 The `.43` audit's four reproducible findings are repaired: duplicate supplementary nameplates erasing primary duration history, same-scan aura/LoC disagreement bypassing the learning veto, DR options overlapping the footer, and runtime version text lagging behind the TOCs.
