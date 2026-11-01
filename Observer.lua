@@ -1245,12 +1245,15 @@ function Observer.Scan(now, eventProof)
         if owners[guid] then
             -- Supplementary snapshots (and core snapshots copied to plates)
             -- cannot tell us whether the remaining source is complete now.
-            -- Prefer a currently complete qualified plate; partial alternatives
-            -- must not invalidate history before that source can take over.
+            -- Prefer a currently complete qualified plate, but every positive
+            -- already sampled during selection must reach GUID reconciliation.
+            -- An incompatible complete alternative cannot prove absence.
             local selected, snapshot
+            local sampled = {}
             for token, state in pairs(Observer.nameplates) do
                 if state.guid == guid and nameplateGuid(token) == guid then
                     local effects, complete, info = auraSnapshot(token, now)
+                    mergeEffects(sampled, effects)
                     if not selected or complete then
                         selected, snapshot = token, {effects = effects, complete = complete, info = info}
                     end
@@ -1258,6 +1261,13 @@ function Observer.Scan(now, eventProof)
                 end
             end
             if selected then
+                if snapshot.complete then
+                    for key in pairs(sampled) do
+                        if not snapshot.effects[key] then snapshot.complete = false; break end
+                    end
+                end
+                mergeEffects(snapshot.effects, sampled)
+                snapshot.info.mappedAuras = countEffects(snapshot.effects)
                 scanned[guid] = scanGuid(selected, guid,
                     sharedWitnessContext(guid, now, previous[guid], selected), now,
                     {selected}, nil, false, snapshot)

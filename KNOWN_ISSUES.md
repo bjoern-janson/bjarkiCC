@@ -1,5 +1,11 @@
 # bjarkiCC known issues and validation status
 
+## Handoff and predecessor-clock repairs: 0.4.17.47-audit-fixes-test (2026-11-01)
+
+The `.46` re-audit found two reproducible defects. With multiple registered plate aliases for one GUID, selecting a complete-empty plate discarded a partial plate's already-read CC positive and could reset the next hit to stage 1. The handoff now preserves sampled positives and invalidates contradictory absence proof. Simultaneous same-GUID plate frequency remains unverified in the client.
+
+An inherited timing defect left a flat predecessor's saved clock stale after accepting its first stronger timestamp. A later current-application calibration could restore the wrong CC and undercount subsequent hits. Same-occurrence predecessor timing now follows the accepted clock before restoration ordering. Existing immediate-predecessor bounds, duration-decision freezing, refresh authority and 20s/18s timing policy remain in place. Original sequences and controls pass offline through real Observer and Main paths; live-client validation remains outstanding.
+
 ## Coverage and pending-duration repairs: 0.4.17.46-audit-fixes-test (2026-11-01)
 
 The two remaining `.45` audit findings are repaired: a registered partial nameplate can no longer preserve false complete history after core observation ends, and late evidence can no longer disappear from a pending predecessor duration decision or leave unsupported quiet assumptions intact. Regression controls also preserve valid learning after authoritative sibling clock calibration and the first interval for an initially untimed predecessor.

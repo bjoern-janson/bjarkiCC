@@ -1,6 +1,12 @@
 # bjarkiCC architecture and DR research
 
-## Current evidence contract: 0.4.17.46-audit-fixes-test (2026-11-01)
+## Current evidence contract: 0.4.17.47-audit-fixes-test (2026-11-01)
+
+The one-shot core-loss handoff accumulates all aura positives it actually samples before selecting a qualified plate. A complete candidate must contain those positive identities to authorize absence; otherwise the combined snapshot stays incomplete. Cached reads enter normal GUID reconciliation once. The first complete-source short-circuit and event-driven subsequent plate observation remain unchanged.
+
+The accepted-clock prepass refines the immediate flat predecessor only for the same occurrence's first readable or stronger LoC timing. Shared duration-origin identity binds that correction and excludes later refresh occurrences. An exact native predecessor returning after complete absence supplies the same retained witness to the prepass and main loop; fallback identities, mismatches and a key owned by the current occurrence cannot borrow it. Ordering comparisons therefore see the accepted predecessor clock even when both clocks become readable in one scan. Historical state does not consume raw duration or reconstruct an older predecessor; first-interval and first-raw-duration freezing remain unchanged.
+
+## Previous evidence contract: 0.4.17.46-audit-fixes-test (2026-11-01)
 
 When the last core alias disappears, Observer qualifies remaining registered nameplates and samples their current indexed aura coverage once. It selects a complete source when available, or an incomplete source otherwise, and reuses that snapshot through normal reconciliation. Registration and cached core-derived state do not authorize continuity; subsequent plate-only scans remain event driven.
 

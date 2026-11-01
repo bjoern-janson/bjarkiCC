@@ -193,7 +193,9 @@ for _,rawStart in ipairs({99,98}) do
   read(e,n,{untimed(1)},{},100)
   read(e,n,{untimed(1),untimed(2,B)},{},100.1)
   read(e,n,{T.aura(A,1,99,20),untimed(2,B)},{},100.2)
-  read(e,n,{untimed(1),T.aura(B,2,99.8,20)},{},100.3)
+  -- B must predate A's accepted aura clock99 to restore this predecessor.
+  -- B99.8 is newer than A99 and correctly stays current after clock repair.
+  read(e,n,{untimed(1),T.aura(B,2,98.8,20)},{},100.3)
   read(e,n,{untimed(1)},{T.loc(A,1,rawStart,10)},100.4)
   eq(state(n).appliedAt,rawStart,'own explicit start calibrates')
   -- As for a current aura-first occurrence, first LoC timing calibrates the

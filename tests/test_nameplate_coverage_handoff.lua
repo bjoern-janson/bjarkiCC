@@ -123,6 +123,102 @@ for _,partial in ipairs({false,true}) do
  end)
 end
 end
+-- Losing any already-sampled positive in selection would falsely end its
+-- application at 20.2; the hand-checked real end/reset are 30/48. API fixtures
+-- are the only doubles: selection, reconciliation and Model remain real.
+for _,scenario in ipairs({
+ {name='partial positive before complete empty',samples={'hibernate','empty'},complete=true,active=true,coverage=false},
+ {name='partial positive before compatible complete positive',samples={'hibernate','hibernate'},complete=true,active=true,coverage=true},
+ {name='partial empty before complete empty',samples={'empty','empty'},complete=true,active=false,coverage=true},
+ {name='several partial positives before complete empty',samples={'hibernate','root','stun','empty'},complete=true,active=true,coverage=false,extra=true},
+ {name='several partial positives before compatible complete',samples={'hibernate','root','stun','all'},complete=true,active=true,coverage=true,extra=true},
+ {name='several partial positives without complete alternative',samples={'hibernate','root','stun'},active=true,coverage=false,extra=true},
+ {name='fallback canonical partial positive before complete empty',samples={'hibernate','empty'},complete=true,active=true,coverage=false,fallback=true},
+ {name='fallback canonical compatible complete positive',samples={'hibernate','hibernate'},complete=true,active=true,coverage=false,fallback=true},
+}) do
+ test(scenario.name..' preserves every sampled witness',function()
+  local f=fixture();local e,ns=f.e,f.ns
+  if scenario.fallback then
+   e.auras.target={secretAt=1};e.auras.focus={secretAt=1}
+   e.byloc.target={T.loc(2637,nil,20,10)};ns.Observer.Scan(20.02)
+  end
+  e.auras.target={T.aura(2637,7,20,10)};e.auras.focus=e.auras.target
+  e.byloc.target={};ns.Observer.Scan(20.04)
+  local actor=f:actor();local state=actor.categories.incapacitate
+  local key=scenario.fallback and 'l:s:2637:20' or 'a:7'
+  eq(state.applicationKey,key,'pre-handoff canonical identity')
+  for i=1,#scenario.samples do
+   local token='nameplate'..i;e.identity[token]=G;e.auras[token]={T.aura(2637,7,20,10)}
+   ns.Observer.OnNameplateAdded(token,20.05)
+  end
+  -- Set native inputs in the selection loop's actual iteration order. This
+  -- exercises the regression in both Lua engines without relying on hash order.
+  local order={};for token in pairs(ns.Observer.nameplates) do order[#order+1]=token end
+  local auras={hibernate=T.aura(2637,7,20,10),root=T.aura(339,8,20,10),stun=T.aura(853,9,20,10)}
+  for i,token in ipairs(order) do
+   local sample=scenario.samples[i]
+   if sample=='all' then e.auras[token]={auras.hibernate,auras.root,auras.stun}
+   else e.auras[token]=sample=='empty' and {} or {auras[sample]} end
+   if not (scenario.complete and i==#order) then e.auras[token].secretAt=sample=='empty' and 1 or 2 end
+  end
+  local reads,starts={},{};local getter=C_UnitAuras.GetAuraDataByIndex
+  C_UnitAuras.GetAuraDataByIndex=function(unit,index)
+   if unit:match('^nameplate') then
+    reads[unit]=(reads[unit] or 0)+1
+    if index==1 then
+     starts[unit]=(starts[unit] or 0)+1
+     -- A second traversal sees a different native snapshot. The handoff
+     -- must consume exactly the snapshot used during source selection.
+     if starts[unit]>1 then return nil end
+    end
+   end
+   return getter(unit,index)
+  end
+  f:drop()
+  eq(state.applicationKey,key,'handoff keeps canonical identity')
+  eq(state.appliedAt,20,'handoff keeps application clock')
+  eq(state.stage,1,'handoff counts application once')
+  eq(state.stageEndAt,scenario.active and 30 or 20.2,'handoff application end')
+  eq(state.stageResetAt,scenario.active and 48 or 38.2,'handoff 18-second reset')
+  eq(actor.completeSince,scenario.coverage and 0 or nil,'conflicting positive cannot preserve complete history')
+  if scenario.active then
+   eq(actor.effects[key]~=nil,true,'sampled positive remains active')
+   eq(actor.effects[key].expires,30,'sampled expiry survives')
+   eq(T.count(actor.effects),scenario.extra and 3 or 1,'sampled positives reconcile without duplicates')
+  end
+  if scenario.extra then
+   for _,extraKey in ipairs({'a:8','a:9'}) do
+    eq(actor.effects[extraKey]~=nil,true,'other partial positive survives: '..extraKey)
+    eq(actor.effects[extraKey].expires,30,'other partial expiry survives: '..extraKey)
+   end
+  end
+  local total=0
+  for i,token in ipairs(order) do
+   eq(starts[token],1,'one snapshot traversal per sampled plate')
+   local expected=scenario.samples[i]=='empty' and 1 or (scenario.samples[i]=='all' and 4 or 2)
+   eq(reads[token],expected,'indexed reads reuse selection snapshot')
+   total=total+reads[token]
+  end
+  for i=2,49 do ns.Observer.Scan(20+i*.2) end
+  local after=0;for _,count in pairs(reads) do after=after+count end
+  eq(after,total,'ordinary scans never poll nameplates again')
+  -- Reset the API spy only after asserting exactly-once snapshot consumption.
+  C_UnitAuras.GetAuraDataByIndex=getter
+  for _,token in ipairs(order) do e.auras[token]={} end
+  ns.Observer.OnNameplateAura(order[1],{isFullUpdate=true},30)
+  eq(state.stageEndAt,scenario.active and 30 or 20.2,'real removal retains correct endpoint')
+  eq(state.stageResetAt,scenario.active and 48 or 38.2,'real removal retains correct reset')
+  for i=51,102 do ns.Observer.Scan(20+i*.2) end
+  for _,token in ipairs(order) do e.auras[token]={T.aura(2637,10,40.5,10)} end
+  ns.Observer.OnNameplateAura(order[1],{isFullUpdate=true},40.5)
+  local row
+  for _,candidate in ipairs(ns.model:GetDR(G,40.5,false)) do
+   if candidate.category=='incapacitate' then row=candidate;break end
+  end
+  assert(row,'successor incapacitate row')
+  eq(row.stage,scenario.active and 2 or 1,'successor public DR stage');f:clean()
+ end)
+end
 for _,failure in ipairs(failures) do print('FAIL nameplate coverage handoff: '..failure) end
 assert(#failures==0,tostring(#failures)..' nameplate coverage handoff case(s) failed')
 print('nameplate coverage handoff: '..cases..' cases / '..checks..' checks passed')

@@ -562,13 +562,27 @@ function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
     -- Preserve evidence from the previous complete snapshot. Current removal
     -- discovery may backdate a predicted end, but cannot create prior observed
     -- quiet time for this new application.
-    local durationOrigins = {}
+    local durationOrigins, returnedPredecessors = {}, {}
     for key, effect in pairs(effects or {}) do
         local state = unit.categories[effect.category]
+        local prior = state and state.previousApplication
         local previous = unit.effects[key]
         local start = applicationTime(effect, now)
+        if not previous and prior and state.applicationKey ~= key and prior.applicationKey == key and prior.witness
+            and not prior.witness.fallbackIdentity and not effect.fallbackIdentity
+            and prior.witness.category == effect.category and prior.witness.spellID == effect.spellID
+            and (prior.witness.appliedAt or start or stageInWindow(prior, now)) then
+            -- Complete absence retires inventory, not this retained exact
+            -- occurrence. Use the same witness in both passes so a returned
+            -- calibration and a real refresh receive the same identity gate.
+            previous = prior.witness
+            returnedPredecessors[key] = previous
+        end
         local same = previous and previous.category == effect.category and previous.spellID == effect.spellID
         local refreshed = same and refreshedApplication(previous, effect, start)
+        local timingRefined = same and not refreshed and start
+            and (not previous.appliedAt or (previous.applicationSource ~= "loc"
+                and effect.applicationSource == "loc"))
         if same and previous.appliedAt and not refreshed
             and not (previous.applicationSource ~= "loc" and effect.applicationSource == "loc") then
             -- Weaker or stale clocks cannot backdate an accepted sibling.
@@ -577,6 +591,16 @@ function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
         local origin = same and not refreshed and previous.durationOrigin or {}
         origin.appliedAt = start
         durationOrigins[key] = origin
+        if timingRefined and prior and prior.applicationKey == key
+            and prior.witness and prior.witness.durationOrigin == origin then
+            -- Ordering must use the accepted clock of this retained occurrence,
+            -- even while it is flat history. A refresh owns a different origin;
+            -- never calibrate its predecessor or reconstruct older history.
+            prior.appliedAt, prior.timeEstimated = start, false
+            if not previous.appliedAt or math.abs(start - previous.appliedAt) > APPLICATION_EPSILON then
+                prior.uncertain = true
+            end
+        end
         rememberDurationSibling(state, key, origin)
         rememberDurationSibling(state and state.previousApplication, key, origin)
     end
@@ -719,7 +743,7 @@ function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
         if retained and not retained.appliedAt and not preciseStart and not stageInWindow(state, now) then
             retained = nil
         end
-        local previous = unit.effects[key] or retained
+        local previous = unit.effects[key] or retained or returnedPredecessors[key]
         local same = previous and previous.category == category and previous.spellID == effect.spellID
         local refreshed = same and refreshedApplication(previous, effect, preciseStart)
         local timingRefined = same and not refreshed and preciseStart
@@ -932,7 +956,13 @@ function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
         elseif current and current.previousApplication and current.previousApplication.applicationKey == key then
             -- A provisional newer witness can temporarily displace this
             -- occurrence. Preserve its first interval veto while it is flat
-            -- history, without granting it timing or raw-learning authority.
+            -- history, without granting it raw-learning authority. Keep its
+            -- accepted witness current for a later absence/return; a different
+            -- occurrence on the same key must not replace that witness.
+            local prior = current.previousApplication
+            if prior.witness and prior.witness.durationOrigin == nextEffects[key].durationOrigin then
+                prior.witness = nextEffects[key]
+            end
             rememberAuraDuration(current.previousApplication, effect, preciseStart,
                 nextEffects[key].refreshAppliedAt or nextEffects[key].appliedAt)
         end
