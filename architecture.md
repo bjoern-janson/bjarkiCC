@@ -1,6 +1,14 @@
 # bjarkiCC architecture and DR research
 
-## Current evidence contract: 0.4.17.47-audit-fixes-test (2026-11-01)
+## Current evidence contract: 0.4.17.48-audit-fixes-test (2026-11-01)
+
+An observed removal or accepted refresh closes each retained owner of that exact occurrence's witness, including the immediate predecessor. A saved predicted expiration cannot supersede its recorded earlier end. Untimed predecessor return eligibility follows the live category reset window; the historical snapshot cannot keep itself pending indefinitely. Current and predecessor restoration share the existing conservative count/ancestry policy and carry category lifetime/retention state without recursive history.
+
+Accepted same-occurrence predecessor calibration is compared with current accepted timing before display selection. A genuinely newer predecessor becomes current without an additional application count. First coherent aura evidence and consumed raw-duration decisions remain attached to their own occurrences; selecting history cannot create prior quiet evidence.
+
+A combined handoff snapshot retains source evidence from the qualified nameplates actually sampled. Canonicalization must carry those donors to the accepted occurrence. Each source keeps its own observed endpoint and loses standing when removed or no longer qualified; a merged endpoint cannot renew another source's proof. The existing first-complete selection, contradiction handling, capacity bounds and event-driven subsequent scans remain in place.
+
+## Previous evidence contract: 0.4.17.47-audit-fixes-test (2026-11-01)
 
 The one-shot core-loss handoff accumulates all aura positives it actually samples before selecting a qualified plate. A complete candidate must contain those positive identities to authorize absence; otherwise the combined snapshot stays incomplete. Cached reads enter normal GUID reconciliation once. The first complete-source short-circuit and event-driven subsequent plate observation remain unchanged.
 

@@ -1,6 +1,18 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.47-audit-fixes-test (2026-11-01)
+## Current release: 0.4.17.48-audit-fixes-test (2026-11-01)
+
+Observed removal now remains attached to retained predecessor history. A returned identity or real refresh after a completed DR reset cannot revive an obsolete predicted end or pending cycle. Untimed returns receive the same continuity boundary as current-application returns.
+
+When accepted timing makes the immediate predecessor newer than the displayed application, the model selects its spell and countdown using the existing conservative restoration policy. A returning current witness keeps its accepted clock when a weaker sensor disagrees. The correction does not count as another application or reconstruct discarded history.
+
+Nameplate handoffs retain the actual sources of sampled positives, including first aura-to-LoC clock calibration. Removing the selected plate therefore does not erase a still-qualified donor's evidence or count the same CC again through its LoC fallback. Source identity and endpoint authority remain scoped to what each plate observed.
+
+Validation: all 36 repository suites pass against the exact extracted ZIP on Lua 5.1 and Lua 5.4 (72 executions); all 67 runtime/test Lua files parse on both engines. Public Observer/Main/UI regressions cover observed removal and reset, returned identities and refreshes, late timing selection, sampled donor continuity and source invalidation. Native secret-value enforcement, taint, rendering and real event cadence remain unverified.
+
+Verified addon ZIP SHA-256: `6aee66c990a0a7462c9997f3d9bd5e495b880e050bceba7f5eeb7b3531e3febc`. All 19 runtime files match the checked-in checksums.
+
+## Previous release: 0.4.17.47-audit-fixes-test (2026-11-01)
 
 Core-to-nameplate handoffs retain every readable aura positive already sampled while choosing a remaining observer. A contradictory complete-empty alias cannot close a still-observed CC or start an early DR reset. Compatible complete coverage remains usable, and ordinary plate-only scans remain event driven.
 
@@ -363,7 +375,7 @@ There are **120 aura/effect IDs**, **85 cast IDs** and **27 cooldown families** 
 
 ## Development and tests
 
-The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. The runner discovers all 33 `test_*.lua` suites, covering tracking, observation and cooldown evidence, own-cast correlation, settings, display geometry and addon events. UI boundary fixtures cannot reproduce WoW's complete protected execution engine or visually validate the in-game frames.
+The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. The runner discovers all 36 `test_*.lua` suites, covering tracking, observation and cooldown evidence, own-cast correlation, settings, display geometry and addon events. UI boundary fixtures cannot reproduce WoW's complete protected execution engine or visually validate the in-game frames.
 
 Visual references: [original InterruptBar](https://www.wowace.com/projects/interruptbar), [Diminish](https://github.com/wardz/Diminish). This is an original UI implementation; no code from those interfaces was copied.
 

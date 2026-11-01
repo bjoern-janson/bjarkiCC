@@ -1,5 +1,11 @@
 # bjarkiCC known issues and validation status
 
+## Retained lifecycle and donor ownership repairs: 0.4.17.48-audit-fixes-test (2026-11-01)
+
+The three confirmed `.47` audit findings are repaired. Retained predecessor witnesses preserve observed closure instead of reviving an expired cycle after absence. A first authoritative clock that moves the immediate predecessor past the current application now updates the displayed spell and countdown. Aggregated nameplate observations retain their actual sampled donor proofs, so loss of the selected plate cannot alone force a surviving donor's unchanged CC to count again.
+
+Lifecycle controls cover untimed, end-only, aura and LoC returns, genuine refreshes, observed and unobserved ends, and bounded predecessor history. Ordering uses the established conservative restoration/count policy; the correction is not another application and adds no recursive reconstruction. Donor controls include complete-empty, compatible-complete and all-partial selection, native/no-ID observations and invalidated sources. Live-client alias frequency, secret/taint enforcement and native event cadence remain unverified.
+
 ## Handoff and predecessor-clock repairs: 0.4.17.47-audit-fixes-test (2026-11-01)
 
 The `.46` re-audit found two reproducible defects. With multiple registered plate aliases for one GUID, selecting a complete-empty plate discarded a partial plate's already-read CC positive and could reset the next hit to stage 1. The handoff now preserves sampled positives and invalidates contradictory absence proof. Simultaneous same-GUID plate frequency remains unverified in the client.
