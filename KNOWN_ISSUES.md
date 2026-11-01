@@ -1,5 +1,11 @@
 # bjarkiCC known issues and validation status
 
+## Reselection and retained refresh repairs: 0.4.17.49-audit-fixes-test (2026-11-01)
+
+The two confirmed `.48` re-audit findings are repaired. A former current occurrence remains eligible for selection when a later accepted clock makes it newest. Early and late delivery of the same explicit clock now select the same spell/countdown, without adding an application for calibration.
+
+The stale-donor rejection boundary also survives complete absence while the exact newer occurrence remains retained. Complete absence still clears source permissions; retained negative refresh evidence cannot authorize fallback matching or supply an endpoint. The prior stage-2/stage-3 audit difference demonstrated inconsistent evidence handling, not a proven gameplay undercount. Live-client validation remains outstanding.
+
 ## Retained lifecycle and donor ownership repairs: 0.4.17.48-audit-fixes-test (2026-11-01)
 
 The three confirmed `.47` audit findings are repaired. Retained predecessor witnesses preserve observed closure instead of reviving an expired cycle after absence. A first authoritative clock that moves the immediate predecessor past the current application now updates the displayed spell and countdown. Aggregated nameplate observations retain their actual sampled donor proofs, so loss of the selected plate cannot alone force a surviving donor's unchanged CC to count again.

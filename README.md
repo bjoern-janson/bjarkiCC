@@ -1,6 +1,16 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.48-audit-fixes-test (2026-11-01)
+## Current release: 0.4.17.49-audit-fixes-test (2026-11-01)
+
+A still-retained application can be selected again when its first explicit LoC clock arrives after an earlier aura correction restored another CC. The accepted spell and countdown follow that occurrence without treating calibration as another hit or reconstructing discarded history.
+
+Proof of a genuine explicit refresh now survives for as long as its accepted occurrence does. A complete-empty scan still revokes positive source permissions, but it no longer lets a later obsolete aura acquire ownership of the newer occurrence. First aura/LoC calibration and actual current donors remain usable.
+
+Validation: all 38 repository suites pass against the exact extracted ZIP on Lua 5.1 and Lua 5.4 (76 executions); all 69 runtime/test Lua files parse on both engines. Public native-boundary regressions cover repeated timing calibration, retained occurrence selection, explicit refresh history across absence, and actual donor ownership. Live-client secret enforcement, taint, rendering and event cadence remain unverified.
+
+Verified addon ZIP SHA-256: `dc1dbc79f1b75c907ded5220de62055084ae4518e0938397e25138552e0eead5`. All 19 packaged files match source; all 18 payload checksum entries validate.
+
+## Previous release: 0.4.17.48-audit-fixes-test (2026-11-01)
 
 Observed removal now remains attached to retained predecessor history. A returned identity or real refresh after a completed DR reset cannot revive an obsolete predicted end or pending cycle. Untimed returns receive the same continuity boundary as current-application returns.
 
@@ -375,7 +385,7 @@ There are **120 aura/effect IDs**, **85 cast IDs** and **27 cooldown families** 
 
 ## Development and tests
 
-The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. The runner discovers all 36 `test_*.lua` suites, covering tracking, observation and cooldown evidence, own-cast correlation, settings, display geometry and addon events. UI boundary fixtures cannot reproduce WoW's complete protected execution engine or visually validate the in-game frames.
+The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. The runner discovers all 38 `test_*.lua` suites, covering tracking, observation and cooldown evidence, own-cast correlation, settings, display geometry and addon events. UI boundary fixtures cannot reproduce WoW's complete protected execution engine or visually validate the in-game frames.
 
 Visual references: [original InterruptBar](https://www.wowace.com/projects/interruptbar), [Diminish](https://github.com/wardz/Diminish). This is an original UI implementation; no code from those interfaces was copied.
 

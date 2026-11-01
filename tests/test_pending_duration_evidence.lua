@@ -197,11 +197,20 @@ for _,rawStart in ipairs({99,98}) do
   -- B99.8 is newer than A99 and correctly stays current after clock repair.
   read(e,n,{untimed(1),T.aura(B,2,98.8,20)},{},100.3)
   read(e,n,{untimed(1)},{T.loc(A,1,rawStart,10)},100.4)
-  eq(state(n).appliedAt,rawStart,'own explicit start calibrates')
-  -- As for a current aura-first occurrence, first LoC timing calibrates the
-  -- identity; it cannot erase the already accepted first interval veto.
+  eq(n.model.units[G].effects['a:1'].appliedAt,rawStart,'own explicit start calibrates')
+  eq(n.model.units[G].effects['a:1'].applicationSource,'loc','accepted explicit source')
+  local selected=row(n,100.4)
+  eq(selected.spellID,rawStart==98 and B or A,'newest accepted occurrence selected')
+  eq(selected.started,rawStart==98 and 98.8 or rawStart,'newest accepted clock selected')
+  local aState=rawStart==98 and state(n).displacedApplication or state(n)
+  eq(aState.applicationKey,'a:1','duration evidence remains with A')
+  eq(aState.durationContext.initialAuraDuration,20,'first aura interval stays frozen')
+  -- First LoC timing calibrates A; it cannot erase its first interval veto.
+  -- If A moves before retained B, selection keeps B's saved conservative count.
   eq(baseline(n),nil,'first explicit calibration retains same-occurrence interval veto')
-  eq(successor(e,n).stage,2,'uncalibrated predecessor conflict cannot authorize a later reset')
+  local nextRow=successor(e,n)
+  eq(nextRow.stage,rawStart==98 and 3 or 2,'uncalibrated predecessor conflict cannot authorize a later reset')
+  eq(nextRow.resetEvidence,nil,'later application has no fabricated duration reset')
  end)
 end
 
