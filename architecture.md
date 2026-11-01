@@ -1,6 +1,12 @@
 # bjarkiCC architecture and DR research
 
-## Current duration decision contract: 0.4.17.45-audit-fixes-test (2026-10-31)
+## Current evidence contract: 0.4.17.46-audit-fixes-test (2026-11-01)
+
+When the last core alias disappears, Observer qualifies remaining registered nameplates and samples their current indexed aura coverage once. It selects a complete source when available, or an incomplete source otherwise, and reuses that snapshot through normal reconciliation. Registration and cached core-derived state do not authorize continuity; subsequent plate-only scans remain event driven.
+
+A pending current occurrence or its flat predecessor retains first coherent aura interval evidence without acquiring timing or raw-learning authority. An untimed predecessor may use its accepted effect clock to bind the interval while its category history stays unchanged. Pending sibling evidence references bounded per-occurrence accepted clocks: calibration revises only that occurrence, refresh creates a distinct origin, and overflow vetoes learning. The first raw-duration decision compares these clocks with the occurrence's calibrated start before using its saved quiet/overlap assumptions. A consumed decision remains frozen. Existing first-interval behavior across initial aura-to-LoC calibration is preserved.
+
+## Previous duration decision contract: 0.4.17.45-audit-fixes-test (2026-10-31)
 
 An accepted LoC start does not close aura-duration evidence collection. Until the first coherent raw LoC duration is consumed, the current occurrence's first coherent same-start aura interval may veto inconsistent learning, even when a complete aura scan supplies it separately. `rememberAuraDuration` closes collection on `reportedDurationWitness`, rather than merely on LoC clock ownership. Existing same-start/spell binding, first-interval freezing and all LoC clock/endpoint rules are retained. Later aura evidence does not reopen a consumed duration decision.
 

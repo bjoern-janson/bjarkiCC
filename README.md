@@ -1,6 +1,16 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.45-audit-fixes-test (2026-10-31)
+## Current release: 0.4.17.46-audit-fixes-test (2026-11-01)
+
+Losing the last target/focus observer now checks current nameplate coverage once before retaining duration confidence. Partial or unqualified remaining plates invalidate that history; a complete qualified plate can preserve it without adding periodic nameplate polling.
+
+Pending duration decisions retain the first coherent aura interval for a temporarily displaced occurrence, including initially untimed predecessors. Later older same-category evidence can veto unsupported quiet/full-duration learning. Timestamp corrections follow their own occurrence, so stronger LoC timing can supersede a weaker sibling clock without erasing separate conflicting occurrences. Already consumed raw-duration decisions and existing clock/expiry authority remain unchanged.
+
+Validation: all 32 repository suites pass against the extracted ZIP on Lua 5.1 and Lua 5.4 (64 executions), and all 63 runtime/test Lua files parse on both engines. The two new regression suites cover 45 cases, including valid complete handoffs, delayed timing, independent siblings, refresh, frozen decisions and bounded retention. Native secret-value enforcement, taint and rendering remain unverified.
+
+Verified addon ZIP SHA-256: `82446ead67d36c4e69ac08ca86f6fbc930ede24a78aa8b25d5cbe5377c3261e9`. The package contains the same 19 runtime files and matches the checked-in checksums.
+
+## Previous release: 0.4.17.45-audit-fixes-test (2026-10-31)
 
 A readable aura interval arriving after a LoC start, but before its first readable duration, now remains available to veto contradictory full-duration learning. The audited 20-second aura / 10-second LoC sequence keeps the next application at stage 2 instead of authorizing an unsupported stage-1 reset.
 

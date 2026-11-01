@@ -835,14 +835,18 @@ local function sameWitnessIdentity(first, second, accepted)
         and not ns.Model.IsRefresh(accepted or first, second, second.appliedAt)
 end
 
-local function scanGuid(unit, guid, previous, now, aliases, eventProof, supplementary)
+local function scanGuid(unit, guid, previous, now, aliases, eventProof, supplementary, auraRead)
     local effects, complete, sensor, limited
     local diagnostics = {mappedAuras = 0, unmappedSpellIDs = {}, mappedLoC = 0,
         byUnitAvailable = byUnitAvailable()}
     local playerLoCComplete
     do
         local auraInfo
-        effects, complete, auraInfo = auraSnapshot(unit, now)
+        if auraRead then
+            effects, complete, auraInfo = auraRead.effects, auraRead.complete, auraRead.info
+        else
+            effects, complete, auraInfo = auraSnapshot(unit, now)
+        end
         diagnostics.auraComplete = complete
         diagnostics.mappedAuras = auraInfo.mappedAuras
         diagnostics.unmappedSpellIDs = auraInfo.unmappedSpellIDs
@@ -1197,8 +1201,13 @@ function Observer.Scan(now, eventProof)
         local state = Observer.units[unit]
         if state.guid and not previous[state.guid] then previous[state.guid] = state end
     end
+    local lostCore = {}
+    for guid in pairs(previous) do
+        if not owners[guid] then lostCore[guid] = true end
+    end
     -- Nameplates are added/updated by events, not aura-polled on this 0.2s
-    -- path. They still count as observed identities when target/focus changes.
+    -- path. Their registration keeps identity, but cannot prove coverage when
+    -- the last core alias disappears; that transition is sampled once below.
     for token, state in pairs(Observer.nameplates) do
         local guid = state.guid
         if guid then
@@ -1232,6 +1241,31 @@ function Observer.Scan(now, eventProof)
         if not owners[guid] then pause(guid, now) end
     end
     local units, scanned = {}, {}
+    for guid in pairs(lostCore) do
+        if owners[guid] then
+            -- Supplementary snapshots (and core snapshots copied to plates)
+            -- cannot tell us whether the remaining source is complete now.
+            -- Prefer a currently complete qualified plate; partial alternatives
+            -- must not invalidate history before that source can take over.
+            local selected, snapshot
+            for token, state in pairs(Observer.nameplates) do
+                if state.guid == guid and nameplateGuid(token) == guid then
+                    local effects, complete, info = auraSnapshot(token, now)
+                    if not selected or complete then
+                        selected, snapshot = token, {effects = effects, complete = complete, info = info}
+                    end
+                    if complete then break end
+                end
+            end
+            if selected then
+                scanned[guid] = scanGuid(selected, guid,
+                    sharedWitnessContext(guid, now, previous[guid], selected), now,
+                    {selected}, nil, false, snapshot)
+            else
+                pause(guid, now)
+            end
+        end
+    end
     for _, unit in ipairs(trackedUnits) do
         local guid = identities[unit]
         if guid then

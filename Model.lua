@@ -251,17 +251,23 @@ local function durationContext(unit, state, effects, key, category)
     }
 end
 
-local function rememberAuraDuration(state, effect, preciseStart)
+local function rememberAuraDuration(state, effect, preciseStart, calibratedStart)
     local context = state and state.durationContext
     local merged = effect.applicationSource == "loc"
     local auraStart, expires = preciseStart, effect.expires
     if merged then auraStart, expires = effect.auraAppliedAt, effect.auraExpires end
+    -- A flat predecessor may still carry its arrival fallback. Its accepted
+    -- effect clock can bind this interval without rewinding category history.
+    local occurrenceStart = state and state.appliedAt
+    if state and state.witness and not state.witness.appliedAt and calibratedStart then
+        occurrenceStart = calibratedStart
+    end
     if not context or context.initialAuraDuration or state.reportedDurationWitness
         or (effect.applicationSource ~= "aura" and not merged)
         or not preciseStart or preciseStart >= math.huge
         or type(auraStart) ~= "number" or auraStart ~= auraStart or auraStart >= math.huge
         or state.spellID ~= effect.spellID
-        or math.abs(state.appliedAt - preciseStart) > APPLICATION_EPSILON
+        or math.abs(occurrenceStart - preciseStart) > APPLICATION_EPSILON
         or math.abs(auraStart - preciseStart) > APPLICATION_EPSILON then return end
     if type(expires) ~= "number" or expires ~= expires or expires >= math.huge then return end
     local duration = expires - auraStart
@@ -276,6 +282,27 @@ end
 local function auraDurationConsistent(context, duration)
     return not context.initialAuraDuration
         or math.abs(duration - context.initialAuraDuration) <= APPLICATION_EPSILON
+end
+
+local function rememberDurationSibling(state, key, origin)
+    local context = state and state.durationContext
+    if not context or state.reportedDurationWitness or state.applicationKey == key then return end
+    -- Each occurrence shares one revisable accepted clock. Calibration updates
+    -- only that occurrence; refresh creates a new origin and cannot erase an
+    -- earlier sibling. Retain no more origins than the effect inventory limit.
+    local siblings = context.siblingOrigins
+    if not siblings then siblings = {}; context.siblingOrigins = siblings; context.siblingCount = 0 end
+    if siblings[origin] then return end
+    if context.siblingCount >= MAX_EFFECTS then context.siblingOverflow = true; return end
+    siblings[origin], context.siblingCount = true, context.siblingCount + 1
+end
+
+local function durationHasPriorSibling(context, start)
+    if context.siblingOverflow then return true end
+    for origin in pairs(context.siblingOrigins or {}) do
+        if origin.appliedAt and origin.appliedAt <= start + APPLICATION_EPSILON then return true end
+    end
+    return false
 end
 
 local function matchesDurationCandidate(state, candidate)
@@ -385,6 +412,10 @@ local function reconcileDuration(unit, state, effect, preciseStart, now, complet
     -- decision. A later duration-only edit must never masquerade as a reset.
     state.reportedDurationWitness = duration
     local context = state.durationContext
+    if context and durationHasPriorSibling(context, preciseStart) then
+        context.overlap, context.noPriorCategory, context.quietSince = true, false, nil
+        context.chainReplacementEnd, context.chainReplacementInvalid = nil, true
+    end
     if not context or context.coverageEpoch ~= unit.durationEpoch
         or not context.completeSince or preciseStart < context.completeSince
         or context.pending or context.chainReplacementInvalid then
@@ -531,6 +562,24 @@ function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
     -- Preserve evidence from the previous complete snapshot. Current removal
     -- discovery may backdate a predicted end, but cannot create prior observed
     -- quiet time for this new application.
+    local durationOrigins = {}
+    for key, effect in pairs(effects or {}) do
+        local state = unit.categories[effect.category]
+        local previous = unit.effects[key]
+        local start = applicationTime(effect, now)
+        local same = previous and previous.category == effect.category and previous.spellID == effect.spellID
+        local refreshed = same and refreshedApplication(previous, effect, start)
+        if same and previous.appliedAt and not refreshed
+            and not (previous.applicationSource ~= "loc" and effect.applicationSource == "loc") then
+            -- Weaker or stale clocks cannot backdate an accepted sibling.
+            start = previous.refreshAppliedAt or previous.appliedAt
+        end
+        local origin = same and not refreshed and previous.durationOrigin or {}
+        origin.appliedAt = start
+        durationOrigins[key] = origin
+        rememberDurationSibling(state, key, origin)
+        rememberDurationSibling(state and state.previousApplication, key, origin)
+    end
     local priorDurationHistory = {}
     for category, state in pairs(unit.categories) do
         local context = state.durationContext
@@ -858,6 +907,7 @@ function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
             if state then state.uncertain = true end
         end
         nextEffects[key] = {category = category, spellID = effect.spellID,
+            durationOrigin = durationOrigins[key],
             expires = expires, endedAt = endedAt,
             expirySource = expirySource, expiryAppliedAt = expiryAppliedAt,
             auraExpires = retainTiming and auraExpiry(previous) or auraExpiry(effect)
@@ -879,6 +929,12 @@ function Model:Observe(guid, effects, now, complete, removedKeys, positiveOnly)
             current.witness = nextEffects[key]
             rememberAuraDuration(current, effect, preciseStart)
             reconcileDuration(unit, current, effect, preciseStart, now, complete)
+        elseif current and current.previousApplication and current.previousApplication.applicationKey == key then
+            -- A provisional newer witness can temporarily displace this
+            -- occurrence. Preserve its first interval veto while it is flat
+            -- history, without granting it timing or raw-learning authority.
+            rememberAuraDuration(current.previousApplication, effect, preciseStart,
+                nextEffects[key].refreshAppliedAt or nextEffects[key].appliedAt)
         end
         stageEffects[key] = nextEffects[key]
         updateStageClocks(unit, stageEffects, now, self.stageResetSeconds)
