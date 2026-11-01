@@ -1,6 +1,75 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.43-correction-fixes-test (2026-10-28)
+## Current release: 0.4.17.49-audit-fixes-test (2026-11-01)
+
+A still-retained application can be selected again when its first explicit LoC clock arrives after an earlier aura correction restored another CC. The accepted spell and countdown follow that occurrence without treating calibration as another hit or reconstructing discarded history.
+
+Proof of a genuine explicit refresh now survives for as long as its accepted occurrence does. A complete-empty scan still revokes positive source permissions, but it no longer lets a later obsolete aura acquire ownership of the newer occurrence. First aura/LoC calibration and actual current donors remain usable.
+
+Validation: all 38 repository suites pass against the exact extracted ZIP on Lua 5.1 and Lua 5.4 (76 executions); all 69 runtime/test Lua files parse on both engines. Public native-boundary regressions cover repeated timing calibration, retained occurrence selection, explicit refresh history across absence, and actual donor ownership. Live-client secret enforcement, taint, rendering and event cadence remain unverified.
+
+Verified addon ZIP SHA-256: `dc1dbc79f1b75c907ded5220de62055084ae4518e0938397e25138552e0eead5`. All 19 packaged files match source; all 18 payload checksum entries validate.
+
+## Previous release: 0.4.17.48-audit-fixes-test (2026-11-01)
+
+Observed removal now remains attached to retained predecessor history. A returned identity or real refresh after a completed DR reset cannot revive an obsolete predicted end or pending cycle. Untimed returns receive the same continuity boundary as current-application returns.
+
+When accepted timing makes the immediate predecessor newer than the displayed application, the model selects its spell and countdown using the existing conservative restoration policy. A returning current witness keeps its accepted clock when a weaker sensor disagrees. The correction does not count as another application or reconstruct discarded history.
+
+Nameplate handoffs retain the actual sources of sampled positives, including first aura-to-LoC clock calibration. Removing the selected plate therefore does not erase a still-qualified donor's evidence or count the same CC again through its LoC fallback. Source identity and endpoint authority remain scoped to what each plate observed.
+
+Validation: all 36 repository suites pass against the exact extracted ZIP on Lua 5.1 and Lua 5.4 (72 executions); all 67 runtime/test Lua files parse on both engines. Public Observer/Main/UI regressions cover observed removal and reset, returned identities and refreshes, late timing selection, sampled donor continuity and source invalidation. Native secret-value enforcement, taint, rendering and real event cadence remain unverified.
+
+Verified addon ZIP SHA-256: `6aee66c990a0a7462c9997f3d9bd5e495b880e050bceba7f5eeb7b3531e3febc`. All 19 runtime files match the checked-in checksums.
+
+## Previous release: 0.4.17.47-audit-fixes-test (2026-11-01)
+
+Core-to-nameplate handoffs retain every readable aura positive already sampled while choosing a remaining observer. A contradictory complete-empty alias cannot close a still-observed CC or start an early DR reset. Compatible complete coverage remains usable, and ordinary plate-only scans remain event driven.
+
+Accepted first timing corrections now update the retained immediate predecessor before application ordering is reconciled. Delayed readings keep the genuinely newer application and its stage; subsequent hits no longer inherit the stale-clock undercount. Corrections remain bound to the same occurrence, without revising a separate refresh or reconstructing older discarded history.
+
+Validation: all 33 repository suites pass against the exact extracted ZIP on Lua 5.1 and Lua 5.4 (66 executions); all 64 runtime/test Lua files parse on both engines. The new regressions exercise the original failures and compatible evidence, clock-authority, refresh and duration-freezing controls. Native rendering, secret-value enforcement, taint and event cadence remain unverified.
+
+Verified addon ZIP SHA-256: `d1580c78780aed5d3dfe016eb2637564207fe6ed46efc11c259b1f34e5356291`. The package contains the same 19 runtime files and matches the checked-in checksums.
+
+## Previous release: 0.4.17.46-audit-fixes-test (2026-11-01)
+
+Losing the last target/focus observer now checks current nameplate coverage once before retaining duration confidence. Partial or unqualified remaining plates invalidate that history; a complete qualified plate can preserve it without adding periodic nameplate polling.
+
+Pending duration decisions retain the first coherent aura interval for a temporarily displaced occurrence, including initially untimed predecessors. Later older same-category evidence can veto unsupported quiet/full-duration learning. Timestamp corrections follow their own occurrence, so stronger LoC timing can supersede a weaker sibling clock without erasing separate conflicting occurrences. Already consumed raw-duration decisions and existing clock/expiry authority remain unchanged.
+
+Validation: all 32 repository suites pass against the extracted ZIP on Lua 5.1 and Lua 5.4 (64 executions), and all 63 runtime/test Lua files parse on both engines. The two new regression suites cover 45 cases, including valid complete handoffs, delayed timing, independent siblings, refresh, frozen decisions and bounded retention. Native secret-value enforcement, taint and rendering remain unverified.
+
+Verified addon ZIP SHA-256: `82446ead67d36c4e69ac08ca86f6fbc930ede24a78aa8b25d5cbe5377c3261e9`. The package contains the same 19 runtime files and matches the checked-in checksums.
+
+## Previous release: 0.4.17.45-audit-fixes-test (2026-10-31)
+
+A readable aura interval arriving after a LoC start, but before its first readable duration, now remains available to veto contradictory full-duration learning. The audited 20-second aura / 10-second LoC sequence keeps the next application at stage 2 instead of authorizing an unsupported stage-1 reset.
+
+The interval must match the accepted occurrence's start. It cannot replace LoC timing or an earlier captured interval; once the first raw duration is consumed, the decision remains frozen. The `.44` repairs and existing timing, settings and display policies remain in place.
+
+The duration regression suite now includes 10 additional cases for this ordering, matching durations, endpoint custody, stale starts, explicit refreshes and frozen decisions. In-game sensor frequency, secret-value enforcement, taint and rendering remain unverified.
+
+Validation: all 30 repository suites pass on Lua 5.1 and Lua 5.4 (60 executions), all 61 Lua files parse on both engines, and independent review confirms the corrected original replay and positive controls. The exact 19-file package matches the checked-in payload checksums.
+
+Verified addon ZIP SHA-256: `ad8c7af4680f3dc69108b2602a4a555abd04a66fa691b2e6c0fe672bce16d409`.
+
+## Previous release: 0.4.17.44-audit-fixes-test (2026-10-31)
+
+This build repairs the four findings from the `.43` source audit:
+
+- Duplicate nameplate positives no longer discard continuously complete target/focus duration history. Supplementary observations still cannot prove absence or restore history lost through an actual observation gap.
+- Same-scan aura/LoC merging retains coherent aura timing as a veto against contradictory full-duration learning. This evidence cannot supply a DR stage or override LoC timing.
+- The settings panel has enough vertical space for the AoE estimate checkbox and footer buttons.
+- Runtime startup/status and both TOCs report the same version.
+
+Validation covers 30 regression suites on each of Lua 5.1 and Lua 5.4 (60 suite executions), including 38 new cases for the two DR repairs. The packaged runtime is also syntax-checked under both engines. UI bounds and runtime/TOC version consistency are checked separately.
+
+The existing DR timing policy, tracked spells, saved settings, countdown precision and experimental cooldown HUD defaults remain unchanged. Native secret-value enforcement, taint, rendering and real event behavior still require an in-game smoke test.
+
+Verified addon ZIP SHA-256: `69e59fa5ed595acbd9854529009322f9dbaef325ca939c259780a7d63aa99f48`.
+
+## Previous release: 0.4.17.43-correction-fixes-test (2026-10-28)
 
 This publishes the verified `.43` build, including the correction and evidence-recovery repairs since `.33`. The existing horizontal DR layout and saved-setting policy remain in place. The repairs cover world-entry recovery, cast/aura occurrence ownership, reset replay, late timing corrections, and bounded history.
 
@@ -316,7 +385,7 @@ There are **120 aura/effect IDs**, **85 cast IDs** and **27 cooldown families** 
 
 ## Development and tests
 
-The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. Nine suites cover the tracking model, guarded API inputs, own-cast correlation, migration, scale-aware dragging, combat deferral, focus continuity, compact display states, protected backdrop geometry and addon initialization/event/command integration. UI boundary fixtures cannot reproduce WoW's complete protected execution engine or visually validate the in-game frames.
+The `tests` directory is not loaded by the addon. With Python 3 and `lupa==2.8` installed, run `python tests/run_tests.py` from the addon/repository folder. The runner uses `lupa.lua51` to execute the actual Lua modules. The runner discovers all 38 `test_*.lua` suites, covering tracking, observation and cooldown evidence, own-cast correlation, settings, display geometry and addon events. UI boundary fixtures cannot reproduce WoW's complete protected execution engine or visually validate the in-game frames.
 
 Visual references: [original InterruptBar](https://www.wowace.com/projects/interruptbar), [Diminish](https://github.com/wardz/Diminish). This is an original UI implementation; no code from those interfaces was copied.
 

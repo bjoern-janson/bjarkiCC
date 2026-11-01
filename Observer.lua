@@ -165,7 +165,7 @@ local function auraSnapshot(unit, now)
                         category = category, spellID = spellID, expires = expires,
                         expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
                         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
-                        auraExpires = appliedAt and expires or nil,
+                        auraAppliedAt = appliedAt, auraExpires = appliedAt and expires or nil,
                     }
                 end
             else
@@ -214,7 +214,7 @@ local function exactAura(unit, wantedSpellID, now)
         category = category, spellID = spellID, expires = expires,
         expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
         appliedAt = appliedAt, applicationSource = appliedAt and "aura" or nil,
-        auraExpires = appliedAt and expires or nil,
+        auraAppliedAt = appliedAt, auraExpires = appliedAt and expires or nil,
     }}, "confirmed"
 end
 
@@ -279,7 +279,7 @@ local function addedAoEEvent(unit, updateInfo, now)
                             expires = expires, appliedAt = appliedAt,
                             expirySource = expires and "aura" or nil, expiryAppliedAt = expires and appliedAt or nil,
                             applicationSource = appliedAt and "aura" or nil,
-                            auraExpires = appliedAt and expires or nil}
+                            auraAppliedAt = appliedAt, auraExpires = appliedAt and expires or nil}
                         accepted = accepted + 1
                     end
                 end
@@ -396,6 +396,31 @@ local function boundLoCExpiry(effect, start)
         and effect.expires and effect.expires > start and effect.expires < math.huge
 end
 
+-- Keep a current aura interval separate from the promoted explicit clock.
+-- It can only veto duration learning for this same occurrence; it supplies
+-- neither a reported LoC duration nor endpoint/application authority.
+local function matchingAuraInterval(effect, start)
+    local duration = effect.auraAppliedAt and effect.auraExpires
+        and effect.auraExpires - effect.auraAppliedAt
+    return duration and duration > 0 and duration <= 120
+        and math.abs(start - effect.auraAppliedAt) <= APPLICATION_EPSILON
+end
+
+local function copyAuraInterval(destination, source)
+    if destination.applicationSource ~= "loc" or not destination.appliedAt
+        or destination.spellID ~= source.spellID or destination.category ~= source.category then return end
+    local existing = matchingAuraInterval(destination, destination.appliedAt)
+    if existing and destination.auraDurationCaptured then return end
+    if matchingAuraInterval(source, destination.appliedAt)
+        and (source.auraDurationCaptured or not existing) then
+        destination.auraAppliedAt, destination.auraExpires = source.auraAppliedAt, source.auraExpires
+        existing = true
+    end
+    -- A complete alias reverses the merge arguments. Preserve the interval
+    -- already captured from the owning token, whichever side now carries it.
+    destination.auraDurationCaptured = existing or nil
+end
+
 local function mergeEffects(effects, additional)
     for key, effect in pairs(additional) do
         -- An exact native key can have a newer explicit occurrence in either
@@ -445,8 +470,22 @@ local function mergeEffects(effects, additional)
                 existing.auraExpires = effect.auraExpires
                 if existing.expirySource ~= "loc" then copyExpiry(existing, effect) end
             end
+            if existing then copyAuraInterval(existing, effect) end
         end
     end
+end
+
+-- Selection combines positives, but each sampled token owns only the interval
+-- it actually read. Clone before mergeEffects mutates the combined snapshot.
+local function sampleSource(sources, unit, effects)
+    if not sources then return end
+    local copy = {}
+    for key, effect in pairs(effects) do
+        copy[key] = {}
+        for field, value in pairs(effect) do copy[key][field] = value end
+    end
+    sources[unit] = sources[unit] or {}
+    mergeEffects(sources[unit], copy)
 end
 
 -- Guarded, already-normalized LoC witnesses are exposed to the cooldown
@@ -466,7 +505,7 @@ function Observer.ReadPlayerLoCEffects(now)
 end
 
 local function reconcileWitnesses(effects, previous)
-    local result, ambiguous, unresolvedPlayerKeys = {}, false, {}
+    local result, ambiguous, unresolvedPlayerKeys, canonicalKeys = {}, false, {}, {}
     local prior = previous and previous.witnesses or {}
     local nativeCounts, nativeInputs, nativeStarts = {}, {}, {}
     -- The canonical key can remain a start-only alias after a native instance
@@ -494,7 +533,8 @@ local function reconcileWitnesses(effects, previous)
             and firstStart and secondStart
             and math.abs(firstStart - secondStart) <= APPLICATION_EPSILON
     end
-    local function add(key, effect)
+    local function add(key, effect, inputKey)
+        canonicalKeys[inputKey] = key
         effect.borrowedContext = nil
         local existing = result[key]
         -- Two readings of the same explicit occurrence share removal proof.
@@ -522,6 +562,7 @@ local function reconcileWitnesses(effects, previous)
                 and not ns.Model.IsRefresh(existing, effect, effect.appliedAt) then
                 copyExpiry(effect, existing)
             end
+            if existing then copyAuraInterval(effect, existing) end
             result[key] = effect
         end
         if playerLoC then result[key].playerLoC = true end
@@ -534,6 +575,10 @@ local function reconcileWitnesses(effects, previous)
         -- the raw timing/source it receives. Weak, stale and sub-EPS samples
         -- cannot rewind this identity baseline or gradually slide it forward.
         witness.nativeLoCStart = (explicit and (not baseline or refreshed)) and explicit or baseline
+        -- An aura/first-LoC clock difference is calibration, not proof of a
+        -- later occurrence. Keep the actual second explicit boundary so only
+        -- a proven refresh can exclude an old aura donor or replay.
+        witness.explicitRefreshAt = refreshed and explicit or old.explicitRefreshAt
         -- Multiple current native instances cannot identify which one belongs
         -- to an unknown fallback. Keep that application ambiguous until a new
         -- explicit start or complete absence; iteration order must not pick an
@@ -569,7 +614,7 @@ local function reconcileWitnesses(effects, previous)
             -- learned native association after source loss. Keep raw timing;
             -- carryIdentity still releases that association on a new refresh.
             carryIdentity(effect, identity, effect)
-            add(key, effect)
+            add(key, effect, key)
             return
         end
         -- Retained identities carry no positive timing/expiry evidence. They
@@ -587,7 +632,7 @@ local function reconcileWitnesses(effects, previous)
         end
         if rememberedKey then
             carryIdentity(effect, remembered, effect)
-            add(rememberedKey, effect)
+            add(rememberedKey, effect, key)
             return
         end
         if not prior[key] then
@@ -623,6 +668,10 @@ local function reconcileWitnesses(effects, previous)
                     -- Identity may survive a sensor handoff, but raw duration is
                     -- evidence only from this observation's accepted LoC start.
                     witness.reportedDuration = nil
+                    -- Only this scan's aura interval may veto its explicit
+                    -- duration; historical identity cannot donate that proof.
+                    witness.auraAppliedAt, witness.auraDurationCaptured = effect.auraAppliedAt, effect.auraDurationCaptured
+                    if effect.auraAppliedAt then witness.auraExpires = effect.auraExpires end
                     -- Do not present a historical candidate's endpoint as a
                     -- current sensor reading. Model retains its accepted end
                     -- only if this still represents the same occurrence.
@@ -643,7 +692,7 @@ local function reconcileWitnesses(effects, previous)
                     end
                     witness.playerLoC = effect.playerLoC
                     carryIdentity(witness, candidates[canonical], effect)
-                    add(canonical, witness)
+                    add(canonical, witness, key)
                 elseif effect.playerLoC then
                     -- This complete ordinary read contains a positive whose
                     -- identity is unresolved, not proof that its candidates
@@ -652,11 +701,11 @@ local function reconcileWitnesses(effects, previous)
                     for candidateKey in pairs(candidates) do unresolvedPlayerKeys[candidateKey] = true end
                 end
             else
-                add(key, effect)
+                add(key, effect, key)
             end
         else
             carryIdentity(effect, prior[key], effect)
-            add(key, effect)
+            add(key, effect, key)
         end
     end
     -- Resolve native positives before start-only fallbacks. A same-scan aura
@@ -670,7 +719,7 @@ local function reconcileWitnesses(effects, previous)
             end
         end
     end
-    return result, ambiguous, unresolvedPlayerKeys
+    return result, ambiguous, unresolvedPlayerKeys, canonicalKeys
 end
 
 -- Keep bounded native-to-canonical metadata apart from positive witnesses.
@@ -697,6 +746,7 @@ local function retainIdentities(witnesses, witnessTimes, previous, complete)
             if identities[key] or count < MAX_WITNESSES then
                 if not identities[key] then count = count + 1 end
                 identities[key] = {nativeKey = effect.nativeKey, nativeLoCStart = effect.nativeLoCStart,
+                    explicitRefreshAt = effect.explicitRefreshAt,
                     category = effect.category, spellID = effect.spellID, witnessedAt = witnessTimes[key]}
             else capped = true end
         end
@@ -804,14 +854,34 @@ local function sameWitnessIdentity(first, second, accepted)
         and not ns.Model.IsRefresh(accepted or first, second, second.appliedAt)
 end
 
-local function scanGuid(unit, guid, previous, now, aliases, eventProof, supplementary)
+-- Model retains exact occurrences after complete absence. This lookup supplies
+-- accepted negative refresh evidence, never source/native matching permission.
+local function acceptedWitness(actor, key, effect)
+    local accepted = actor and actor.effects[key]
+    if not accepted and actor then
+        local state = actor.categories[effect.category]
+        local prior = state and (state.previousApplication or state.displacedApplication)
+        accepted = state and state.applicationKey == key and state.witness
+            or (prior and prior.applicationKey == key and prior.witness)
+    end
+    if accepted and accepted.category == effect.category and accepted.spellID == effect.spellID then
+        return accepted
+    end
+end
+
+local function scanGuid(unit, guid, previous, now, aliases, eventProof, supplementary, auraRead)
     local effects, complete, sensor, limited
+    local sourceReads = auraRead and auraRead.sourceReads
     local diagnostics = {mappedAuras = 0, unmappedSpellIDs = {}, mappedLoC = 0,
         byUnitAvailable = byUnitAvailable()}
     local playerLoCComplete
     do
         local auraInfo
-        effects, complete, auraInfo = auraSnapshot(unit, now)
+        if auraRead then
+            effects, complete, auraInfo = auraRead.effects, auraRead.complete, auraRead.info
+        else
+            effects, complete, auraInfo = auraSnapshot(unit, now)
+        end
         diagnostics.auraComplete = complete
         diagnostics.mappedAuras = auraInfo.mappedAuras
         diagnostics.unmappedSpellIDs = auraInfo.unmappedSpellIDs
@@ -830,6 +900,7 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
             end
             diagnostics.mappedLoC = countEffects(locEffects)
             diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, locUnmapped)
+            sampleSource(sourceReads, unit, locEffects)
             mergeEffects(effects, locEffects)
             -- Ordinary LoC absence applies only to witnesses this source
             -- actually observed. ByUnit adds positives, never removal proof.
@@ -838,15 +909,15 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
             limited = true
             local exactEffects
             exactEffects, diagnostics.stompLookup = exactAura(unit, 20549, now)
-            if exactEffects then mergeEffects(effects, exactEffects); sensor = "aura+exact" end
+            if exactEffects then sampleSource(sourceReads, unit, exactEffects); mergeEffects(effects, exactEffects); sensor = "aura+exact" end
             -- Iron Grenade's effect 4068 is a real stun aura, not a reliable
             -- target from the player's thrown-item cast. Require a positive.
             local grenade
             grenade, diagnostics.grenadeLookup = exactAura(unit, 4068, now)
-            if grenade then mergeEffects(effects, grenade); sensor = "aura+exact" end
+            if grenade then sampleSource(sourceReads, unit, grenade); mergeEffects(effects, grenade); sensor = "aura+exact" end
             local roots
             roots, diagnostics.graspLookup = exactGrasp(unit, now)
-            if roots then mergeEffects(effects, roots); sensor = "aura+exact" end
+            if roots then sampleSource(sourceReads, unit, roots); mergeEffects(effects, roots); sensor = "aura+exact" end
             -- A targeted, successful own cast is NOT proof of application.
             -- It can, however, select a small exact-spell QUERY on the actual
             -- resolved victim. Only a readable positive aura instance counts.
@@ -859,6 +930,7 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
                     queryCount = queryCount + 1
                     if exactStatusPriority[result] > exactStatusPriority[lookup] then lookup = result end
                     if additional then
+                        sampleSource(sourceReads, unit, additional)
                         mergeEffects(effects, additional)
                         positiveCount = positiveCount + 1
                         sensor = "aura+exact"
@@ -876,6 +948,7 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
                 diagnostics.byUnitCount = locCount
                 diagnostics.mappedLoC = countEffects(locEffects)
                 diagnostics.unmappedSpellIDs = mergeIDs(diagnostics.unmappedSpellIDs, locUnmapped)
+                sampleSource(sourceReads, unit, locEffects)
                 mergeEffects(effects, locEffects)
                 if diagnostics.mappedLoC > 0 then
                     sensor = (exactEffects or grenade or roots) and "aura+exact+loc" or "aura+loc"
@@ -897,6 +970,7 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
             if alias ~= unit and (alias == "player" or alias == "target" or alias == "focus")
                 and readIdentity(alias) == guid then
                 local other, otherComplete, otherInfo = auraSnapshot(alias, now)
+                sampleSource(sourceReads, alias, other)
                 diagnostics.aliasUnit = alias
                 diagnostics.aliasCoverage = otherComplete and "complete" or "partial"
                 diagnostics.aliasMapped = otherInfo.mappedAuras
@@ -943,6 +1017,7 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
             diagnostics.eventConflict = true
             Observer.stats.auraEventConflicts = Observer.stats.auraEventConflicts + 1
         end
+        sampleSource(sourceReads, eventProof.unit or unit, eventProof.effects)
         mergeEffects(effects, eventProof.effects)
         diagnostics.eventWitnesses = countEffects(eventProof.effects)
         sensor = sensor .. "+event"
@@ -951,8 +1026,48 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
     -- never override that primary token's evidence with apparent absence.
     -- Treat this event-only supplementary snapshot as positive-only.
     if supplementary then complete, limited = false, true end
-    local ambiguous, unresolvedPlayerKeys
-    effects, ambiguous, unresolvedPlayerKeys = reconcileWitnesses(effects, previous)
+    local ambiguous, unresolvedPlayerKeys, canonicalKeys
+    effects, ambiguous, unresolvedPlayerKeys, canonicalKeys = reconcileWitnesses(effects, previous)
+    local actor = ns.model.units and ns.model.units[guid]
+    local acceptedEffects, refreshBoundaries = {}, {}
+    for key, effect in pairs(effects) do
+        local accepted = acceptedWitness(actor, key, effect)
+        acceptedEffects[key] = accepted
+        local retainedRefresh = accepted and not accepted.fallbackIdentity
+            and not effect.fallbackIdentity and effect.nativeKey == key and accepted.explicitRefreshAt
+        refreshBoundaries[key] = math.max(effect.explicitRefreshAt or 0, retainedRefresh or 0)
+        if accepted and not accepted.fallbackIdentity and not effect.fallbackIdentity
+            and effect.nativeKey == key and effect.applicationSource == "loc"
+            and ns.Model.IsRefresh(accepted, effect, effect.appliedAt) then
+            -- A new explicit occurrence supersedes retained negative evidence.
+            -- Qualify its own donors, never those of the preceding refresh.
+            refreshBoundaries[key] = effect.appliedAt
+        end
+        if refreshBoundaries[key] == 0 then refreshBoundaries[key] = nil end
+    end
+    local canonicalSources = {}
+    for token, readings in pairs(sourceReads or {}) do
+        for inputKey, reading in pairs(readings) do
+            local key = canonicalKeys[inputKey]
+            local effect = key and effects[key]
+            local accepted = key and acceptedEffects[key]
+            -- After an absence a merged aura may still be the old donor's
+            -- interval. Judge each sampled donor against the proven retained
+            -- occurrence, unless this scan itself establishes another refresh.
+            local boundary = accepted and refreshBoundaries[key] == accepted.explicitRefreshAt
+                and accepted.explicitRefreshAt and not ns.Model.IsRefresh(accepted, effect, effect.appliedAt)
+                and accepted or effect
+            if effect and reading.spellID == effect.spellID and reading.category == effect.category
+                and not ns.Model.IsRefresh(reading, boundary, boundary.refreshAppliedAt or boundary.appliedAt)
+                and not ns.Model.IsRefresh(boundary, reading, reading.appliedAt)
+                and not (refreshBoundaries[key] and reading.applicationSource == "aura"
+                    and (not reading.appliedAt
+                        or math.abs(refreshBoundaries[key] - reading.appliedAt) > APPLICATION_EPSILON)) then
+                canonicalSources[key] = canonicalSources[key] or {}
+                canonicalSources[key][token] = reading
+            end
+        end
+    end
     if ambiguous then complete, limited = false, true end
     local removedKeys
     if unit == "player" and playerLoCComplete and not complete then
@@ -1023,10 +1138,7 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
             -- Native identity or first explicit timing can calibrate the same
             -- application. Only its continuing identity keeps prior sources;
             -- an accepted refresh or different known native drops old ownership.
-            local actor = ns.model.units and ns.model.units[guid]
-            local current = actor and actor.categories[effects[key].category]
-            local accepted = actor and (actor.effects[key]
-                or (current and current.applicationKey == key and current.witness))
+            local accepted = acceptedEffects[key]
             -- A stale derived aura cannot reacquire ownership of the newer
             -- accepted occurrence. Reverse the same refresh test: both aura
             -- boundaries must differ, so weak duration corrections and first
@@ -1037,8 +1149,16 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
                 expirySource = accepted.expirySource, auraExpires = accepted.auraExpires,
                 applicationSource = accepted.applicationSource,
             }
-            local staleAura = effects[key].applicationSource == "aura" and accepted
+            local staleObservation = effects[key].applicationSource == "aura" and accepted
                 and ns.Model.IsRefresh(effects[key], acceptedBoundary, acceptedBoundary.appliedAt)
+            -- A retained native key can also replay the predecessor's interval
+            -- after an explicit refresh. It identifies the native instance,
+            -- but did not observe the accepted occurrence or its endpoint.
+            if acceptedBoundary and acceptedBoundary.applicationSource == "loc"
+                and refreshBoundaries[key] and effects[key].appliedAt
+                and effects[key].appliedAt < refreshBoundaries[key] - APPLICATION_EPSILON then
+                staleObservation = true
+            end
             if effects[key].playerLoC and accepted and accepted.applicationSource == "loc"
                 and accepted.appliedAt and effects[key].appliedAt
                 and effects[key].appliedAt < accepted.appliedAt - APPLICATION_EPSILON then
@@ -1052,15 +1172,24 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
                 effects[key].playerLoC = effects[key].playerLoC or retained.witnesses[key].playerLoC
                 for token, proof in pairs(priorSources or {}) do sources[token] = proof end
             end
-            if staleAura then
+            if staleObservation then
                 witnessOwners[key] = retained and retained.witnessOwners and retained.witnessOwners[key]
-            else
-                local proof = {unit = unit, witnessedAt = now, expires = effects[key].expires}
-                sources[unit], witnessOwners[key] = proof, proof
+            end
+            if not staleObservation or sourceReads then
+                if sourceReads then
+                    for token, reading in pairs(canonicalSources[key] or {}) do
+                        local proof = {unit = token, witnessedAt = now, expires = reading.expires}
+                        sources[token] = proof
+                        if token == unit then witnessOwners[key] = proof end
+                    end
+                else
+                    local proof = {unit = unit, witnessedAt = now, expires = effects[key].expires}
+                    sources[unit], witnessOwners[key] = proof, proof
+                end
                 -- Core aliases share this combined GUID snapshot, including its
                 -- readable alias positives. Losing the selected owner token must
                 -- not erase a still-qualified target/focus/player alias's proof.
-                if not nameplateToken(unit) then
+                if not staleObservation and not nameplateToken(unit) then
                     for _, alias in ipairs(aliases or {}) do
                         if alias ~= unit and (alias == "player" or alias == "target" or alias == "focus") then
                             sources[alias] = {unit = alias, witnessedAt = now, expires = effects[key].expires}
@@ -1089,7 +1218,8 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
     }
     for key, value in pairs(diagnostics) do state[key] = value end
     if not supplementary or next(effects) then
-        ns.model:Observe(guid, effects, now, complete, removedKeys)
+        ns.model:Observe(guid, effects, now, complete, removedKeys,
+            supplementary and not ambiguous and not capped and not identitiesCapped)
         if ns.RecordDRObservation then ns.RecordDRObservation(guid, effects, now, complete, sensor, diagnostics) end
         retainGuidContext(guid, state)
     end
@@ -1165,8 +1295,13 @@ function Observer.Scan(now, eventProof)
         local state = Observer.units[unit]
         if state.guid and not previous[state.guid] then previous[state.guid] = state end
     end
+    local lostCore = {}
+    for guid in pairs(previous) do
+        if not owners[guid] then lostCore[guid] = true end
+    end
     -- Nameplates are added/updated by events, not aura-polled on this 0.2s
-    -- path. They still count as observed identities when target/focus changes.
+    -- path. Their registration keeps identity, but cannot prove coverage when
+    -- the last core alias disappears; that transition is sampled once below.
     for token, state in pairs(Observer.nameplates) do
         local guid = state.guid
         if guid then
@@ -1200,6 +1335,43 @@ function Observer.Scan(now, eventProof)
         if not owners[guid] then pause(guid, now) end
     end
     local units, scanned = {}, {}
+    for guid in pairs(lostCore) do
+        if owners[guid] then
+            -- Supplementary snapshots (and core snapshots copied to plates)
+            -- cannot tell us whether the remaining source is complete now.
+            -- Prefer a currently complete qualified plate, but every positive
+            -- already sampled during selection must reach GUID reconciliation.
+            -- An incompatible complete alternative cannot prove absence.
+            local selected, snapshot
+            local sampled, sourceReads = {}, {}
+            for token, state in pairs(Observer.nameplates) do
+                if state.guid == guid and nameplateGuid(token) == guid then
+                    local effects, complete, info = auraSnapshot(token, now)
+                    sampleSource(sourceReads, token, effects)
+                    mergeEffects(sampled, effects)
+                    if not selected or complete then
+                        selected, snapshot = token, {effects = effects, complete = complete, info = info}
+                    end
+                    if complete then break end
+                end
+            end
+            if selected then
+                if snapshot.complete then
+                    for key in pairs(sampled) do
+                        if not snapshot.effects[key] then snapshot.complete = false; break end
+                    end
+                end
+                mergeEffects(snapshot.effects, sampled)
+                snapshot.info.mappedAuras = countEffects(snapshot.effects)
+                snapshot.sourceReads = sourceReads
+                scanned[guid] = scanGuid(selected, guid,
+                    sharedWitnessContext(guid, now, previous[guid], selected), now,
+                    {selected}, nil, false, snapshot)
+            else
+                pause(guid, now)
+            end
+        end
+    end
     for _, unit in ipairs(trackedUnits) do
         local guid = identities[unit]
         if guid then

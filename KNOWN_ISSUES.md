@@ -1,5 +1,45 @@
 # bjarkiCC known issues and validation status
 
+## Reselection and retained refresh repairs: 0.4.17.49-audit-fixes-test (2026-11-01)
+
+The two confirmed `.48` re-audit findings are repaired. A former current occurrence remains eligible for selection when a later accepted clock makes it newest. Early and late delivery of the same explicit clock now select the same spell/countdown, without adding an application for calibration.
+
+The stale-donor rejection boundary also survives complete absence while the exact newer occurrence remains retained. Complete absence still clears source permissions; retained negative refresh evidence cannot authorize fallback matching or supply an endpoint. The prior stage-2/stage-3 audit difference demonstrated inconsistent evidence handling, not a proven gameplay undercount. Live-client validation remains outstanding.
+
+## Retained lifecycle and donor ownership repairs: 0.4.17.48-audit-fixes-test (2026-11-01)
+
+The three confirmed `.47` audit findings are repaired. Retained predecessor witnesses preserve observed closure instead of reviving an expired cycle after absence. A first authoritative clock that moves the immediate predecessor past the current application now updates the displayed spell and countdown. Aggregated nameplate observations retain their actual sampled donor proofs, so loss of the selected plate cannot alone force a surviving donor's unchanged CC to count again.
+
+Lifecycle controls cover untimed, end-only, aura and LoC returns, genuine refreshes, observed and unobserved ends, and bounded predecessor history. Ordering uses the established conservative restoration/count policy; the correction is not another application and adds no recursive reconstruction. Donor controls include complete-empty, compatible-complete and all-partial selection, native/no-ID observations and invalidated sources. Live-client alias frequency, secret/taint enforcement and native event cadence remain unverified.
+
+## Handoff and predecessor-clock repairs: 0.4.17.47-audit-fixes-test (2026-11-01)
+
+The `.46` re-audit found two reproducible defects. With multiple registered plate aliases for one GUID, selecting a complete-empty plate discarded a partial plate's already-read CC positive and could reset the next hit to stage 1. The handoff now preserves sampled positives and invalidates contradictory absence proof. Simultaneous same-GUID plate frequency remains unverified in the client.
+
+An inherited timing defect left a flat predecessor's saved clock stale after accepting its first stronger timestamp. A later current-application calibration could restore the wrong CC and undercount subsequent hits. Same-occurrence predecessor timing now follows the accepted clock before restoration ordering. Existing immediate-predecessor bounds, duration-decision freezing, refresh authority and 20s/18s timing policy remain in place. Original sequences and controls pass offline through real Observer and Main paths; live-client validation remains outstanding.
+
+## Coverage and pending-duration repairs: 0.4.17.46-audit-fixes-test (2026-11-01)
+
+The two remaining `.45` audit findings are repaired: a registered partial nameplate can no longer preserve false complete history after core observation ends, and late evidence can no longer disappear from a pending predecessor duration decision or leave unsupported quiet assumptions intact. Regression controls also preserve valid learning after authoritative sibling clock calibration and the first interval for an initially untimed predecessor.
+
+Pending sibling evidence is bounded by the existing per-actor effect inventory limit; overflow conservatively prevents duration learning. The separate 20-second application countdown, 18-second stage-reset estimate, accepted raw-decision freeze, spells, settings and display policy remain unchanged. These repairs are verified through native-boundary fixtures, not a live-client certification.
+
+## Late aura duration repair: 0.4.17.45-audit-fixes-test (2026-10-31)
+
+The `.44` ZIP re-audit found one inherited omission: a same-start aura interval arriving between the explicit LoC start and its first readable duration was discarded. This could learn a contradictory full-duration baseline and authorize an early DR stage reset. The interval now supplies its conservative veto before that first raw-duration decision, without changing LoC timing. First-interval and first-duration freezing remain enforced, and stale or mismatched starts cannot supply the veto. Focused controls use the real Observer/Model through native API fixtures.
+
+No new `.44` regression was confirmed by that re-audit. Existing native-client and conservative-history limitations below remain applicable.
+
+
+## Audit repairs: 0.4.17.44-audit-fixes-test (2026-10-31)
+
+The `.43` audit's four reproducible findings are repaired: duplicate supplementary nameplates erasing primary duration history, same-scan aura/LoC disagreement bypassing the learning veto, DR options overlapping the footer, and runtime version text lagging behind the TOCs.
+
+The two DR repairs are guarded by real Observer/Model regressions. Genuine incomplete primary coverage still invalidates proof; new supplementary applications still enter DR; incompatible aura timing only vetoes learning. Offline conflicting-sensor tests establish the provenance defect and repair, not the frequency of such disagreement in the client. Native rendering, secret/taint enforcement and event cadence remain unverified.
+
+The existing limitations listed under `.43` below remain applicable. Older sections preserve historical release findings.
+
+
 ## Current validation status: 0.4.17.43-correction-fixes-test (2026-10-28)
 
 The exact `.43` ZIP passed the complete 28-suite battery on Lua 5.1 and Lua 5.4, preserved repair reproductions, and fresh independent reviews. No additional confirmed bug or regression was established in the reviewed paths. These are deterministic offline checks with modeled WoW APIs, not live-client validation. Historical reports below describe their named releases and are not blanket claims about the current build.

@@ -1,6 +1,46 @@
 # bjarkiCC architecture and DR research
 
-## Current evidence contract: 0.4.17.43-correction-fixes-test (2026-10-28)
+## Current evidence contract: 0.4.17.49-audit-fixes-test (2026-11-01)
+
+Selection changes preserve bounded occurrence evidence needed for later accepted timing. A same-occurrence calibration may reselect a retained application; it cannot create another hit, reconstruct recursive history, or inherit another occurrence's first-duration or prediction authority. Category coverage and retention bounds remain category-level evidence.
+
+An accepted second explicit LoC start proves a refresh. That negative occurrence fact must survive the Observer's complete-empty cleanup whenever Model retains the accepted occurrence. It may reject a stale native reading; it cannot restore positive source permission, establish a native-to-fallback association, or donate timing. First cross-sensor calibration does not establish an explicit refresh. Source-local endpoints and qualification/removal rules remain independent.
+
+## Previous evidence contract: 0.4.17.48-audit-fixes-test (2026-11-01)
+
+An observed removal or accepted refresh closes each retained owner of that exact occurrence's witness, including the immediate predecessor. A saved predicted expiration cannot supersede its recorded earlier end. Untimed predecessor return eligibility follows the live category reset window; the historical snapshot cannot keep itself pending indefinitely. Current and predecessor restoration share the existing conservative count/ancestry policy and carry category lifetime/retention state without recursive history.
+
+Accepted same-occurrence predecessor calibration is compared with current accepted timing before display selection. A genuinely newer predecessor becomes current without an additional application count. First coherent aura evidence and consumed raw-duration decisions remain attached to their own occurrences; selecting history cannot create prior quiet evidence.
+
+A combined handoff snapshot retains source evidence from the qualified nameplates actually sampled. Canonicalization must carry those donors to the accepted occurrence. Each source keeps its own observed endpoint and loses standing when removed or no longer qualified; a merged endpoint cannot renew another source's proof. The existing first-complete selection, contradiction handling, capacity bounds and event-driven subsequent scans remain in place.
+
+## Previous evidence contract: 0.4.17.47-audit-fixes-test (2026-11-01)
+
+The one-shot core-loss handoff accumulates all aura positives it actually samples before selecting a qualified plate. A complete candidate must contain those positive identities to authorize absence; otherwise the combined snapshot stays incomplete. Cached reads enter normal GUID reconciliation once. The first complete-source short-circuit and event-driven subsequent plate observation remain unchanged.
+
+The accepted-clock prepass refines the immediate flat predecessor only for the same occurrence's first readable or stronger LoC timing. Shared duration-origin identity binds that correction and excludes later refresh occurrences. An exact native predecessor returning after complete absence supplies the same retained witness to the prepass and main loop; fallback identities, mismatches and a key owned by the current occurrence cannot borrow it. Ordering comparisons therefore see the accepted predecessor clock even when both clocks become readable in one scan. Historical state does not consume raw duration or reconstruct an older predecessor; first-interval and first-raw-duration freezing remain unchanged.
+
+## Previous evidence contract: 0.4.17.46-audit-fixes-test (2026-11-01)
+
+When the last core alias disappears, Observer qualifies remaining registered nameplates and samples their current indexed aura coverage once. It selects a complete source when available, or an incomplete source otherwise, and reuses that snapshot through normal reconciliation. Registration and cached core-derived state do not authorize continuity; subsequent plate-only scans remain event driven.
+
+A pending current occurrence or its flat predecessor retains first coherent aura interval evidence without acquiring timing or raw-learning authority. An untimed predecessor may use its accepted effect clock to bind the interval while its category history stays unchanged. Pending sibling evidence references bounded per-occurrence accepted clocks: calibration revises only that occurrence, refresh creates a distinct origin, and overflow vetoes learning. The first raw-duration decision compares these clocks with the occurrence's calibrated start before using its saved quiet/overlap assumptions. A consumed decision remains frozen. Existing first-interval behavior across initial aura-to-LoC calibration is preserved.
+
+## Previous duration decision contract: 0.4.17.45-audit-fixes-test (2026-10-31)
+
+An accepted LoC start does not close aura-duration evidence collection. Until the first coherent raw LoC duration is consumed, the current occurrence's first coherent same-start aura interval may veto inconsistent learning, even when a complete aura scan supplies it separately. `rememberAuraDuration` closes collection on `reportedDurationWitness`, rather than merely on LoC clock ownership. Existing same-start/spell binding, first-interval freezing and all LoC clock/endpoint rules are retained. Later aura evidence does not reopen a consumed duration decision.
+
+
+## Previous DR evidence contract: 0.4.17.44-audit-fixes-test (2026-10-31)
+
+A supplementary nameplate is a positive-only source while a primary observer owns the GUID. Reobserving an already active occurrence must not discard primary duration continuity. Such a sample cannot establish completeness, removal, quiet time or new duration learning; actual coverage loss and contradictory/new occurrences keep their conservative handling.
+
+Aura timing retains its own occurrence binding through LoC normalization. A coherent current aura interval may veto contradictory full-duration learning even when the first model observation already carries authoritative LoC timing. It cannot teach a full duration, infer a diminished stage or replace the accepted endpoint, and predecessor timing cannot veto a later refresh.
+
+Cooldown claims, native visual ownership, saved settings and polling behavior retain their previous contracts. The runtime inventory remains 15 Lua modules, two TOCs, notices and the SHA256 manifest.
+
+
+## Previous evidence contract: 0.4.17.43-correction-fixes-test (2026-10-28)
 
 `Model:Cast` keeps its boolean activation result. When a helpful aura positively corroborates an existing near cast, it additionally returns that existing row. `CooldownEvidence` uses that result only to retain bounded occurrence custody; `Observer` continues to gate accepted-cast handling on the first return.
 
