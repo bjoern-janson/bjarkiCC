@@ -1,6 +1,10 @@
 # bjarkiCC for WoW Forever beta
 
-## Current candidate 0.4.17.50-cleanup-test (2026-11-02)
+## Current candidate 0.4.17.51-audit-fixes-test (2026-11-02)
+
+Late aura reports with a readable expired interval cannot restart Evasion after Preparation. Concurrent Loss of Control readers keep each spell with its own DR category and clock. A hovered cooldown tooltip follows the ability and claim currently occupying that slot.
+
+## Previous candidate 0.4.17.50-cleanup-test (2026-11-02)
 
 Known and anonymous cooldowns now use one function to build their common display fields. Each caller still supplies its own identity fields.
 

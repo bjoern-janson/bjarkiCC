@@ -109,11 +109,13 @@ end
 
 local function helpfulTime(aura, now)
     local expiry = currentTime(safeField(aura, 'expirationTime'))
+    -- A readable past endpoint disproves presence at observation, even if
+    -- duration is restricted. Zero is the untimed sentinel.
+    if expiry and expiry > 0 and now > expiry + HELPFUL_TIME_TOLERANCE then return nil end
     local duration = currentTime(safeField(aura, 'duration'))
     if expiry and expiry > 0 and duration and duration > 0 and duration <= 300 then
         local started = expiry - duration
-        if started >= 0 and started <= now + HELPFUL_TIME_TOLERANCE
-            and now - started <= duration + HELPFUL_TIME_TOLERANCE then
+        if started >= 0 and started <= now + HELPFUL_TIME_TOLERANCE then
             return math.min(started,now), false, expiry
         end
     end
@@ -344,6 +346,10 @@ local function acceptHelpful(guid, aura, now, newApplication, origin)
     if not canonical then return false end
     local instance = integer(safeField(aura,'auraInstanceID'))
     local started, approximate, expiry = helpfulTime(aura, now)
+    if not started then
+        Evidence.stats.helpfulRejected = Evidence.stats.helpfulRejected + 1
+        return false
+    end
     local application = Evidence.helpfulApplications[guid..':'..canonical]
     local current = activeHelpful(guid, canonical, now)
     local caster = ns.model.casters[guid]
