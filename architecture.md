@@ -1,6 +1,6 @@
 # bjarkiCC architecture and DR research
 
-## Current evidence contract: 0.4.17.49-audit-fixes-test (2026-11-01)
+## Evidence contract since 0.4.17.49-audit-fixes-test (2026-11-01)
 
 Selection changes preserve bounded occurrence evidence needed for later accepted timing. A same-occurrence calibration may reselect a retained application; it cannot create another hit, reconstruct recursive history, or inherit another occurrence's first-duration or prediction authority. Category coverage and retention bounds remain category-level evidence.
 

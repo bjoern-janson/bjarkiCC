@@ -1,6 +1,10 @@
 # bjarkiCC for WoW Forever beta
 
-## Current release: 0.4.17.49-audit-fixes-test (2026-11-01)
+## Current candidate 0.4.17.50-cleanup-test (2026-11-02)
+
+Known and anonymous cooldowns now use one function to build their common display fields. Each caller still supplies its own identity fields.
+
+## Previous release: 0.4.17.49-audit-fixes-test (2026-11-01)
 
 A still-retained application can be selected again when its first explicit LoC clock arrives after an earlier aura correction restored another CC. The accepted spell and countdown follow that occurrence without treating calibration as another hit or reconstructing discarded history.
 
