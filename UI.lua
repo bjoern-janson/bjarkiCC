@@ -132,7 +132,10 @@ local function showPanel(frame,shown)
     for _,edge in ipairs(frame.borderTextures) do edge:SetShown(shown) end
 end
 
-local function tooltip(owner, row, key)
+local tipOwner, tipBar, tipRow, tipDemo
+local function tooltip(owner, bar)
+    local row, key = owner.row, bar.key
+    tipOwner, tipBar, tipRow, tipDemo = owner, bar, row, ns.demo
     if not UI.tip then UI.tip = CreateFrame('GameTooltip','bjarkiCCTooltip',UIParent,'GameTooltipTemplate') end
     local tip, cat = UI.tip, ns.Data.categoryByKey[row.category]
     tip:SetOwner(owner, 'ANCHOR_RIGHT')
@@ -218,6 +221,37 @@ local function tooltip(owner, row, key)
     tip:Show()
 end
 
+local function hideTooltip(owner)
+    if tipOwner ~= owner then return end
+    tipOwner, tipBar, tipRow, tipDemo = nil, nil, nil, nil
+    UI.tip:Hide()
+end
+
+-- The model returns new row tables every tick. Compare the occurrence and
+-- its evidence, leaving an open explanation alone as its countdown advances.
+local tipFields = {
+    'guid','spellID','category','started','duration','claimID','claimBasis','claimRevisionCount',
+    'manual','anonymous','evidenceSource','timingEstimated',
+    'stage','observedStage','uncertain','estimated','estimateKind','stageEstimated','timeEstimated',
+    'stageResetAt','stageResetSource','resetEvidence','resetBaselineDuration','resetBaselineSource',
+}
+local function refreshTooltip()
+    if not tipOwner then return end
+    local row = tipOwner.row
+    if not row or not tipBar:IsShown() then
+        hideTooltip(tipOwner)
+    elseif tipDemo ~= ns.demo then
+        tooltip(tipOwner, tipBar)
+    elseif not ns.demo then
+        for _, field in ipairs(tipFields) do
+            if row[field] ~= tipRow[field] then
+                tooltip(tipOwner, tipBar)
+                return
+            end
+        end
+    end
+end
+
 -- Stage pips live in the icon's text layer, above the native swipe.
 -- They indicate the same stage as the existing border and never introduce
 -- additional inference about CC applications or next duration.
@@ -270,8 +304,9 @@ local function makeIcon(bar)
         end
     end
     icon:EnableMouse(true)
-    icon:SetScript('OnEnter',function(self) if self.row then tooltip(self,self.row,bar.key) end end)
-    icon:SetScript('OnLeave',function() if UI.tip then UI.tip:Hide() end end)
+    icon:SetScript('OnEnter',function(self) if self.row then tooltip(self,bar) end end)
+    icon:SetScript('OnLeave',hideTooltip)
+    icon:SetScript('OnHide',hideTooltip)
     icon:SetScript('OnMouseDown',function(_,button)
         if button=='LeftButton' then ns.Anchors.StartDrag(bar) end
     end)
@@ -445,6 +480,7 @@ function UI.Update(now)
             end
         end
     end
+    refreshTooltip()
 end
 
 local function label(parent,text,x,y,width)

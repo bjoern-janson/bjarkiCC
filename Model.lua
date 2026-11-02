@@ -1504,46 +1504,44 @@ function Model:WitnessUnattributedCooldown(spellID, eventTime, observedAt, witne
     return true
 end
 
+local function cooldownRow(cooldown, now, includeClaims)
+    local elapsed = now - cooldown.started
+    local claim = cooldown.claim
+    return {
+        spellID = cooldown.spellID,
+        category = cooldown.category,
+        started = cooldown.started,
+        duration = cooldown.duration,
+        remaining = math.max(0, cooldown.duration - elapsed),
+        earlyRemaining = math.max(0, cooldown.minimum - elapsed),
+        interrupt = cooldown.interrupt,
+        evidenceSource = cooldown.evidenceSource,
+        timingEstimated = cooldown.timingEstimated,
+        claimID = claim and claim.id or nil,
+        claimBasis = claim and claim.basis or nil,
+        claimRevisionCount = claim and #claim.revisions or 0,
+        claim = includeClaims and ns.Claims and ns.Claims.Snapshot(claim) or nil,
+    }
+end
+
 function Model:GetCooldowns(now, filterGuid, includeClaims)
     self:PruneCooldowns(now)
     local rows = {}
     for guid, caster in pairs(self.casters) do
         if not filterGuid or filterGuid == guid then
             for _, cooldown in pairs(caster.cooldowns) do
-                rows[#rows + 1] = {
-                    guid = guid,
-                    spellID = cooldown.spellID,
-                    category = cooldown.category,
-                    started = cooldown.started,
-                    duration = cooldown.duration,
-                    remaining = math.max(0, cooldown.duration - (now - cooldown.started)),
-                    earlyRemaining = math.max(0, cooldown.minimum - (now - cooldown.started)),
-                    manual = cooldown.manual,
-                    interrupt = cooldown.interrupt,
-                    evidenceSource = cooldown.evidenceSource,
-                    timingEstimated = cooldown.timingEstimated,
-                    claimID = cooldown.claim and cooldown.claim.id or nil,
-                    claimBasis = cooldown.claim and cooldown.claim.basis or nil,
-                    claimRevisionCount = cooldown.claim and #cooldown.claim.revisions or 0,
-                    claim = includeClaims and ns.Claims and ns.Claims.Snapshot(cooldown.claim) or nil,
-                }
+                local row = cooldownRow(cooldown, now, includeClaims)
+                row.guid = guid
+                row.manual = cooldown.manual
+                rows[#rows + 1] = row
             end
         end
     end
     if not filterGuid then
         for _, cooldown in ipairs(self.anonymousCooldowns) do
-            rows[#rows + 1] = {
-                anonymous = true, spellID = cooldown.spellID, category = cooldown.category,
-                started = cooldown.started, duration = cooldown.duration,
-                remaining = math.max(0, cooldown.duration - (now - cooldown.started)),
-                earlyRemaining = math.max(0, cooldown.minimum - (now - cooldown.started)),
-                evidenceSource = cooldown.evidenceSource, timingEstimated = cooldown.timingEstimated,
-                interrupt = cooldown.interrupt,
-                claimID = cooldown.claim and cooldown.claim.id or nil,
-                claimBasis = cooldown.claim and cooldown.claim.basis or nil,
-                claimRevisionCount = cooldown.claim and #cooldown.claim.revisions or 0,
-                claim = includeClaims and ns.Claims and ns.Claims.Snapshot(cooldown.claim) or nil,
-            }
+            local row = cooldownRow(cooldown, now, includeClaims)
+            row.anonymous = true
+            rows[#rows + 1] = row
         end
     end
     -- Select one ordering for the whole collection: switching between time

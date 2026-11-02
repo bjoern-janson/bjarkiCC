@@ -430,7 +430,15 @@ local function mergeEffects(effects, additional)
         local stale = existing and existing.applicationSource == "loc" and existing.appliedAt
             and effect.applicationSource == "loc" and effect.appliedAt
             and effect.appliedAt < existing.appliedAt - APPLICATION_EPSILON
-        if not stale then
+        if existing and (existing.spellID ~= effect.spellID or existing.category ~= effect.category) then
+            -- A reused instance can describe two different spells. Each
+            -- normalized start is on the local clock; compare them only
+            -- when both are readable. Keep the winner's entire record.
+            if existing.appliedAt and effect.appliedAt
+                and effect.appliedAt > existing.appliedAt + APPLICATION_EPSILON then
+                effects[key] = effect
+            end
+        elseif not stale then
             local refreshed = existing and ns.Model.IsRefresh(existing, effect, effect.appliedAt)
             if refreshed then
                 existing.playerLoC = effect.playerLoC
@@ -504,9 +512,22 @@ function Observer.ReadPlayerLoCEffects(now)
     return effects or {}
 end
 
-local function reconcileWitnesses(effects, previous)
+-- A start-only replay may name a previously accepted occurrence whose native
+-- instance now belongs to another spell. Recover its key only for rejecting
+-- that conflict; retained Model history never authorizes a positive match.
+local function replayNativeKey(state, effect, identities)
+    local witness = state and state.witness
+    if witness and witness.spellID == effect.spellID and witness.appliedAt and effect.appliedAt
+        and math.abs(witness.appliedAt - effect.appliedAt) <= APPLICATION_EPSILON then
+        local identity = identities[state.applicationKey]
+        return identity and identity.nativeKey
+    end
+end
+
+local function reconcileWitnesses(effects, previous, actor)
     local result, ambiguous, unresolvedPlayerKeys, canonicalKeys = {}, false, {}, {}
     local prior = previous and previous.witnesses or {}
+    local identities = previous and previous.nativeIdentities or {}
     local nativeCounts, nativeInputs, nativeStarts = {}, {}, {}
     -- The canonical key can remain a start-only alias after a native instance
     -- becomes readable. Keep that instance separately, without growing a list
@@ -605,10 +626,58 @@ local function reconcileWitnesses(effects, previous)
             witness.nativeKey = incoming.nativeKey or old.nativeKey
         end
     end
+    local function displacedBy(effect, newer)
+        local start = newer.nativeLoCStart or newer.appliedAt
+        return (newer.spellID ~= effect.spellID or newer.category ~= effect.category)
+            and start and effect.appliedAt and effect.appliedAt < start - APPLICATION_EPSILON
+    end
     local function reconcile(key, effect)
         local canonical, candidates, exact = nil, {}, {}
-        local identity = previous and previous.nativeIdentities and previous.nativeIdentities[key]
-        if not prior[key] and effect.fallbackIdentity and identity
+        local oldAtKey = prior[key]
+        if oldAtKey and (oldAtKey.spellID ~= effect.spellID or oldAtKey.category ~= effect.category) then
+            oldAtKey = nil
+        end
+        -- Retained identities carry no positive timing/expiry evidence. They
+        -- may only match a currently readable, identical native instance;
+        -- fallback and different-instance matching still requires a witness.
+        local rememberedKey, remembered, matches = nil, nil, 0
+        local nativeKey = effect.nativeKey
+        if effect.fallbackIdentity and actor then
+            local state = actor.categories[effect.category]
+            local priorApplication = state and (state.previousApplication or state.displacedApplication)
+            nativeKey = replayNativeKey(state, effect, identities)
+                or replayNativeKey(priorApplication, effect, identities)
+            -- Native inputs from this scan have already been reconciled.
+            if nativeKey then
+                for currentKey, current in pairs(result) do
+                    if current.nativeKey == nativeKey and displacedBy(effect, current) then
+                        ambiguous, unresolvedPlayerKeys[currentKey] = true, true
+                        return
+                    end
+                end
+            end
+        end
+        if nativeKey then
+            for oldKey, identity in pairs(identities) do
+                if identity.nativeKey == nativeKey then
+                    local old = prior[oldKey]
+                    if identity.spellID == effect.spellID and identity.category == effect.category then
+                        if effect.nativeKey and not old then
+                            matches = matches + 1
+                            rememberedKey, remembered = oldKey, identity
+                        end
+                    elseif old and displacedBy(effect, old) then
+                        -- A lagging reader can be the only positive on a later
+                        -- poll. Preserve the newer witness under its actual key,
+                        -- which can still be a learned fallback alias.
+                        ambiguous, unresolvedPlayerKeys[oldKey] = true, true
+                        return
+                    end
+                end
+            end
+        end
+        local identity = identities[key]
+        if not oldAtKey and effect.fallbackIdentity and identity
             and identity.spellID == effect.spellID and identity.category == effect.category then
             -- A weaker reading of the exact canonical key cannot erase its
             -- learned native association after source loss. Keep raw timing;
@@ -617,25 +686,12 @@ local function reconcileWitnesses(effects, previous)
             add(key, effect, key)
             return
         end
-        -- Retained identities carry no positive timing/expiry evidence. They
-        -- may only match a currently readable, identical native instance;
-        -- fallback and different-instance matching still requires a witness.
-        local rememberedKey, remembered
-        if effect.nativeKey then
-            for oldKey, identity in pairs(previous and previous.nativeIdentities or {}) do
-                if not prior[oldKey] and identity.nativeKey == effect.nativeKey
-                    and identity.spellID == effect.spellID and identity.category == effect.category then
-                    if rememberedKey then rememberedKey, remembered = nil, nil; break end
-                    rememberedKey, remembered = oldKey, identity
-                end
-            end
-        end
-        if rememberedKey then
+        if matches == 1 then
             carryIdentity(effect, remembered, effect)
             add(rememberedKey, effect, key)
             return
         end
-        if not prior[key] then
+        if not oldAtKey then
             -- A startTime-only LoC identity cannot prove that another source's
             -- same-spell instance is a second application. Keep the earlier
             -- identity (or the current instance) and flag the ambiguity.
@@ -704,7 +760,7 @@ local function reconcileWitnesses(effects, previous)
                 add(key, effect, key)
             end
         else
-            carryIdentity(effect, prior[key], effect)
+            carryIdentity(effect, oldAtKey, effect)
             add(key, effect, key)
         end
     end
@@ -1027,8 +1083,8 @@ local function scanGuid(unit, guid, previous, now, aliases, eventProof, suppleme
     -- Treat this event-only supplementary snapshot as positive-only.
     if supplementary then complete, limited = false, true end
     local ambiguous, unresolvedPlayerKeys, canonicalKeys
-    effects, ambiguous, unresolvedPlayerKeys, canonicalKeys = reconcileWitnesses(effects, previous)
     local actor = ns.model.units and ns.model.units[guid]
+    effects, ambiguous, unresolvedPlayerKeys, canonicalKeys = reconcileWitnesses(effects, previous, actor)
     local acceptedEffects, refreshBoundaries = {}, {}
     for key, effect in pairs(effects) do
         local accepted = acceptedWitness(actor, key, effect)
